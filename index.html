@@ -3,280 +3,223 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>AR TEST v2 — QR + AR real (Scene Viewer)</title>
-<script type="module" src="https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+<title>AR TEST v3 — Cartas com tracking contínuo (MindAR)</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+  }
+}
+</script>
 <style>
-  :root {
-    --bg: #14141f; --panel: #1c2237; --accent: #ff5a5f; --accent2: #2a3a63;
-    --text: #eee; --text-light: #9aa3bd;
+  :root { --bg:#14141f; --panel:#1c2237; --accent:#ff5a5f; --accent2:#2a3a63; --text:#eee; --text-light:#9aa3bd; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; background:var(--bg); color:var(--text); font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; touch-action:manipulation; }
+  #home { max-width:560px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+  h1 { font-size:1.6rem; letter-spacing:3px; color:var(--accent); text-align:center; }
+  .subtitle { text-align:center; font-size:0.78rem; color:var(--text-light); line-height:1.4; }
+  button { background:var(--accent2); color:white; border:none; padding:13px 18px; font-size:1rem; border-radius:8px; cursor:pointer; }
+  button:active { transform:scale(0.97); }
+  #btn-start { background:var(--accent); font-weight:bold; width:100%; padding:16px; }
+  .steps { background:var(--panel); border-radius:10px; padding:14px; font-size:0.85rem; line-height:1.6; color:var(--text-light); }
+  .steps b { color:var(--text); }
+  .steps a { color:var(--accent); }
+  .cards-preview { display:flex; gap:8px; justify-content:center; }
+  .cards-preview img { width:70px; height:70px; background:#fff; border-radius:6px; padding:4px; }
+
+  /* Tela de AR */
+  #ar-container { display:none; position:fixed; inset:0; background:#000; }
+  #ar-container video, #ar-container canvas { position:absolute; inset:0; width:100%; height:100%; }
+  #ar-status {
+    position:absolute; top:14px; left:14px; right:14px; z-index:5; text-align:center;
+    background:rgba(20,20,31,0.75); color:#fff; padding:10px; border-radius:8px; font-size:0.85rem; font-weight:bold;
   }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: var(--bg); color: var(--text); min-height: 100vh;
-    display: flex; justify-content: center; touch-action: manipulation;
+  #btn-stop-ar {
+    position:absolute; bottom:20px; left:50%; transform:translateX(-50%); z-index:5;
+    background:var(--accent); padding:12px 22px; border-radius:24px; font-weight:bold;
   }
-  #app { width: 100%; max-width: 560px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-  h1 { font-size: 1.6rem; letter-spacing: 3px; color: var(--accent); text-align: center; }
-  .subtitle { text-align: center; font-size: 0.75rem; color: var(--text-light); margin-top: -6px; }
-  .controls, .qr-content-input { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-  button {
-    background: var(--accent2); color: white; border: none; padding: 11px 16px;
-    font-size: 0.95rem; border-radius: 8px; cursor: pointer; transition: 0.15s;
-  }
-  button:active { transform: scale(0.95); }
-  .qr-content-input input {
-    flex: 1; min-width: 100px; padding: 10px; border-radius: 6px; border: 1px solid var(--accent2);
-    background: var(--panel); color: var(--text); font-size: 1rem; text-align: center;
-  }
-  #status { font-weight: bold; min-height: 1.4em; background: var(--panel); padding: 9px; border-radius: 6px; font-size: 0.9rem; text-align: center; }
-  #qr-container {
-    display: none; margin: 6px auto; padding: 16px; background: white; border-radius: 12px;
-    box-shadow: 0 0 20px rgba(0,0,0,0.5); max-width: 90%; text-align: center;
-  }
-  #qr-container img { display: block; width: 100%; max-width: 260px; height: auto; margin: 0 auto; }
-  #qr-container .qr-label { margin-top: 8px; color: #222; font-weight: bold; letter-spacing: 1px; }
-  #camera-container {
-    display: none; position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 65vh;
-    background: #000; border-radius: 12px; overflow: hidden;
-  }
-  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  #processing-canvas { display: none; }
-  #scan-hint {
-    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    color: white; font-size: 0.85rem; text-shadow: 0 1px 4px rgba(0,0,0,0.8); pointer-events: none; text-align: center; padding: 20px;
-  }
-  #result { display: none; flex-direction: column; gap: 10px; }
-  #result-title { text-align: center; font-size: 1.1rem; color: var(--accent); font-weight: bold; }
-  model-viewer {
-    width: 100%; height: 48vh; background: linear-gradient(#2a3a63, #14141f); border-radius: 12px;
-    --poster-color: transparent;
-  }
-  .ar-hint { font-size: 0.8rem; color: var(--text-light); text-align: center; line-height: 1.4; }
-  .note { font-size: 0.75rem; color: var(--text-light); text-align: center; line-height: 1.4; }
 </style>
 </head>
 <body>
-<div id="app">
+
+<div id="home">
   <h1>AR TEST</h1>
-  <div class="subtitle">QR identifica o objeto → AR real (ARCore) ancora no mundo</div>
+  <div class="subtitle">Cada carta é reconhecida pela própria imagem e mostra um monstro grudado nela — em qualquer ângulo, distância ou inclinação.</div>
 
-  <div class="controls">
-    <button id="btn-show-qr">📱 Mostrar QR</button>
-    <button id="btn-start-camera">📷 Escanear QR</button>
-    <button id="btn-stop-camera" style="display:none;">⏹ Parar</button>
+  <button id="btn-start">▶ Iniciar AR</button>
+
+  <div class="steps">
+    <b>Antes de testar (uma vez só):</b><br>
+    1. Baixe as 3 imagens de carta (<code>carta-AR-001.png</code>, <code>002</code>, <code>003</code>).<br>
+    2. Abra o <a href="https://hiukim.github.io/mind-ar-js-doc/tools/compile/" target="_blank">compilador online do MindAR</a>, suba as 3 imagens, clique em "Start", baixe o arquivo <code>targets.mind</code> gerado.<br>
+    3. Coloque <code>targets.mind</code> na mesma pasta deste <code>index.html</code> e hospede tudo junto (GitHub Pages, por exemplo).<br>
+    4. Imprima ou mostre as 3 cartas em outra tela e aponte a câmera pra elas.
   </div>
 
-  <div class="qr-content-input">
-    <label for="qr-content">QR ID:</label>
-    <input type="text" id="qr-content" value="AR-001" maxlength="20">
-    <button id="btn-update-qr">Atualizar QR</button>
+  <div class="cards-preview">
+    <img src="carta-AR-001.png" alt="carta 1">
+    <img src="carta-AR-002.png" alt="carta 2">
+    <img src="carta-AR-003.png" alt="carta 3">
   </div>
 
-  <div id="status">Status: pronto. Mostre um QR em outro celular e clique em "Escanear QR".</div>
-
-  <div id="qr-container"></div>
-
-  <div id="camera-container">
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="processing-canvas"></canvas>
-    <div id="scan-hint">Aponte para o QR Code...</div>
-  </div>
-
-  <div id="result">
-    <div id="result-title"></div>
-    <model-viewer id="mv" camera-controls auto-rotate ar ar-modes="scene-viewer webxr" ar-placement="floor" ar-scale="auto" shadow-intensity="1" exposure="1">
-      <button slot="ar-button" id="ar-button" style="position:absolute; bottom:16px; right:16px; background:var(--accent); border:none; color:white; padding:12px 18px; border-radius:24px; font-weight:bold;">
-        👀 Ver na vida real
-      </button>
-    </model-viewer>
-    <div class="ar-hint">Toque em "Ver na vida real" → aponte para uma superfície (mesa/chão) → toque pra colocar. Depois é só andar ao redor: o objeto fica grudado no lugar mesmo sem o QR na tela.</div>
-    <button id="btn-rescan">🔄 Escanear outro QR</button>
-  </div>
-
-  <div class="note">
-    Requer Android + Chrome com Google Play Services for AR (ARCore) instalado. A câmera e o AR exigem HTTPS ou localhost.
-  </div>
+  <div class="subtitle">Requer HTTPS ou localhost (permissão de câmera). Funciona direto no Chrome, sem instalar nada.</div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<div id="ar-container">
+  <div id="ar-status">Aponte para uma carta...</div>
+  <button id="btn-stop-ar">⏹ Sair</button>
+</div>
 
-<script>
+<script type="module">
 /* =================================================================
-   AR TEST v2 — QR IDENTIFICA, ARCORE FAZ O TRACKING DE VERDADE
+   AR TEST v3 — TRACKING CONTÍNUO POR IMAGEM (MindAR), NÃO POR TEXTO
    -----------------------------------------------------------------
-   Por que essa mudança em relação à v1 (homografia caseira):
-   pose calculada por frame, sem filtro e sem SLAM, sempre vai
-   tremer e sempre exige o marcador 100% visível. Isso é limite
-   estrutural da técnica, não bug.
+   Diferença fundamental para as versões anteriores:
 
-   Aqui trocamos o "motor de tracking" por um projeto já pronto e
-   testado por milhões de usuários: o <model-viewer> do Google, que
-   no Android/Chrome abre o Scene Viewer (ARCore) — SLAM completo do
-   sistema operacional, o objeto gruda no mundo real e continua lá
-   mesmo se o QR sair da tela.
+   v1: recalculava a pose (posição/rotação) a partir dos 4 cantos de
+       um QR, a cada frame, com matemática caseira -> tremia, exigia
+       o marcador 100% visível e de frente.
+   v2: usava o QR só pra abrir o Scene Viewer (ARCore) e "plantar" o
+       objeto uma vez no mundo -> ótimo pra "ver o objeto na sala",
+       mas errado pra "o monstro mora em cima da carta" (o objeto
+       fica preso ao CHÃO, não à carta).
+   v3 (esta): usa o MindAR, uma biblioteca pronta e mantida, que
+       treina cada carta como "alvo de imagem" e faz tracking
+       CONTÍNUO e ROBUSTO por frame (features + filtro), tolerando
+       inclinação, distância e rotação muito melhor que a v1 —
+       porque usa muito mais informação visual da carta inteira, não
+       só 4 cantos de um QR.
 
-   Duas responsabilidades continuam separadas, como antes:
-     (a) IDENTIFICAÇÃO -> identifyMarker(qrData): só olha o texto do
-         QR e decide QUAL modelo carregar.
-     (b) TRACKING / POSE -> agora delegado ao ARCore via
-         <model-viewer ar>. Não escrevemos mais essa parte — é
-         exatamente o "não quero criar do zero" que foi pedido.
+   IDENTIFICAÇÃO NESTA VERSÃO: não lemos mais o texto do QR. A
+   identidade da carta é o índice do alvo dentro do targets.mind
+   (0 = primeira imagem enviada ao compilador, 1 = segunda, ...).
+   Trade-off importante: para adicionar uma carta nova, é preciso
+   re-treinar (recompilar) o targets.mind com a imagem nova — ao
+   contrário do QR de texto, que aceitava qualquer ID sem retreinar.
    ================================================================= */
 
+import * as THREE from 'three';
+import { MindARThree } from 'mindar-image-three';
+
 // -----------------------------------------------------------------
-// [10] IDENTIFICAÇÃO DO QR — mapeia o texto do QR para um modelo.
-// Modelos de exemplo gratuitos (Google model-viewer shared-assets),
-// só para validar o pipeline. Troque pelos seus .glb quando tiver:
-//   src: 'models/001.glb'  (ex: pasta /models/ hospedada junto do site)
+// [10] IDENTIFICAÇÃO — índice do alvo (ordem de upload no compilador) -> modelo
 // -----------------------------------------------------------------
-const MARKER_MODEL_MAP = {
-  'AR-001': { name: 'Astronauta', src: 'https://modelviewer.dev/shared-assets/models/Astronaut.glb' },
-  '001':    { name: 'Astronauta', src: 'https://modelviewer.dev/shared-assets/models/Astronaut.glb' },
-  'AR-002': { name: 'Robô',       src: 'https://modelviewer.dev/shared-assets/models/RobotExpressive.glb' },
-  '002':    { name: 'Robô',       src: 'https://modelviewer.dev/shared-assets/models/RobotExpressive.glb' },
-  'AR-003': { name: 'Cavalo',     src: 'https://modelviewer.dev/shared-assets/models/Horse.glb' },
-  '003':    { name: 'Cavalo',     src: 'https://modelviewer.dev/shared-assets/models/Horse.glb' },
+const TARGET_MODEL_MAP = {
+  0: { name: 'Monstro 1 (cubo)', build: buildCube },
+  1: { name: 'Monstro 2 (pirâmide)', build: buildPyramid },
+  2: { name: 'Monstro 3 (robô)', build: buildRobot },
 };
-function identifyMarker(qrData) {
-  return MARKER_MODEL_MAP[qrData] || null;
-}
+
+const homeEl = document.getElementById('home');
+const arContainer = document.getElementById('ar-container');
+const arStatus = document.getElementById('ar-status');
+const btnStart = document.getElementById('btn-start');
+const btnStopAr = document.getElementById('btn-stop-ar');
+
+let mindarThree = null;
+
+btnStart.addEventListener('click', startAR);
+btnStopAr.addEventListener('click', stopAR);
 
 // -----------------------------------------------------------------
-// DOM
+// [1]+[2] INICIALIZAÇÃO — MindAR gerencia câmera + Three.js internamente.
 // -----------------------------------------------------------------
-const btnShowQR = document.getElementById('btn-show-qr');
-const btnStartCamera = document.getElementById('btn-start-camera');
-const btnStopCamera = document.getElementById('btn-stop-camera');
-const btnRescan = document.getElementById('btn-rescan');
-const qrContentInput = document.getElementById('qr-content');
-const btnUpdateQR = document.getElementById('btn-update-qr');
-const statusEl = document.getElementById('status');
-const qrContainer = document.getElementById('qr-container');
-const cameraContainer = document.getElementById('camera-container');
-const resultEl = document.getElementById('result');
-const resultTitle = document.getElementById('result-title');
-const video = document.getElementById('video');
-const processingCanvas = document.getElementById('processing-canvas');
-const processingCtx = processingCanvas.getContext('2d', { willReadFrequently: true });
-const mv = document.getElementById('mv');
+async function startAR() {
+  homeEl.style.display = 'none';
+  arContainer.style.display = 'block';
 
-let cameraActive = false;
-let mediaStream = null;
-const PROCESSING_WIDTH = 320;
-let PROCESSING_HEIGHT = 240;
+  mindarThree = new MindARThree({
+    container: arContainer,
+    imageTargetSrc: './targets.mind', // gerado pelo compilador (ver instruções na tela inicial)
+    maxTrack: 3,                       // rastreia até 3 cartas ao mesmo tempo
+  });
 
-function setStatus(msg) { statusEl.textContent = `Status: ${msg}`; }
+  const { renderer, scene, camera } = mindarThree;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(1, 2, 1);
+  scene.add(dir);
 
-// -----------------------------------------------------------------
-// Mostrar QR (celular 1) — gera um QR normal, sem nada especial.
-// -----------------------------------------------------------------
-function showQRCode() {
-  hideCamera();
-  resultEl.style.display = 'none';
-  qrContainer.style.display = 'block';
-  qrContainer.innerHTML = '';
-  const content = qrContentInput.value.trim() || 'AR-001';
-  const qr = qrcode(0, 'M');
-  qr.addData(content);
-  qr.make();
-  qrContainer.innerHTML = qr.createImgTag(8) + `<div class="qr-label">${content}</div>`;
-  setStatus(`QR "${content}" exibido — aponte o outro celular para esta tela.`);
-}
+  const activeTargets = new Set();
 
-// -----------------------------------------------------------------
-// [1]+[3] CÂMERA + DETECÇÃO DO QR (só até identificar — não faz
-// tracking de pose aqui, só descobre O QUE é o marcador).
-// -----------------------------------------------------------------
-async function startCamera() {
-  qrContainer.style.display = 'none';
-  resultEl.style.display = 'none';
-  cameraContainer.style.display = 'block';
-  btnStartCamera.style.display = 'none';
-  btnStopCamera.style.display = 'inline-block';
+  // -----------------------------------------------------------------
+  // [5]+[6]+[7] POSE E POSICIONAMENTO — TUDO isso é feito pelo MindAR.
+  // Cada "anchor" já vem com position/rotation atualizados a cada
+  // frame, seguindo a carta real. Só precisamos colocar o modelo
+  // dentro do grupo do anchor certo.
+  // -----------------------------------------------------------------
+  Object.entries(TARGET_MODEL_MAP).forEach(([indexStr, info]) => {
+    const targetIndex = parseInt(indexStr, 10);
+    const anchor = mindarThree.addAnchor(targetIndex);
+    const model = info.build();
+    model.scale.setScalar(0.35); // ajuste de escala relativa ao tamanho da carta
+    anchor.group.add(model);
 
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } },
-      audio: false,
-    });
-    video.srcObject = mediaStream;
-    await video.play();
+    anchor.onTargetFound = () => {
+      activeTargets.add(info.name);
+      updateStatus(activeTargets);
+    };
+    anchor.onTargetLost = () => {
+      activeTargets.delete(info.name);
+      updateStatus(activeTargets);
+    };
+  });
 
-    const vw = video.videoWidth || 1280, vh = video.videoHeight || 960;
-    cameraContainer.style.aspectRatio = `${vw} / ${vh}`;
-    PROCESSING_HEIGHT = Math.max(1, Math.round(PROCESSING_WIDTH * vh / vw));
-    processingCanvas.width = PROCESSING_WIDTH;
-    processingCanvas.height = PROCESSING_HEIGHT;
-
-    cameraActive = true;
-    setStatus('Procurando QR Code...');
-    requestAnimationFrame(scanLoop);
-  } catch (err) {
-    console.error('Erro ao acessar câmera:', err);
-    setStatus('Erro ao acessar a câmera. Verifique HTTPS/localhost e as permissões do navegador.');
-    resetCameraUI();
-  }
-}
-
-function stopCamera() {
-  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
-  cameraActive = false;
-  cameraContainer.style.display = 'none';
-  resetCameraUI();
-}
-function hideCamera() { if (cameraActive) stopCamera(); }
-function resetCameraUI() {
-  btnStartCamera.style.display = 'inline-block';
-  btnStopCamera.style.display = 'none';
-}
-
-function scanLoop() {
-  if (!cameraActive) return;
-  if (video.readyState >= 2) {
-    processingCtx.drawImage(video, 0, 0, PROCESSING_WIDTH, PROCESSING_HEIGHT);
-    const imageData = processingCtx.getImageData(0, 0, PROCESSING_WIDTH, PROCESSING_HEIGHT);
-    const code = jsQR(imageData.data, PROCESSING_WIDTH, PROCESSING_HEIGHT, { inversionAttempts: 'dontInvert' });
-    if (code && code.data) {
-      onQRIdentified(code.data);
-      return; // encontrou — para o loop de varredura
-    }
-  }
-  requestAnimationFrame(scanLoop);
-}
-
-// -----------------------------------------------------------------
-// [9] Ao identificar o QR: carrega o modelo certo no <model-viewer>
-// e mostra o botão de AR real (Scene Viewer / WebXR).
-// -----------------------------------------------------------------
-function onQRIdentified(qrData) {
-  const info = identifyMarker(qrData);
-  stopCamera();
-
-  if (!info) {
-    setStatus(`QR "${qrData}" não reconhecido. IDs válidos: AR-001, AR-002, AR-003.`);
-    return;
+  function updateStatus(set) {
+    arStatus.textContent = set.size > 0
+      ? `Detectado: ${[...set].join(', ')}`
+      : 'Aponte para uma carta...';
   }
 
-  mv.setAttribute('alt', info.name);
-  mv.setAttribute('src', info.src);
-  resultTitle.textContent = `Objeto identificado: ${info.name} (${qrData})`;
-  resultEl.style.display = 'flex';
-  setStatus(`QR "${qrData}" reconhecido — toque em "Ver na vida real".`);
+  await mindarThree.start();
+  renderer.setAnimationLoop(() => {
+    // pequena animação de giro nos modelos ativos, só estética
+    scene.children.forEach(c => { if (c.isGroup) c.rotation.y += 0.01; });
+    renderer.render(scene, camera);
+  });
+}
+
+function stopAR() {
+  if (mindarThree) {
+    mindarThree.renderer.setAnimationLoop(null);
+    mindarThree.stop();
+    mindarThree = null;
+  }
+  arContainer.style.display = 'none';
+  arContainer.innerHTML = '<div id="ar-status">Aponte para uma carta...</div><button id="btn-stop-ar">⏹ Sair</button>';
+  homeEl.style.display = 'flex';
 }
 
 // -----------------------------------------------------------------
-// EVENTOS
+// [9] MODELOS 3D — geometria pura (Three.js), sem depender de .glb
+// externo. Trocar por GLTFLoader().load('models/00X.glb', ...) é a
+// evolução natural quando você tiver seus próprios modelos.
 // -----------------------------------------------------------------
-btnShowQR.addEventListener('click', showQRCode);
-btnStartCamera.addEventListener('click', startCamera);
-btnStopCamera.addEventListener('click', stopCamera);
-btnRescan.addEventListener('click', () => { resultEl.style.display = 'none'; startCamera(); });
-btnUpdateQR.addEventListener('click', () => {
-  if (qrContainer.style.display !== 'none') showQRCode();
-  else setStatus(`QR pronto para "${qrContentInput.value.trim()}" — clique em "Mostrar QR".`);
-});
+function buildCube() {
+  const g = new THREE.Group();
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xff5722 }));
+  mesh.position.y = 0.5;
+  g.add(mesh);
+  return g;
+}
+function buildPyramid() {
+  const g = new THREE.Group();
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.2, 4), new THREE.MeshStandardMaterial({ color: 0x4caf50 }));
+  cone.position.y = 0.6; cone.rotation.y = Math.PI / 4;
+  g.add(cone);
+  return g;
+}
+function buildRobot() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 0.4), new THREE.MeshStandardMaterial({ color: 0x4a90e2 }));
+  body.position.y = 0.5; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), new THREE.MeshStandardMaterial({ color: 0xf5c542 }));
+  head.position.y = 1.05; g.add(head);
+  return g;
+}
 </script>
 </body>
 </html>
