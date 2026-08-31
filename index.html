@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>AR TEST v3 — Cartas com tracking contínuo (MindAR)</title>
+<title>AR TEST v4 — Cartas + tracking contínuo (MindAR) + modo óculos</title>
 <script type="importmap">
 {
   "imports": {
@@ -30,16 +30,18 @@
   .cards-preview img { width:70px; height:70px; background:#fff; border-radius:6px; padding:4px; }
 
   /* Tela de AR */
-  #ar-container { display:none; position:fixed; inset:0; background:#000; }
-  #ar-container video, #ar-container canvas { position:absolute; inset:0; width:100%; height:100%; }
+  #ar-container { display:none; position:fixed; inset:0; background:#000; overflow:hidden; }
+  #ar-container video, #ar-container canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
+  .video-clone { object-fit:cover; }
   #ar-status {
     position:absolute; top:14px; left:14px; right:14px; z-index:5; text-align:center;
     background:rgba(20,20,31,0.75); color:#fff; padding:10px; border-radius:8px; font-size:0.85rem; font-weight:bold;
   }
-  #btn-stop-ar {
-    position:absolute; bottom:20px; left:50%; transform:translateX(-50%); z-index:5;
-    background:var(--accent); padding:12px 22px; border-radius:24px; font-weight:bold;
-  }
+  #ar-toolbar { position:absolute; bottom:20px; left:0; right:0; z-index:5; display:flex; gap:10px; justify-content:center; }
+  #ar-toolbar button { background:rgba(20,20,31,0.85); }
+  #btn-stop-ar { background:var(--accent) !important; font-weight:bold; }
+  /* Linha central sutil no modo estéreo, ajuda a alinhar o óculos */
+  #stereo-divider { display:none; position:absolute; top:0; bottom:0; left:50%; width:1px; background:rgba(255,255,255,0.15); z-index:4; }
 </style>
 </head>
 <body>
@@ -69,39 +71,52 @@
 
 <div id="ar-container">
   <div id="ar-status">Aponte para uma carta...</div>
-  <button id="btn-stop-ar">⏹ Sair</button>
+  <div id="stereo-divider"></div>
+  <div id="ar-toolbar">
+    <button id="btn-toggle-stereo">🥽 Modo Óculos</button>
+    <button id="btn-stop-ar">⏹ Sair</button>
+  </div>
 </div>
 
 <script type="module">
 /* =================================================================
-   AR TEST v3 — TRACKING CONTÍNUO POR IMAGEM (MindAR), NÃO POR TEXTO
+   AR TEST v4 — TRACKING CONTÍNUO (MindAR) + MODO ÓCULOS (ESTÉREO)
    -----------------------------------------------------------------
-   Diferença fundamental para as versões anteriores:
+   Continua tudo que a v3 já fazia (ver comentários lá): MindAR
+   reconhece cada carta pela imagem inteira e faz o tracking 6DOF
+   contínuo, sem matemática caseira.
 
-   v1: recalculava a pose (posição/rotação) a partir dos 4 cantos de
-       um QR, a cada frame, com matemática caseira -> tremia, exigia
-       o marcador 100% visível e de frente.
-   v2: usava o QR só pra abrir o Scene Viewer (ARCore) e "plantar" o
-       objeto uma vez no mundo -> ótimo pra "ver o objeto na sala",
-       mas errado pra "o monstro mora em cima da carta" (o objeto
-       fica preso ao CHÃO, não à carta).
-   v3 (esta): usa o MindAR, uma biblioteca pronta e mantida, que
-       treina cada carta como "alvo de imagem" e faz tracking
-       CONTÍNUO e ROBUSTO por frame (features + filtro), tolerando
-       inclinação, distância e rotação muito melhor que a v1 —
-       porque usa muito mais informação visual da carta inteira, não
-       só 4 cantos de um QR.
+   NOVO NESTA VERSÃO — MODO ÓCULOS (para viewers tipo Cardboard/VR
+   com 2 lentes, uma pra cada olho):
 
-   IDENTIFICAÇÃO NESTA VERSÃO: não lemos mais o texto do QR. A
-   identidade da carta é o índice do alvo dentro do targets.mind
-   (0 = primeira imagem enviada ao compilador, 1 = segunda, ...).
-   Trade-off importante: para adicionar uma carta nova, é preciso
-   re-treinar (recompilar) o targets.mind com a imagem nova — ao
-   contrário do QR de texto, que aceitava qualquer ID sem retreinar.
+   - O MUNDO REAL (vídeo da câmera) é o mesmo para os dois olhos —
+     só existe UMA câmera física no celular, então não tem como
+     gerar visão estéreo verdadeira do ambiente. Isso é uma
+     limitação física, não uma simplificação evitável.
+   - O MODELO 3D, esse sim, é renderizado duas vezes, de duas
+     câmeras virtuais levemente afastadas (a distância entre seus
+     olhos, ~6,3cm), exatamente como VR/3D estéreo funciona. Isso
+     dá sensação real de profundidade no monstro, mesmo com o fundo
+     sendo "chapado".
+   - NÃO fazemos correção de distorção de lente (barrel distortion)
+     — cada óculos/lente tem uma curvatura diferente; sem calibrar
+     pro óculos físico específico, arriscamos deixar pior. Fica de
+     fase 2, se for necessário.
    ================================================================= */
 
 import * as THREE from 'three';
 import { MindARThree } from 'mindar-image-three';
+
+// -----------------------------------------------------------------
+// CONFIG
+// -----------------------------------------------------------------
+// Largura REAL da carta impressa, em metros. Necessário pro cálculo
+// do estéreo bater: o MindAR trabalha numa escala onde "1 unidade"
+// = a largura da carta treinada, não metros de verdade. Se você
+// imprimir a carta maior/menor que isso, ajuste aqui.
+const CARD_WIDTH_METERS = 0.059; // ~carta de baralho/trading card padrão
+const IPD_METERS = 0.063;        // distância média entre pupilas humanas
+const EYE_OFFSET_UNITS = (IPD_METERS / 2) / CARD_WIDTH_METERS;
 
 // -----------------------------------------------------------------
 // [10] IDENTIFICAÇÃO — índice do alvo (ordem de upload no compilador) -> modelo
@@ -115,13 +130,19 @@ const TARGET_MODEL_MAP = {
 const homeEl = document.getElementById('home');
 const arContainer = document.getElementById('ar-container');
 const arStatus = document.getElementById('ar-status');
+const stereoDivider = document.getElementById('stereo-divider');
 const btnStart = document.getElementById('btn-start');
 const btnStopAr = document.getElementById('btn-stop-ar');
+const btnToggleStereo = document.getElementById('btn-toggle-stereo');
 
 let mindarThree = null;
+let stereoOn = false;
+let leftCam = null, rightCam = null;
+let videoClones = [];
 
 btnStart.addEventListener('click', startAR);
 btnStopAr.addEventListener('click', stopAR);
+btnToggleStereo.addEventListener('click', toggleStereo);
 
 // -----------------------------------------------------------------
 // [1]+[2] INICIALIZAÇÃO — MindAR gerencia câmera + Three.js internamente.
@@ -138,46 +159,67 @@ async function startAR() {
 
   const { renderer, scene, camera } = mindarThree;
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-  dir.position.set(1, 2, 1);
-  scene.add(dir);
+
+  // Câmeras auxiliares pro modo óculos — clones da câmera principal,
+  // deslocadas lateralmente. A câmera do MindAR fica parada na
+  // origem (quem se move nos anchors é o mundo/cartas), então basta
+  // deslocar em X uma vez; não precisa recopiar pose a cada frame.
+  leftCam = camera.clone();
+  rightCam = camera.clone();
+  leftCam.position.x -= EYE_OFFSET_UNITS;
+  rightCam.position.x += EYE_OFFSET_UNITS;
 
   const activeTargets = new Set();
 
   // -----------------------------------------------------------------
-  // [5]+[6]+[7] POSE E POSICIONAMENTO — TUDO isso é feito pelo MindAR.
-  // Cada "anchor" já vem com position/rotation atualizados a cada
-  // frame, seguindo a carta real. Só precisamos colocar o modelo
-  // dentro do grupo do anchor certo.
+  // [5]+[6]+[7] POSE E POSICIONAMENTO — feito pelo MindAR. Cada
+  // "anchor" já vem com position/rotation atualizados a cada frame,
+  // seguindo a carta real.
   // -----------------------------------------------------------------
   Object.entries(TARGET_MODEL_MAP).forEach(([indexStr, info]) => {
     const targetIndex = parseInt(indexStr, 10);
     const anchor = mindarThree.addAnchor(targetIndex);
     const model = info.build();
-    model.scale.setScalar(0.35); // ajuste de escala relativa ao tamanho da carta
+    model.scale.setScalar(0.35);
     anchor.group.add(model);
 
-    anchor.onTargetFound = () => {
-      activeTargets.add(info.name);
-      updateStatus(activeTargets);
-    };
-    anchor.onTargetLost = () => {
-      activeTargets.delete(info.name);
-      updateStatus(activeTargets);
-    };
+    anchor.onTargetFound = () => { activeTargets.add(info.name); updateStatus(activeTargets); };
+    anchor.onTargetLost = () => { activeTargets.delete(info.name); updateStatus(activeTargets); };
   });
 
   function updateStatus(set) {
-    arStatus.textContent = set.size > 0
-      ? `Detectado: ${[...set].join(', ')}`
-      : 'Aponte para uma carta...';
+    arStatus.textContent = set.size > 0 ? `Detectado: ${[...set].join(', ')}` : 'Aponte para uma carta...';
   }
 
   await mindarThree.start();
+
   renderer.setAnimationLoop(() => {
-    // pequena animação de giro nos modelos ativos, só estética
     scene.children.forEach(c => { if (c.isGroup) c.rotation.y += 0.01; });
-    renderer.render(scene, camera);
+
+    if (!stereoOn) {
+      renderer.setScissorTest(false);
+      renderer.render(scene, camera);
+      return;
+    }
+
+    // ---------------------------------------------------------------
+    // MODO ÓCULOS: renderiza a cena duas vezes (olho esquerdo/direito)
+    // dentro do mesmo canvas, cada metade com sua câmera deslocada.
+    // O vídeo de fundo (mundo real) é duplicado à parte, via CSS,
+    // porque só existe uma câmera física — ver toggleStereo().
+    // ---------------------------------------------------------------
+    const w = renderer.domElement.width, h = renderer.domElement.height;
+    renderer.setScissorTest(true);
+
+    leftCam.aspect = (w / 2) / h; leftCam.updateProjectionMatrix();
+    renderer.setViewport(0, 0, w / 2, h);
+    renderer.setScissor(0, 0, w / 2, h);
+    renderer.render(scene, leftCam);
+
+    rightCam.aspect = (w / 2) / h; rightCam.updateProjectionMatrix();
+    renderer.setViewport(w / 2, 0, w / 2, h);
+    renderer.setScissor(w / 2, 0, w / 2, h);
+    renderer.render(scene, rightCam);
   });
 }
 
@@ -187,20 +229,63 @@ function stopAR() {
     mindarThree.stop();
     mindarThree = null;
   }
+  stereoOn = false;
+  cleanupVideoClones();
   arContainer.style.display = 'none';
-  arContainer.innerHTML = '<div id="ar-status">Aponte para uma carta...</div><button id="btn-stop-ar">⏹ Sair</button>';
+  arContainer.innerHTML = `
+    <div id="ar-status">Aponte para uma carta...</div>
+    <div id="stereo-divider"></div>
+    <div id="ar-toolbar">
+      <button id="btn-toggle-stereo">🥽 Modo Óculos</button>
+      <button id="btn-stop-ar">⏹ Sair</button>
+    </div>`;
   homeEl.style.display = 'flex';
+  // reconecta os listeners nos elementos recriados
+  document.getElementById('btn-toggle-stereo').addEventListener('click', toggleStereo);
+  document.getElementById('btn-stop-ar').addEventListener('click', stopAR);
 }
 
 // -----------------------------------------------------------------
-// [9] MODELOS 3D — geometria pura (Three.js), sem depender de .glb
-// externo. Trocar por GLTFLoader().load('models/00X.glb', ...) é a
-// evolução natural quando você tiver seus próprios modelos.
+// MODO ÓCULOS: liga/desliga. O vídeo de fundo é um <video> comum que
+// o MindAR já injeta no container — a gente só clona ele (mesmo
+// srcObject) e mostra duas cópias lado a lado via CSS.
+// -----------------------------------------------------------------
+function toggleStereo() {
+  stereoOn = !stereoOn;
+  document.getElementById('stereo-divider').style.display = stereoOn ? 'block' : 'none';
+  document.getElementById('btn-toggle-stereo').textContent = stereoOn ? '📱 Modo Normal' : '🥽 Modo Óculos';
+
+  const originalVideo = arContainer.querySelector('video:not(.video-clone)');
+  if (stereoOn) {
+    if (originalVideo) originalVideo.style.opacity = '0';
+    ['left', 'right'].forEach((side, i) => {
+      const clone = document.createElement('video');
+      clone.className = 'video-clone';
+      clone.muted = true; clone.playsInline = true; clone.autoplay = true;
+      clone.style.position = 'absolute'; clone.style.top = '0'; clone.style.height = '100%'; clone.style.width = '50%';
+      clone.style.left = i === 0 ? '0' : '50%';
+      clone.style.zIndex = '1';
+      if (originalVideo && originalVideo.srcObject) clone.srcObject = originalVideo.srcObject;
+      arContainer.insertBefore(clone, arContainer.firstChild);
+      clone.play().catch(() => {});
+      videoClones.push(clone);
+    });
+  } else {
+    if (originalVideo) originalVideo.style.opacity = '1';
+    cleanupVideoClones();
+  }
+}
+function cleanupVideoClones() {
+  videoClones.forEach(v => v.remove());
+  videoClones = [];
+}
+
+// -----------------------------------------------------------------
+// [9] MODELOS 3D — geometria pura, sem depender de .glb externo.
 // -----------------------------------------------------------------
 function buildCube() {
   const g = new THREE.Group();
-  const geo = new THREE.BoxGeometry(1, 1, 1);
-  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xff5722 }));
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xff5722 }));
   mesh.position.y = 0.5;
   g.add(mesh);
   return g;
