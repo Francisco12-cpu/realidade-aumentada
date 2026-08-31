@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>AR TEST — QR Tracking Prototype</title>
+<style>
+  :root {
+    --bg: #14141f;
+    --panel: #1c2237;
+    --accent: #ff5a5f;
+    --accent2: #2a3a63;
+    --text: #eee;
+    --text-light: #9aa3bd;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+  #app { width: 100%; max-width: 560px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  h1 { font-size: 1.6rem; letter-spacing: 3px; color: var(--accent); text-align: center; }
+  .subtitle { text-align: center; font-size: 0.75rem; color: var(--text-light); margin-top: -6px; }
+  .controls, .model-selector, .qr-content-input { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  button {
+    background: var(--accent2); color: white; border: none; padding: 11px 16px;
+    font-size: 0.95rem; border-radius: 8px; cursor: pointer; transition: 0.15s;
+  }
+  button:active { transform: scale(0.95); }
+  button.active { background: var(--accent); font-weight: bold; }
+  .model-btn { flex: 1; min-width: 90px; max-width: 130px; background: var(--panel); border: 2px solid var(--accent2); }
+  .model-btn.active { border-color: var(--accent); background: var(--accent2); }
+  .qr-content-input input {
+    flex: 1; min-width: 100px; padding: 10px; border-radius: 6px; border: 1px solid var(--accent2);
+    background: var(--panel); color: var(--text); font-size: 1rem; text-align: center;
+  }
+  #status { font-weight: bold; min-height: 1.4em; background: var(--panel); padding: 9px; border-radius: 6px; font-size: 0.9rem; text-align: center; }
+  #marker-info { font-size: 0.8rem; color: var(--text-light); text-align: center; min-height: 1.1em; }
+  #qr-container {
+    display: none; margin: 6px auto; padding: 16px; background: white; border-radius: 12px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5); max-width: 90%; text-align: center;
+  }
+  #qr-container img, #qr-container canvas { display: block; width: 100%; max-width: 260px; height: auto; margin: 0 auto; }
+  #qr-container .qr-label { margin-top: 8px; color: #222; font-weight: bold; letter-spacing: 1px; }
+  #camera-container {
+    display: none; position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 72vh;
+    background: #000; border-radius: 12px; overflow: hidden;
+  }
+  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #three-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #processing-canvas { display: none; }
+  .note { font-size: 0.75rem; color: var(--text-light); text-align: center; line-height: 1.4; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>AR TEST</h1>
+  <div class="subtitle">Protótipo: QR Code → pose 6DOF → objeto 3D "preso" ao marcador</div>
+
+  <div class="controls">
+    <button id="btn-show-qr">📱 Mostrar QR</button>
+    <button id="btn-start-camera">📷 Iniciar câmera</button>
+    <button id="btn-stop-camera" style="display:none;">⏹ Parar</button>
+  </div>
+
+  <div class="qr-content-input">
+    <label for="qr-content">QR ID:</label>
+    <input type="text" id="qr-content" value="AR-001" maxlength="20">
+    <button id="btn-update-qr">Atualizar QR</button>
+  </div>
+
+  <div class="model-selector">
+    <button class="model-btn active" data-model="0">🧊 Modelo 1</button>
+    <button class="model-btn" data-model="1">🔺 Modelo 2</button>
+    <button class="model-btn" data-model="2">🤖 Modelo 3</button>
+  </div>
+
+  <div id="status">Status: pronto. Selecione um modelo e inicie a câmera.</div>
+  <div id="marker-info">&nbsp;</div>
+
+  <div id="qr-container"></div>
+
+  <div id="camera-container">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="three-canvas"></canvas>
+    <canvas id="processing-canvas"></canvas>
+  </div>
+
+  <div class="note">
+    A câmera exige HTTPS (ou localhost). Abra este arquivo por um servidor local ou hospede no GitHub Pages —
+    "file://" direto no navegador não terá permissão de câmera na maioria dos aparelhos.
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+
+<script>
+/* ================================================================
+   AR TEST — PROTÓTIPO DE RASTREAMENTO POR QR CODE
+   ----------------------------------------------------------------
+   ARQUITETURA (visão geral):
+
+     jsQR              -> encontra o QR na imagem e devolve os 4
+                          cantos em pixels + o texto decodificado.
+     Matemática própria -> a partir dos 4 cantos, estima a POSE
+                          (posição 3D + rotação) do QR relativo à
+                          câmera, via homografia planar (DLT) +
+                          decomposição em rotação/translação.
+                          Isso é uma versão simplificada de PnP
+                          (Perspective-n-Point) para marcadores
+                          planos — sem calibração real de câmera
+                          e sem refinamento não-linear.
+     Three.js          -> desenha o objeto 3D com essa pose, sobre
+                          um <video> com o feed da câmera atrás.
+     qrcode-generator  -> apenas para MOSTRAR um QR na tela do
+                          "celular 1" (não tem relação com o
+                          tracking do "celular 2").
+
+   DUAS FUNÇÕES DISTINTAS E SEPARADAS NO CÓDIGO (ver comentários
+   [10] e [5]/[6] abaixo) — este é o ponto central pedido:
+
+     (a) IDENTIFICAÇÃO  -> identifyMarker(qrData)
+         Só olha o TEXTO do QR ("AR-001"). Responde "o que é isto".
+         No futuro vira uma consulta a /experiences/AR-001.json.
+
+     (b) TRACKING / POSE -> estimatePose(location)
+         Só olha a GEOMETRIA dos 4 cantos na imagem. Responde
+         "onde está, de que tamanho, e com que rotação". Não sabe
+         nem se importa com o texto do QR.
+
+   Essas duas funções são independentes por design: a identificação
+   poderia vir de outra fonte (ex: marcador fiducial sem texto) e o
+   tracking continuaria funcionando do mesmo jeito.
+   ================================================================ */
+
+// ---------------------------------------------------------------
+// CONFIGURAÇÃO
+// ---------------------------------------------------------------
+const QR_SIZE_REAL = 0.10;      // Tamanho real do QR impresso/exibido, em metros (10 cm). Ajuste conforme o QR usado no teste.
+const FOV = 60;                 // Campo de visão vertical (graus) — usado tanto na câmera Three.js quanto na estimativa de pose. PRECISA ser o mesmo valor nos dois lugares.
+const SMOOTHING = 0.35;         // Suavização (lerp/slerp) da pose entre frames, para reduzir tremulação.
+const LOST_TIMEOUT_MS = 450;    // Tempo sem detectar o QR antes de esconder o objeto.
+
+let PROCESSING_WIDTH = 320;     // Resolução do canvas usado para detecção (recalculada ao iniciar a câmera para casar a proporção do vídeo real).
+let PROCESSING_HEIGHT = 240;
+
+// ---------------------------------------------------------------
+// ELEMENTOS DO DOM
+// ---------------------------------------------------------------
+const btnShowQR = document.getElementById('btn-show-qr');
+const btnStartCamera = document.getElementById('btn-start-camera');
+const btnStopCamera = document.getElementById('btn-stop-camera');
+const qrContentInput = document.getElementById('qr-content');
+const btnUpdateQR = document.getElementById('btn-update-qr');
+const statusEl = document.getElementById('status');
+const markerInfoEl = document.getElementById('marker-info');
+const qrContainer = document.getElementById('qr-container');
+const cameraContainer = document.getElementById('camera-container');
+const video = document.getElementById('video');
+const threeCanvas = document.getElementById('three-canvas');
+const processingCanvas = document.getElementById('processing-canvas');
+const processingCtx = processingCanvas.getContext('2d', { willReadFrequently: true });
+const modelButtons = document.querySelectorAll('.model-btn');
+
+// ---------------------------------------------------------------
+// ESTADO
+// ---------------------------------------------------------------
+let cameraActive = false;
+let mediaStream = null;
+let qrDetected = false;
+let lastSeenTime = 0;
+let lastQrData = null;
+let currentModelIndex = 0;
+let manualModelOverride = false; // se o usuário escolheu manualmente um modelo, não deixamos o mapeamento por ID sobrescrever
+
+let renderer, scene, camera, modelGroup;
+const targetPosition = new THREE.Vector3(0, 0, -0.5);
+const targetQuaternion = new THREE.Quaternion();
+const currentPosition = new THREE.Vector3(0, 0, -0.5);
+const currentQuaternion = new THREE.Quaternion();
+
+function setStatus(msg) { statusEl.textContent = `Status: ${msg}`; }
+function setMarkerInfo(msg) { markerInfoEl.textContent = msg; }
+
+// =================================================================
+// [10] IDENTIFICAÇÃO DO QR CODE — "o que é este objeto?"
+// -----------------------------------------------------------------
+// Olha SOMENTE para o texto decodificado do QR (ex: "AR-001").
+// Hoje é uma tabela local que escolhe entre os 3 modelos de exemplo.
+// No futuro, este é o lugar que consultaria algo como:
+//   fetch(`/experiences/${qrData}.json`) -> { model: 'models/dragon.glb', ... }
+// =================================================================
+const MARKER_MODEL_MAP = {
+  'AR-001': 0, '001': 0,
+  'AR-002': 1, '002': 1,
+  'AR-003': 2, '003': 2,
+};
+function identifyMarker(qrData) {
+  return {
+    id: qrData,
+    modelIndex: Object.prototype.hasOwnProperty.call(MARKER_MODEL_MAP, qrData)
+      ? MARKER_MODEL_MAP[qrData]
+      : null, // ID desconhecido: mantém o modelo atualmente selecionado
+  };
+}
+
+// =================================================================
+// UI: mostrar QR (celular 1) e alternar modelo
+// =================================================================
+function showQRCode() {
+  hideCamera();
+  qrContainer.style.display = 'block';
+  qrContainer.innerHTML = '';
+  const content = qrContentInput.value.trim() || 'AR-001';
+  const qr = qrcode(0, 'M');
+  qr.addData(content);
+  qr.make();
+  qrContainer.innerHTML = qr.createImgTag(8) + `<div class="qr-label">${content}</div>`;
+  setStatus(`QR "${content}" exibido — aponte o outro celular para esta tela.`);
+}
+
+function updateModelButtons() {
+  modelButtons.forEach(btn => btn.classList.toggle('active', parseInt(btn.dataset.model, 10) === currentModelIndex));
+}
+
+function switchModel(index, isManual) {
+  if (isManual) manualModelOverride = true;
+  if (currentModelIndex === index) return;
+  currentModelIndex = index;
+  updateModelButtons();
+  if (modelGroup) {
+    while (modelGroup.children.length > 0) modelGroup.remove(modelGroup.children[0]);
+    modelGroup.add(buildModel(index));
+  }
+}
+
+// =================================================================
+// [1] INICIALIZAÇÃO DA CÂMERA
+// -----------------------------------------------------------------
+// Pede acesso à câmera traseira (facingMode: 'environment'). Isso
+// EXIGE contexto seguro (https:// ou http://localhost) — é uma
+// restrição do navegador, não algo que dá para contornar em JS.
+// =================================================================
+async function startCamera() {
+  qrContainer.style.display = 'none';
+  cameraContainer.style.display = 'block';
+  btnStartCamera.style.display = 'none';
+  btnStopCamera.style.display = 'inline-block';
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } },
+      audio: false,
+    });
+    video.srcObject = mediaStream;
+    await video.play();
+
+    // Casa a proporção do container/canvas com a proporção REAL do
+    // vídeo da câmera. Isso evita que "object-fit: cover" recorte o
+    // vídeo de um jeito diferente do que o canvas de processamento
+    // enxerga — se os dois não baterem, a pose calculada fica
+    // deslocada em relação ao que aparece na tela.
+    const vw = video.videoWidth || 1280;
+    const vh = video.videoHeight || 960;
+    cameraContainer.style.aspectRatio = `${vw} / ${vh}`;
+
+    PROCESSING_WIDTH = 320;
+    PROCESSING_HEIGHT = Math.max(1, Math.round(PROCESSING_WIDTH * vh / vw));
+    processingCanvas.width = PROCESSING_WIDTH;
+    processingCanvas.height = PROCESSING_HEIGHT;
+
+    initThree();
+    cameraActive = true;
+    lastSeenTime = 0;
+    setStatus('Procurando QR Code...');
+    requestAnimationFrame(animate);
+  } catch (err) {
+    console.error('Erro ao acessar câmera:', err);
+    setStatus('Erro ao acessar a câmera. Verifique HTTPS/localhost e as permissões do navegador.');
+    btnStartCamera.style.display = 'inline-block';
+    btnStopCamera.style.display = 'none';
+    cameraContainer.style.display = 'none';
+  }
+}
+
+function stopCamera() {
+  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  cameraActive = false;
+  cameraContainer.style.display = 'none';
+  btnStartCamera.style.display = 'inline-block';
+  btnStopCamera.style.display = 'none';
+  setStatus('Câmera parada.');
+  setMarkerInfo('\u00A0');
+}
+function hideCamera() { if (cameraActive) stopCamera(); }
+
+// =================================================================
+// [2] INICIALIZAÇÃO DO THREE.JS
+// -----------------------------------------------------------------
+// Câmera Three.js fixa na origem, olhando para -Z (padrão). O FOV
+// usado aqui é o MESMO usado na estimativa de pose — é o que faz o
+// objeto "bater" com a perspectiva real do vídeo.
+// =================================================================
+function initThree() {
+  renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
+  renderer.setClearColor(0x000000, 0); // fundo transparente: o vídeo da câmera aparece por baixo (via CSS/z-order)
+  renderer.setPixelRatio(window.devicePixelRatio);
+  updateRendererSize();
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(FOV, cameraContainer.clientWidth / cameraContainer.clientHeight, 0.01, 100);
+  camera.position.set(0, 0, 0);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(1, 2, 1); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.3); fill.position.set(-1, -1, -1); scene.add(fill);
+
+  modelGroup = new THREE.Group();
+  modelGroup.visible = false;
+  modelGroup.add(buildModel(currentModelIndex));
+  scene.add(modelGroup);
+
+  currentPosition.set(0, 0, -0.5);
+  currentQuaternion.identity();
+}
+
+function updateRendererSize() {
+  if (!renderer || !camera) return;
+  const w = cameraContainer.clientWidth, h = cameraContainer.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
+// =================================================================
+// [9] CONSTRUÇÃO DOS MODELOS 3D (geometria pura, sem arquivo externo)
+// -----------------------------------------------------------------
+// Propositalmente NÃO carrega .glb — o objetivo deste protótipo é só
+// provar QR -> pose -> objeto acompanhando o marcador. Trocar isto
+// por um GLTFLoader.load('models/001.glb', ...) no futuro é uma
+// mudança pequena e isolada (ver seção "evolução futura" na resposta).
+// =================================================================
+function buildModel(index) {
+  switch (index) {
+    case 0: return buildCube();
+    case 1: return buildPyramid();
+    case 2: return buildRobot();
+    default: return buildCube();
+  }
+}
+function buildCube() {
+  const g = new THREE.Group();
+  const geo = new THREE.BoxGeometry(0.05, 0.05, 0.05);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xff5722, roughness: 0.3, metalness: 0.1 }));
+  mesh.position.y = 0.025; // eleva o objeto para "sentar" sobre o plano do QR
+  g.add(mesh);
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x000000 })).clone());
+  g.children[1].position.y = 0.025;
+  return g;
+}
+function buildPyramid() {
+  const g = new THREE.Group();
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.06, 4), new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.4 }));
+  cone.position.y = 0.03; cone.rotation.y = Math.PI / 4;
+  g.add(cone);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.01, 0.06), new THREE.MeshStandardMaterial({ color: 0x388e3c }));
+  base.position.y = 0.005;
+  g.add(base);
+  return g;
+}
+function buildRobot() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.04, 0.02), new THREE.MeshStandardMaterial({ color: 0x4a90e2, roughness: 0.5 }));
+  body.position.y = 0.02; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.015, 16, 16), new THREE.MeshStandardMaterial({ color: 0xf5c542, roughness: 0.3 }));
+  head.position.y = 0.05; g.add(head);
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+  const eyeGeo = new THREE.SphereGeometry(0.004, 8, 8);
+  const lEye = new THREE.Mesh(eyeGeo, eyeMat); lEye.position.set(-0.006, 0.052, 0.012); g.add(lEye);
+  const rEye = new THREE.Mesh(eyeGeo, eyeMat); rEye.position.set(0.006, 0.052, 0.012); g.add(rEye);
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+  const legGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.02, 8);
+  const lLeg = new THREE.Mesh(legGeo, legMat); lLeg.position.set(-0.01, 0, 0); g.add(lLeg);
+  const rLeg = new THREE.Mesh(legGeo, legMat); rLeg.position.set(0.01, 0, 0); g.add(rLeg);
+  const armMat = new THREE.MeshStandardMaterial({ color: 0x4a90e2 });
+  const armGeo = new THREE.CylinderGeometry(0.003, 0.003, 0.025, 8);
+  const lArm = new THREE.Mesh(armGeo, armMat); lArm.position.set(-0.02, 0.025, 0); lArm.rotation.z = 0.3; g.add(lArm);
+  const rArm = new THREE.Mesh(armGeo, armMat); rArm.position.set(0.02, 0.025, 0); rArm.rotation.z = -0.3; g.add(rArm);
+  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.001, 0.001, 0.015, 6), new THREE.MeshStandardMaterial({ color: 0xff0000 }));
+  antenna.position.y = 0.065; g.add(antenna);
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.002, 6, 6), new THREE.MeshStandardMaterial({ color: 0xff0000 }));
+  ball.position.y = 0.072; g.add(ball);
+  return g;
+}
+
+// =================================================================
+// ÁLGEBRA LINEAR AUXILIAR — eliminação de Gauss com pivotamento
+// parcial, usada para resolver o sistema da homografia (8 incógnitas).
+// =================================================================
+function solveLinearSystem(A, b) {
+  const n = A.length;
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < n; col++) {
+    let maxRow = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[maxRow][col])) maxRow = r;
+    [M[col], M[maxRow]] = [M[maxRow], M[col]];
+    if (Math.abs(M[col][col]) < 1e-10) return null; // cantos quase colineares/degenerados
+    for (let r = col + 1; r < n; r++) {
+      const f = M[r][col] / M[col][col];
+      for (let c = col; c <= n; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  const x = new Array(n).fill(0);
+  for (let r = n - 1; r >= 0; r--) {
+    let sum = M[r][n];
+    for (let c = r + 1; c < n; c++) sum -= M[r][c] * x[c];
+    x[r] = sum / M[r][r];
+  }
+  return x;
+}
+
+// =================================================================
+// [4]+[5] OBTENÇÃO DOS 4 CANTOS + CÁLCULO DA POSIÇÃO/ORIENTAÇÃO
+// -----------------------------------------------------------------
+// Método: homografia planar (DLT) entre os 4 cantos reais do QR
+// (em metros, no plano do marcador) e os 4 cantos detectados na
+// imagem (em coordenadas normalizadas da câmera), seguida da
+// decomposição clássica H -> [r1 r2 t] para marcadores planos.
+// Isto é uma versão SIMPLIFICADA de solvePnP (sem distorção de
+// lente, sem calibração real, sem refinamento iterativo) — mas é
+// geometria de projeção de verdade, não uma aproximação inventada.
+// =================================================================
+const HALF = QR_SIZE_REAL / 2;
+// Pontos do QR no seu próprio plano local (X: direita, Y: cima, Z: para fora do marcador).
+// Ordem tem que bater com a ordem dos cantos que o jsQR devolve: TL, TR, BR, BL.
+const OBJECT_POINTS = [
+  { x: -HALF, y: HALF },  // topLeftCorner
+  { x: HALF, y: HALF },   // topRightCorner
+  { x: HALF, y: -HALF },  // bottomRightCorner
+  { x: -HALF, y: -HALF }, // bottomLeftCorner
+];
+
+function getIntrinsics() {
+  // Modelo de câmera "pinhole" simplificado: fx = fy, sem distorção.
+  // f é derivado do MESMO fov vertical usado na THREE.PerspectiveCamera.
+  const f = (PROCESSING_HEIGHT / 2) / Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+  return { fx: f, fy: f, cx: PROCESSING_WIDTH / 2, cy: PROCESSING_HEIGHT / 2 };
+}
+
+function computeHomography(imgPts, objPts, intr) {
+  const { fx, fy, cx, cy } = intr;
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const X = objPts[i].x, Y = objPts[i].y;
+    const xn = (imgPts[i].x - cx) / fx;
+    const yn = (imgPts[i].y - cy) / fy;
+    A.push([X, Y, 1, 0, 0, 0, -X * xn, -Y * xn]); b.push(xn);
+    A.push([0, 0, 0, X, Y, 1, -X * yn, -Y * yn]); b.push(yn);
+  }
+  const h = solveLinearSystem(A, b);
+  if (!h) return null;
+  return [[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1]];
+}
+
+// Decompõe a homografia em rotação + translação e converte da
+// convenção de visão computacional (X direita, Y baixo, Z entrando
+// na cena) para a convenção do Three.js (X direita, Y cima, Z saindo
+// da tela) — [6] "conversão da pose para o sistema Three.js".
+function decomposePose(H) {
+  const col1 = [H[0][0], H[1][0], H[2][0]];
+  const col2 = [H[0][1], H[1][1], H[2][1]];
+  const col3 = [H[0][2], H[1][2], H[2][2]];
+
+  const norm = v => Math.hypot(v[0], v[1], v[2]);
+  const n1 = norm(col1), n2 = norm(col2);
+  if (n1 < 1e-9 || n2 < 1e-9) return null;
+  const k = 2 / (n1 + n2); // normaliza para que r1,r2 fiquem ~unitários
+
+  const scale = (v, s) => [v[0] * s, v[1] * s, v[2] * s];
+  const dot = (a, c) => a[0]*c[0] + a[1]*c[1] + a[2]*c[2];
+  const sub = (a, c) => [a[0]-c[0], a[1]-c[1], a[2]-c[2]];
+  const cross = (a, c) => [a[1]*c[2]-a[2]*c[1], a[2]*c[0]-a[0]*c[2], a[0]*c[1]-a[1]*c[0]];
+  const normalize = v => scale(v, 1 / norm(v));
+
+  let r1 = normalize(scale(col1, k));
+  let r2n = sub(scale(col2, k), scale(r1, dot(scale(col2, k), r1)));
+  r2n = normalize(r2n);
+  const r3 = cross(r1, r2n);
+  const t = scale(col3, k); // posição do centro do QR na frente da câmera (metros)
+
+  // Descarta poses fisicamente absurdas (marcador "atrás" da câmera, ou longe demais)
+  if (t[2] <= 0.02 || t[2] > 4) return null;
+
+  const cvToGL = v => [v[0], -v[1], -v[2]];
+  const xA = cvToGL(r1), yA = cvToGL(r2n), zA = cvToGL(r3), pos = cvToGL(t);
+
+  const m = new THREE.Matrix4().makeBasis(
+    new THREE.Vector3(...xA), new THREE.Vector3(...yA), new THREE.Vector3(...zA)
+  );
+  return {
+    position: new THREE.Vector3(...pos),
+    quaternion: new THREE.Quaternion().setFromRotationMatrix(m),
+  };
+}
+
+function estimatePose(location) {
+  const imgPts = [location.topLeftCorner, location.topRightCorner, location.bottomRightCorner, location.bottomLeftCorner];
+  const H = computeHomography(imgPts, OBJECT_POINTS, getIntrinsics());
+  if (!H) return null;
+  return decomposePose(H);
+}
+
+// =================================================================
+// [3] DETECÇÃO DO QR CODE (a cada frame)
+// =================================================================
+function processFrame() {
+  if (!cameraActive || video.readyState < 2) return;
+
+  processingCtx.drawImage(video, 0, 0, PROCESSING_WIDTH, PROCESSING_HEIGHT);
+  const imageData = processingCtx.getImageData(0, 0, PROCESSING_WIDTH, PROCESSING_HEIGHT);
+  const code = jsQR(imageData.data, PROCESSING_WIDTH, PROCESSING_HEIGHT, { inversionAttempts: 'dontInvert' });
+
+  if (code && code.location) {
+    lastSeenTime = performance.now();
+    if (!qrDetected) { qrDetected = true; }
+
+    // (a) IDENTIFICAÇÃO — só quando o texto do QR muda
+    if (code.data !== lastQrData) {
+      lastQrData = code.data;
+      const info = identifyMarker(code.data);
+      if (info.modelIndex !== null && !manualModelOverride) switchModel(info.modelIndex, false);
+      setStatus(`QR Code encontrado: "${info.id}"`);
+      setMarkerInfo(`Objeto identificado: ${info.id}${info.modelIndex === null ? ' (sem modelo mapeado — usando o atual)' : ''}`);
+    }
+
+    // (b) TRACKING — a cada frame, independente do texto
+    const pose = estimatePose(code.location);
+    if (pose) {
+      targetPosition.copy(pose.position);
+      targetQuaternion.copy(pose.quaternion);
+      modelGroup.visible = true;
+    }
+  } else if (qrDetected && performance.now() - lastSeenTime > LOST_TIMEOUT_MS) {
+    qrDetected = false;
+    lastQrData = null;
+    modelGroup.visible = false;
+    setStatus('Procurando QR Code...');
+    setMarkerInfo('\u00A0');
+  }
+}
+
+// =================================================================
+// [7]+[8] POSICIONAMENTO DO MODELO E RENDERIZAÇÃO SOBRE O VÍDEO
+// -----------------------------------------------------------------
+// O <video> fica atrás (CSS, z-index implícito pela ordem no DOM) e
+// o <canvas> do Three.js fica por cima, com fundo transparente
+// (alpha: true + setClearColor(0x000000, 0)). O grupo do modelo
+// recebe a pose suavizada (lerp/slerp) a cada frame.
+// =================================================================
+function animate() {
+  if (!cameraActive) return;
+  processFrame();
+
+  currentPosition.lerp(targetPosition, SMOOTHING);
+  currentQuaternion.slerp(targetQuaternion, SMOOTHING);
+  modelGroup.position.copy(currentPosition);
+  modelGroup.quaternion.copy(currentQuaternion);
+
+  if (modelGroup.children.length > 0) {
+    const child = modelGroup.children[0];
+    if (currentModelIndex === 2) child.rotation.y += 0.02;
+    else if (currentModelIndex === 1) child.rotation.y += 0.006;
+  }
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+// ---------------------------------------------------------------
+// EVENTOS
+// ---------------------------------------------------------------
+btnShowQR.addEventListener('click', showQRCode);
+btnStartCamera.addEventListener('click', startCamera);
+btnStopCamera.addEventListener('click', stopCamera);
+btnUpdateQR.addEventListener('click', () => {
+  if (qrContainer.style.display !== 'none') showQRCode();
+  else setStatus(`QR pronto para "${qrContentInput.value.trim()}" — clique em "Mostrar QR".`);
+});
+modelButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const idx = parseInt(btn.dataset.model, 10);
+    switchModel(idx, true);
+    setStatus(`Modelo alterado manualmente para: ${btn.textContent.trim()}`);
+  });
+});
+window.addEventListener('resize', updateRendererSize);
+</script>
+</body>
+</html>
