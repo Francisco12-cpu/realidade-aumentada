@@ -1,0 +1,98 @@
+// =====================================================================
+// Caçador de Sinal — configuração central.
+// Todos os valores "de ajuste" do protótipo ficam aqui, para facilitar
+// testes no celular sem caçar números espalhados pelo código.
+// =====================================================================
+
+export const CONFIG = {
+  // ---- Jogador / câmera ----
+  EYE_HEIGHT: 1.6,          // altura dos olhos (m)
+  CAMERA_FOV: 70,           // FOV vertical da câmera 3D (graus)
+  STEREO_IPD: 0.064,        // distância entre olhos no modo estéreo (m)
+
+  // ---- Partida ----
+  GAME_TIME_S: 360,         // duração da partida (6 min)
+
+  // ---- Teleporte ----
+  TELEPORT: {
+    MAX_DIST: 4.0,          // distância máxima por salto (m, no plano do chão)
+    MIN_DIST: 0.6,          // saltos menores que isso são ignorados
+    COOLDOWN_S: 0.9,        // espera mínima entre saltos
+    CONFIRM_WINDOW_S: 0.9,  // tempo para abrir a palma depois da pistolinha
+    SPEED: 6.5,             // velocidade inicial da parábola (m/s)
+    UP_BIAS: 0.35,          // inclina a mira para cima (ajuda a alcançar longe)
+    GRAVITY: 9.8,
+    STEP_DT: 0.025,         // passo de simulação da parábola (s)
+    MAX_STEPS: 90,
+    PLAYER_RADIUS: 0.3,     // não pousar a menos disso de um bloco
+    FADE_MS: 160,
+  },
+
+  // ---- Mãos (MediaPipe) ----
+  HANDS: {
+    NUM_HANDS: 2,
+    VIDEO_W: 640,
+    VIDEO_H: 480,
+    DETECT_EVERY_N_FRAMES: 1,   // 2 = detecta em quadros alternados (mais FPS)
+    MIN_DETECTION_CONF: 0.5,
+    MIN_PRESENCE_CONF: 0.5,
+    MIN_TRACKING_CONF: 0.5,
+    // MediaPipe supõe imagem espelhada (selfie). Na câmera traseira o rótulo
+    // vem invertido, então por padrão invertemos. A calibração confirma.
+    FLIP_HANDEDNESS: true,
+    LOST_GRACE_MS: 220,         // segura a mão na tela por esse tempo se sumir
+    TRACK_MEMORY_MS: 600,       // memória de posição p/ não trocar esquerda/direita
+    LABEL_WEIGHT: 1.0,          // peso do rótulo do MediaPipe na atribuição
+    POS_WEIGHT: 4.0,            // peso da continuidade de posição
+    // Profundidade virtual (distância da mão à câmera no mundo 3D, em m)
+    VIRTUAL_NEAR: 0.28,
+    VIRTUAL_FAR: 0.85,
+    // Estimativa bruta padrão (sem calibrar) para mão perto/longe
+    RAW_NEAR: 0.25,
+    RAW_FAR: 0.70,
+    HAND_SCALE: 1.0,            // escala do esqueleto da mão
+    REACH_MARGIN: 0.92,         // alcance calibrado ocupa 92% da tela
+  },
+
+  // ---- Filtro One Euro (suavização) ----
+  FILTER: {
+    MIN_CUTOFF: 1.2,  // menor = mais suave parado (mais atraso)
+    BETA: 0.8,        // maior = menos atraso em movimento rápido
+    D_CUTOFF: 1.0,
+  },
+
+  // ---- Gestos ----
+  GESTURE: {
+    STABLE_FRAMES: 3,       // quadros seguidos para aceitar um gesto novo
+    // Limiares padrão (a calibração substitui)
+    DEFAULT_THRESHOLDS: {
+      ext: [0.72, 0.72, 0.72, 0.72], // retidão p/ considerar dedo esticado (indicador..mínimo)
+      thumbOut: 0.62,               // polegar afastado do indicador
+      pinch: 0.32,                  // distância polegar-indicador (relativa à palma)
+      fistIndex: 0.55,              // indicador abaixo disso = dobrado de punho
+    },
+  },
+
+  // ---- Interação ----
+  INTERACTION: {
+    TOUCH_DIST: 0.30,       // ponta do indicador até a superfície da caixa (m)
+    FALLBACK_TOUCH_DIST: 3.0, // botão "Tocar": abre caixa até essa distância
+    WIRES_PER_BOX: 3,
+    PANEL_DIST: 0.55,       // painel aparece a essa distância da câmera
+    PANEL_DROP: 0.15,       // inclina o painel um pouco abaixo do olhar (rad)
+    GRAB_SCREEN_PX: 75,     // raio (px na tela) para pegar um fio
+    SNAP_SCREEN_PX: 80,     // raio (px na tela) para encaixar um fio
+    PANEL_CLOSE_DIST: 2.5,  // se afastar mais que isso fecha o painel
+  },
+
+  // ---- Detector ----
+  DETECTOR: {
+    NEAR: 1.5,   // verde quando mais perto que isso
+    FAR: 15,     // vermelho a partir disso
+  },
+
+  STORAGE_KEY: 'cacador-sinal-calib-v1',
+};
+
+export const WIRE_COLORS = [0xff3b3b, 0x2ecc40, 0x2f7bff, 0xffd400];
+export const WIRE_NAMES = ['vermelho', 'verde', 'azul', 'amarelo'];

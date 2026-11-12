@@ -1,152 +1,63 @@
 <!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>AR com QR Code</title>
-<style>
-html,body{margin:0;height:100%;background:#000;overflow:hidden;font:15px system-ui,sans-serif;color:#fff}
-#stage{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
-#stage>*{position:absolute;inset:0;width:100%;height:100%}
-button,select,.b{font:inherit;border:0;border-radius:12px;padding:11px 16px;background:#fff;color:#000;text-decoration:none;cursor:pointer}
-.bar{position:absolute;left:0;right:0;padding:12px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;z-index:2}
-#top{top:0;padding-top:calc(12px + env(safe-area-inset-top))}
-#bot{bottom:0;padding-bottom:calc(12px + env(safe-area-inset-bottom));font-size:13px}
-#msg{position:absolute;top:45%;left:0;right:0;text-align:center;z-index:2;padding:0 24px;line-height:1.5;text-shadow:0 1px 6px #000}
-#msg small{opacity:.7}
-#gen{position:absolute;inset:0;z-index:3;background:#000;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:20px}
-#gen.on{display:flex}
-#qr{width:min(70vw,300px);height:auto;image-rendering:pixelated;border-radius:6px}
-</style></head><body>
-<div id="stage"><video id="v" playsinline muted autoplay></video><canvas id="gl"></canvas></div>
-<div id="msg">Toque em “Iniciar câmera” e aponte para um QR Code.<br><small>Francisco + Claude · @filho.af</small></div>
-<div class="bar" id="top"><button id="go">Iniciar câmera</button><button id="mk">Criar QR</button></div>
-<div class="bar" id="bot"><label>Zoom da câmera <input id="fov" type="range" min="60" max="140" value="85"></label><small style="width:100%;text-align:center;opacity:.75">Francisco + Claude · @filho.af</small></div>
-<div id="gen">
-  <b>Criar QR Code</b>
-  <select id="sh"><option value="robo">Robô caminhante</option><option value="cubo">Cubo saltitante</option><option value="planeta">Planeta com luas</option></select>
-  <canvas id="qr"></canvas>
-  <small>Imprima com 8 a 10 cm de lado, sem cortar a margem branca.</small>
-  <div><a id="dl" class="b">Baixar PNG</a> <button id="cl">Fechar</button></div>
-</div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
-<script>
-const $=id=>document.getElementById(id),v=$('v');
-const M=(c,o)=>new THREE.MeshLambertMaterial(Object.assign({color:c},o));
-const box=(w,h,d,c,x=0,y=0,z=0)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),M(c));m.position.set(x,y,z);return m};
-const ball=(r,c,x=0,y=0,z=0)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(r,20,14),M(c));m.position.set(x,y,z);return m};
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1118">
+  <title>Caçador de Sinal — protótipo</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <div id="fade"></div>
 
-/* ---------- Formas (unidade = lado do QR; y = para fora da superfície) ---------- */
-function mkRobo(){
-  const g=new THREE.Group(),b=new THREE.Group(),hd=new THREE.Group();g.add(b);
-  const pv=(x,y,w,h,c)=>{const p=new THREE.Group();p.position.set(x,y,0);p.add(box(w,h,w,c,0,-h/2));b.add(p);return p};
-  hd.position.y=.56;
-  hd.add(box(.2,.17,.17,0xe8edf5),box(.04,.04,.02,0x00e5c0,-.045,.01,.09),box(.04,.04,.02,0x00e5c0,.045,.01,.09),box(.01,.07,.01,0x888888,0,.12),ball(.025,0xff5a5a,0,.16));
-  b.add(box(.24,.26,.17,0x4f8cff,0,.3),hd);
-  const al=pv(-.15,.41,.06,.2,0xe8edf5),ar=pv(.15,.41,.06,.2,0xe8edf5),ll=pv(-.06,.17,.07,.17,0x3a6fd8),lr=pv(.06,.17,.07,.17,0x3a6fd8);
-  return[g,t=>{const a=t*.9,s=Math.sin(t*7);
-    b.position.set(Math.cos(a)*.3,Math.abs(s)*.025,Math.sin(a)*.3);b.rotation.y=-a;
-    ll.rotation.x=s*.6;lr.rotation.x=-s*.6;al.rotation.x=-s*.6;ar.rotation.x=s*.6;hd.rotation.y=Math.sin(t*2)*.4}]}
+  <!-- HUD do jogo -->
+  <div id="hud">
+    <div id="hud-top">
+      <span id="timer">0:00</span>
+      <span id="count"></span>
+      <span id="compass" hidden><span id="compass-arrow">▲</span> <span id="compass-text"></span></span>
+    </div>
+    <div id="crosshair"></div>
+  </div>
+  <div id="fps">— FPS</div>
 
-function mkCubo(){
-  const g=new THREE.Group(),c=new THREE.Group();g.add(c);
-  c.add(box(.3,.3,.3,0xff9f43,0,.15),box(.05,.06,.01,0x222222,-.07,.2,.151),box(.05,.06,.01,0x222222,.07,.2,.151),box(.1,.02,.01,0x222222,0,.1,.151));
-  return[g,t=>{const T=1.2,p=(t%T)/T;let y=0,sy;
-    if(p<.25)sy=1-.3*Math.sin(p/.25*Math.PI);
-    else{const q=(p-.25)/.75;y=.45*4*q*(1-q);sy=1+.18*Math.sin(q*Math.PI)}
-    const sx=1/Math.sqrt(sy);c.scale.set(sx,sy,sx);c.position.y=y;
-    c.rotation.y=Math.floor(t/T)*Math.PI/2+(p>.25?(p-.25)/.75*Math.PI/2:0)}]}
+  <!-- Botões alternativos aos gestos (protótipo) -->
+  <div id="controls">
+    <button id="btn-recenter" title="Recentrar a direção">⟲</button>
+    <button id="btn-aim" title="Mirar teleporte (liga/desliga)">🎯 Mirar</button>
+    <button id="btn-teleport" title="Confirmar teleporte">🚀 Ir</button>
+    <button id="btn-touch" title="Tocar/abrir a caixa mais próxima">👆 Tocar</button>
+    <button id="btn-pinch" title="Segure: pinça na mira do centro">🤏 Pinça</button>
+    <button id="btn-fist" title="Segure: pegar na mira do centro">✊ Pegar</button>
+    <button id="btn-stereo" title="Tela dividida para o óculos">👓</button>
+    <button id="btn-full" title="Tela cheia">⛶</button>
+    <button id="btn-debug" title="Painel de depuração">🐞</button>
+    <button id="btn-calib" title="Recalibrar">⚙</button>
+  </div>
 
-function mkPlaneta(){
-  const g=new THREE.Group(),c=new THREE.Group(),pl=ball(.17,0x7b61ff);g.add(c);c.add(pl);
-  const ring=new THREE.Mesh(new THREE.TorusGeometry(.27,.015,8,40),M(0xffd166));ring.rotation.x=1.2;c.add(ring);
-  const ms=[0xff6b6b,0x4ecdc4,0xffffff].map(k=>{const m=ball(.04,k);c.add(m);return m});
-  return[g,t=>{c.position.y=.5+Math.sin(t*2)*.04;ring.rotation.z=t*.5;
-    ms.forEach((m,i)=>{const a=t*(1.5+i*.5)+i*2.1,r=.33+i*.06;m.position.set(Math.cos(a)*r,Math.sin(a*.7)*.12,Math.sin(a)*r)})}]}
+  <!-- Depuração -->
+  <div id="debug" hidden>
+    <div id="debug-stats"></div>
+  </div>
+  <div id="preview" class="offscreen">
+    <video id="cam" playsinline muted autoplay></video>
+    <canvas id="cam2d"></canvas>
+  </div>
 
-const SH={robo:mkRobo,cubo:mkCubo,planeta:mkPlaneta},keys=Object.keys(SH);
+  <!-- Calibração / tutorial / fim -->
+  <div id="overlay" hidden></div>
+  <div id="toast"></div>
 
-/* ---------- Cena ---------- */
-const R=new THREE.WebGLRenderer({canvas:$('gl'),alpha:true,antialias:true}),S=new THREE.Scene(),C=new THREE.PerspectiveCamera(50,1,.01,100);
-const A=new THREE.Group(),L=new THREE.DirectionalLight(0xffffff,.8);
-L.position.set(.4,1,.5);A.add(L,L.target);S.add(A,new THREE.AmbientLight(0xffffff,.65));A.visible=false;
-const sc2=document.createElement('canvas');sc2.width=sc2.height=64;
-const g2=sc2.getContext('2d'),gr=g2.createRadialGradient(32,32,0,32,32,32);
-gr.addColorStop(0,'rgba(0,0,0,.55)');gr.addColorStop(1,'rgba(0,0,0,0)');g2.fillStyle=gr;g2.fillRect(0,0,64,64);
-const sh=new THREE.Mesh(new THREE.PlaneGeometry(.7,.7),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(sc2),transparent:true,depthWrite:false}));
-sh.rotation.x=-Math.PI/2;sh.position.y=.003;A.add(sh);
-const pr=new THREE.Mesh(new THREE.RingGeometry(.48,.5,48),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,depthWrite:false}));
-pr.rotation.x=-Math.PI/2;pr.position.y=.004;A.add(pr);
-
-/* ---------- Pose: 4 cantos do QR -> posição e rotação 3D ---------- */
-function homog(p,q){
-  const A=[];
-  for(let i=0;i<4;i++){const[u,v]=p[i],[x,y]=q[i];A.push([u,v,1,0,0,0,-x*u,-x*v,x],[0,0,0,u,v,1,-y*u,-y*v,y])}
-  for(let i=0;i<8;i++){let m=i;for(let r=i+1;r<8;r++)if(Math.abs(A[r][i])>Math.abs(A[m][i]))m=r;
-    [A[i],A[m]]=[A[m],A[i]];
-    for(let r=0;r<8;r++)if(r!=i){const f=A[r][i]/A[i][i];for(let c=i;c<9;c++)A[r][c]-=f*A[i][c]}}
-  return A.map((r,i)=>r[8]/r[i]).concat(1)}
-function pose(q,f,cx,cy){
-  const H=homog([[-.5,-.5],[.5,-.5],[.5,.5],[-.5,.5]],q);
-  const col=j=>{const z=H[6+j];return new THREE.Vector3((H[j]-cx*z)/f,(H[3+j]-cy*z)/f,z)};
-  const a=col(0),b=col(1),t=col(2),l=2/(a.length()+b.length());
-  t.multiplyScalar(l);a.normalize();b.sub(a.clone().multiplyScalar(a.dot(b))).normalize();
-  const n=new THREE.Vector3().crossVectors(a,b),F=w=>new THREE.Vector3(w.x,-w.y,-w.z);
-  return new THREE.Matrix4().makeBasis(F(a),F(n.negate()),F(b)).setPosition(F(t))}
-
-/* ---------- Câmera e detecção ---------- */
-const off=document.createElement('canvas'),ox=off.getContext('2d',{willReadFrequently:true});
-let cw=0,ch=0;
-const fk=()=>$('fov').value/100;
-function lay(){const s=Math.max(innerWidth/cw,innerHeight/ch),st=$('stage').style;
-  st.width=cw*s+'px';st.height=ch*s+'px';R.setPixelRatio(Math.min(devicePixelRatio,2));R.setSize(cw*s,ch*s,false)}
-addEventListener('resize',()=>cw&&lay());
-function detect(){
-  ox.drawImage(v,0,0,cw,ch);const d=ox.getImageData(0,0,cw,ch);
-  const r=jsQR(d.data,cw,ch,{inversionAttempts:'dontInvert'});
-  if(r)return{txt:r.data,q:['topLeftCorner','topRightCorner','bottomRightCorner','bottomLeftCorner'].map(k=>[r.location[k].x,r.location[k].y])}}
-$('go').onclick=async()=>{try{
-  v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-  await v.play();const k=Math.min(1,720/Math.max(v.videoWidth,v.videoHeight));
-  cw=Math.round(v.videoWidth*k);ch=Math.round(v.videoHeight*k);off.width=cw;off.height=ch;
-  lay();$('go').hidden=true;$('msg').innerHTML='Aponte para um QR Code.<br><small>Qualquer QR vira um bichinho.</small>';loop();
-}catch(e){$('msg').textContent='Não consegui abrir a câmera: '+e.message}};
-
-/* ---------- Loop: detecta, suaviza e anima ---------- */
-const el=x=>x<=0?0:x>=1?1:Math.pow(2,-10*x)*Math.sin((x*10-.75)*2.094)+1;
-const tp=new THREE.Vector3(),tq=new THREE.Quaternion(),sv=new THREE.Vector3();
-let cur=null,upd=null,id='',seen=-9,t0=0,shown=false,sc=0,fr=0,last=performance.now();
-function loop(now=performance.now()){
-  requestAnimationFrame(loop);
-  const dt=Math.min(.1,(now-last)/1e3),t=now/1e3;last=now;
-  if(fr++%2==0){const r=detect();if(r){
-    let nid=(r.txt.match(/[?&]m=(\w+)/)||[])[1];
-    if(!SH[nid]){let h=0;for(const c of r.txt)h=(h*31+c.charCodeAt(0))>>>0;nid=keys[h%keys.length]}
-    pose(r.q,fk()*Math.max(cw,ch),cw/2,ch/2).decompose(tp,tq,sv);seen=t;
-    if(!shown||nid!=id){
-      id=nid;if(cur)A.remove(cur);[cur,upd]=SH[id]();A.add(cur);
-      shown=true;t0=t;A.position.copy(tp);A.quaternion.copy(tq);
-    }}}
-  if(shown&&t-seen>.35)shown=false;
-  if(shown){
-    const e=A.position.distanceTo(tp)+A.quaternion.angleTo(tq)*.5,k=1-Math.exp(-dt*(8+80*Math.min(1,e*2)));
-    A.position.lerp(tp,k);A.quaternion.slerp(tq,k);
-    const a=(t-t0)/.9;sc=el(a);
-    pr.scale.setScalar(1+Math.min(1,a)*1.1);pr.material.opacity=Math.max(0,1-a*1.2);
-  }else sc=Math.max(0,sc-dt*5);
-  A.visible=sc>.01;
-  if(cur){cur.scale.setScalar(Math.max(sc,.001));sh.scale.setScalar(Math.max(sc,.001));upd(t)}
-  C.fov=2*Math.atan(ch/(2*fk()*Math.max(cw,ch)))*180/Math.PI;C.aspect=cw/ch;C.updateProjectionMatrix();
-  R.render(S,C);
-}
-
-/* ---------- Gerador de QR ---------- */
-function drawQR(){
-  const q=qrcode(0,'M'),s=$('sh').value;q.addData(location.href.split(/[?#]/)[0]+'?m='+s);q.make();
-  const n=q.getModuleCount(),z=10,pad=4,c=$('qr'),x=c.getContext('2d');
-  c.width=c.height=(n+pad*2)*z;x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.fillStyle='#000';
-  for(let r=0;r<n;r++)for(let k=0;k<n;k++)if(q.isDark(r,k))x.fillRect((k+pad)*z,(r+pad)*z,z,z);
-  $('dl').href=c.toDataURL();$('dl').download='qr-'+s+'.png'}
-$('mk').onclick=()=>{$('gen').classList.add('on');drawQR()};
-$('sh').onchange=drawQR;$('cl').onclick=()=>$('gen').classList.remove('on');
-</script></body></html>
+  <noscript>Este protótipo precisa de JavaScript.</noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
