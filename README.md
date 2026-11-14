@@ -19,6 +19,8 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
    **https://francisco12-cpu.github.io/realidade-aumentada/**
 3. Abra o link no **Chrome do Infinix** e aceite as permissões de **câmera** e de **sensores de movimento**.
 
+**Atalho: arquivo único.** O arquivo `dist/index.html` tem o jogo inteiro (CSS e JS embutidos). Para publicar sem mexer em pastas, envie só ele pelo site do GitHub como `index.html` na raiz da `main` (**Add file → Upload files**). Para gerar de novo depois de mudar o código: `python3 tools/build-single.py`.
+
 > Câmera e sensores só funcionam em **HTTPS**, e o GitHub Pages já usa HTTPS.
 > No PC dá para testar com `python3 -m http.server` e abrir `http://localhost:8000`, porque o localhost também é aceito.
 

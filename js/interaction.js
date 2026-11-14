@@ -255,14 +255,22 @@ export class Interaction {
         for (const p of P.plugs) {
           if (p.connected || [...this.grabs.values()].includes(p)) continue;
           this._toScreen(p.mesh.position, s, w, h);
-          const d = Math.hypot(s.x - ptr.x, s.y - ptr.y);
+          // usa o ponto onde o toque começou (o dedo pode ter andado antes deste quadro)
+          const d = Math.hypot(s.x - (ptr.sx ?? ptr.x), s.y - (ptr.sy ?? ptr.y));
           if (d < bestD) { bestD = d; best = p; }
         }
-        if (best) this.grabs.set(ptr.id, best);
+        if (best) {
+          this.grabs.set(ptr.id, best);
+          const lp = this._screenToPanel(ptr.x, ptr.y, w, h, new THREE.Vector3());
+          if (lp) best.mesh.position.copy(lp);
+        }
       } else if (ptr.down && grabbed) {
         const lp = this._screenToPanel(ptr.x, ptr.y, w, h, new THREE.Vector3());
         if (lp) grabbed.mesh.position.copy(lp);
       } else if (!ptr.down && grabbed) {
+        // leva o fio até onde o dedo soltou (pode ter movido no mesmo quadro)
+        const lp = this._screenToPanel(ptr.x, ptr.y, w, h, new THREE.Vector3());
+        if (lp) grabbed.mesh.position.copy(lp);
         this._release(ptr.id, grabbed, w, h);
       }
       if (!ptr.down) {

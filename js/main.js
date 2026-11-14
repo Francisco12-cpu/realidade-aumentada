@@ -203,7 +203,7 @@ class App {
     const c = this.canvas;
     c.addEventListener('pointerdown', (e) => {
       c.setPointerCapture(e.pointerId);
-      this.mouse.set(e.pointerId, { id: `m${e.pointerId}`, x: e.clientX, y: e.clientY, down: true, lx: e.clientX, ly: e.clientY });
+      this.mouse.set(e.pointerId, { id: `m${e.pointerId}`, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, down: true, lx: e.clientX, ly: e.clientY });
     });
     c.addEventListener('pointermove', (e) => {
       const p = this.mouse.get(e.pointerId);
@@ -281,7 +281,7 @@ class App {
     const input = this.debug.input;
     if (input.pinch || input.fist) list.push({ id: 'cross', x: w / 2, y: h / 2, down: true });
     for (const [pid, p] of this.mouse) {
-      list.push({ id: p.id, x: p.x, y: p.y, down: p.down });
+      list.push({ id: p.id, x: p.x, y: p.y, sx: p.sx, sy: p.sy, down: p.down });
       if (!p.down) this.mouse.delete(pid);
     }
     for (const p of list) p.wasDown = this.prevDown.get(p.id) || false;
