@@ -1,0 +1,2468 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1118">
+  <title>Caçador de Sinal — protótipo</title>
+  <style>
+:root {
+  --bg: #0b1118;
+  --panel: rgba(11, 17, 24, 0.86);
+  --text: #f2f6fa;
+  --muted: #9fb0c0;
+  --accent: #00e5ff;
+  --ok: #3ddc84;
+  --bad: #ff5468;
+  --btn: rgba(255, 255, 255, 0.14);
+  --btn-on: rgba(0, 229, 255, 0.45);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 5; }
+
+button {
+  font: inherit; color: var(--text); background: var(--btn); border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 12px; padding: 10px 14px; min-height: 44px; cursor: pointer; touch-action: manipulation;
+}
+button.primary { background: var(--accent); color: #00222a; border-color: transparent; font-weight: 600; }
+button.on { background: var(--btn-on); }
+button:disabled { opacity: 0.5; }
+
+/* ---------- HUD ---------- */
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 2; display: none; }
+#hud.active { display: block; }
+#hud-top {
+  position: absolute; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+  display: flex; gap: 12px; align-items: center; background: var(--panel); padding: 6px 14px; border-radius: 999px;
+  font-weight: 700; font-variant-numeric: tabular-nums;
+}
+#timer.urgent { color: var(--bad); }
+#compass { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; font-size: 14px; }
+#compass[hidden] { display: none; }
+#compass-arrow { display: inline-block; color: var(--accent); font-size: 16px; }
+#crosshair {
+  position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border: 2px solid rgba(255,255,255,0.35); border-radius: 50%; display: none;
+}
+#crosshair.on { display: block; border-color: var(--accent); }
+#fps {
+  position: fixed; left: calc(8px + env(safe-area-inset-left)); top: calc(8px + env(safe-area-inset-top));
+  font: 12px ui-monospace, monospace; background: rgba(0,0,0,0.5); padding: 2px 6px; border-radius: 6px; z-index: 6; pointer-events: none;
+}
+
+/* ---------- Botões ---------- */
+#controls {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 4;
+  display: flex; gap: 6px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  overflow-x: auto; scrollbar-width: none; background: linear-gradient(transparent, rgba(0,0,0,0.45));
+}
+#controls::-webkit-scrollbar { display: none; }
+#controls button { flex: 0 0 auto; padding: 8px 11px; font-size: 14px; }
+
+/* ---------- Depuração ---------- */
+#debug {
+  position: fixed; right: calc(6px + env(safe-area-inset-right)); bottom: calc(66px + env(safe-area-inset-bottom));
+  width: min(360px, calc(64vw - 12px)); max-height: 34vh; overflow: auto;
+  background: rgba(0,0,0,0.72); border-radius: 10px; padding: 8px 10px; z-index: 6;
+  font: 12px/1.4 ui-monospace, monospace; pointer-events: none;
+}
+#debug-stats > div { margin-bottom: 3px; }
+#preview {
+  position: fixed; left: calc(6px + env(safe-area-inset-left)); bottom: calc(66px + env(safe-area-inset-bottom));
+  width: 34vw; max-width: 200px; z-index: 6; border-radius: 8px; overflow: hidden; pointer-events: none; border: 1px solid #fff4;
+}
+#preview video, #preview canvas { display: block; width: 100%; height: auto; }
+#preview canvas { position: absolute; inset: 0; height: 100%; }
+body.sheet-bottom #preview, body.sheet-bottom #debug { top: calc(34px + env(safe-area-inset-top)); bottom: auto; max-height: 24vh; }
+/* vídeo continua tocando (MediaPipe precisa) mas fica invisível */
+#preview.offscreen { width: 2px; height: 2px; opacity: 0.01; border: 0; }
+
+.ok { color: var(--ok); }
+.bad { color: var(--bad); }
+.small { font-size: 12.5px; color: var(--muted); }
+
+/* ---------- Overlay (calibração/tutorial/fim) ---------- */
+#overlay {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 7; max-height: 72vh; display: flex; justify-content: center;
+  padding: 0 10px calc(62px + env(safe-area-inset-bottom)); pointer-events: none;
+}
+#overlay[hidden] { display: none; }
+#overlay .sheet {
+  pointer-events: auto; width: min(560px, 100%); max-height: calc(72vh - 62px); overflow: auto;
+  background: var(--panel); border: 1px solid rgba(255,255,255,0.12); border-radius: 16px; padding: 14px 16px;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+#overlay h2 { margin: 0 0 6px; font-size: 18px; }
+#overlay p { margin: 6px 0; }
+#overlay .live { margin: 8px 0; min-height: 1.4em; font-size: 14px; color: #dff; }
+#overlay .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+#overlay.compact { top: calc(48px + env(safe-area-inset-top)); bottom: auto; padding-bottom: 0; }
+#overlay.compact .sheet { padding: 10px 12px; font-size: 13.5px; max-height: 40vh; }
+#overlay.compact h2 { font-size: 15px; }
+#overlay.compact .btns { margin-top: 4px; }
+#overlay.compact .btns button { min-height: 36px; padding: 6px 12px; }
+#overlay.compact .live { display: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12.5px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); color: var(--muted); }
+.chip.cur { background: rgba(0,229,255,0.2); color: var(--text); }
+.chip.done { color: var(--ok); }
+
+#toast {
+  position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 8;
+  background: var(--panel); padding: 8px 16px; border-radius: 12px; opacity: 0; transition: opacity 0.2s; pointer-events: none;
+  max-width: 86vw; text-align: center;
+}
+#toast.show { opacity: 1; }
+.fatal { position: fixed; inset: 20px; background: #300; padding: 20px; border-radius: 12px; z-index: 99; }
+
+/* ---------- Modo estéreo (óculos): esconde quase tudo ---------- */
+body.stereo #overlay, body.stereo #debug, body.stereo #preview, body.stereo #hud-top, body.stereo #compass { display: none !important; }
+body.stereo #controls { opacity: 0.25; }
+body.stereo #controls:active { opacity: 1; }
+</style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <div id="fade"></div>
+
+  <!-- HUD do jogo -->
+  <div id="hud">
+    <div id="hud-top">
+      <span id="timer">0:00</span>
+      <span id="count"></span>
+      <span id="compass" hidden><span id="compass-arrow">▲</span> <span id="compass-text"></span></span>
+    </div>
+    <div id="crosshair"></div>
+  </div>
+  <div id="fps">— FPS</div>
+
+  <!-- Botões alternativos aos gestos (protótipo) -->
+  <div id="controls">
+    <button id="btn-recenter" title="Recentrar a direção">⟲</button>
+    <button id="btn-aim" title="Mirar teleporte (liga/desliga)">🎯 Mirar</button>
+    <button id="btn-teleport" title="Confirmar teleporte">🚀 Ir</button>
+    <button id="btn-touch" title="Tocar/abrir a caixa mais próxima">👆 Tocar</button>
+    <button id="btn-pinch" title="Segure: pinça na mira do centro">🤏 Pinça</button>
+    <button id="btn-fist" title="Segure: pegar na mira do centro">✊ Pegar</button>
+    <button id="btn-stereo" title="Tela dividida para o óculos">👓</button>
+    <button id="btn-full" title="Tela cheia">⛶</button>
+    <button id="btn-debug" title="Painel de depuração">🐞</button>
+    <button id="btn-calib" title="Recalibrar">⚙</button>
+  </div>
+
+  <!-- Depuração -->
+  <div id="debug" hidden>
+    <div id="debug-stats"></div>
+  </div>
+  <div id="preview" class="offscreen">
+    <video id="cam" playsinline muted autoplay></video>
+    <canvas id="cam2d"></canvas>
+  </div>
+
+  <!-- Calibração / tutorial / fim -->
+  <div id="overlay" hidden></div>
+  <div id="toast"></div>
+
+  <noscript>Este protótipo precisa de JavaScript.</noscript>
+  <script type="module">
+import * as THREE from 'three';
+// ===== js/config.js =====
+// =====================================================================
+// Caçador de Sinal — configuração central.
+// Todos os valores "de ajuste" do protótipo ficam aqui, para facilitar
+// testes no celular sem caçar números espalhados pelo código.
+// =====================================================================
+
+const CONFIG = {
+  // ---- Jogador / câmera ----
+  EYE_HEIGHT: 1.6,          // altura dos olhos (m)
+  CAMERA_FOV: 70,           // FOV vertical da câmera 3D (graus)
+  STEREO_IPD: 0.064,        // distância entre olhos no modo estéreo (m)
+
+  // ---- Partida ----
+  GAME_TIME_S: 360,         // duração da partida (6 min)
+
+  // ---- Teleporte ----
+  TELEPORT: {
+    MAX_DIST: 4.0,          // distância máxima por salto (m, no plano do chão)
+    MIN_DIST: 0.6,          // saltos menores que isso são ignorados
+    COOLDOWN_S: 0.9,        // espera mínima entre saltos
+    CONFIRM_WINDOW_S: 0.9,  // tempo para abrir a palma depois da pistolinha
+    SPEED: 6.5,             // velocidade inicial da parábola (m/s)
+    UP_BIAS: 0.35,          // inclina a mira para cima (ajuda a alcançar longe)
+    GRAVITY: 9.8,
+    STEP_DT: 0.025,         // passo de simulação da parábola (s)
+    MAX_STEPS: 90,
+    PLAYER_RADIUS: 0.3,     // não pousar a menos disso de um bloco
+    FADE_MS: 160,
+  },
+
+  // ---- Mãos (MediaPipe) ----
+  HANDS: {
+    NUM_HANDS: 2,
+    VIDEO_W: 640,
+    VIDEO_H: 480,
+    DETECT_EVERY_N_FRAMES: 1,   // 2 = detecta em quadros alternados (mais FPS)
+    MIN_DETECTION_CONF: 0.5,
+    MIN_PRESENCE_CONF: 0.5,
+    MIN_TRACKING_CONF: 0.5,
+    // MediaPipe supõe imagem espelhada (selfie). Na câmera traseira o rótulo
+    // vem invertido, então por padrão invertemos. A calibração confirma.
+    FLIP_HANDEDNESS: true,
+    LOST_GRACE_MS: 220,         // segura a mão na tela por esse tempo se sumir
+    TRACK_MEMORY_MS: 600,       // memória de posição p/ não trocar esquerda/direita
+    LABEL_WEIGHT: 1.0,          // peso do rótulo do MediaPipe na atribuição
+    POS_WEIGHT: 4.0,            // peso da continuidade de posição
+    // Profundidade virtual (distância da mão à câmera no mundo 3D, em m)
+    VIRTUAL_NEAR: 0.28,
+    VIRTUAL_FAR: 0.85,
+    // Estimativa bruta padrão (sem calibrar) para mão perto/longe
+    RAW_NEAR: 0.25,
+    RAW_FAR: 0.70,
+    HAND_SCALE: 1.0,            // escala do esqueleto da mão
+    REACH_MARGIN: 0.92,         // alcance calibrado ocupa 92% da tela
+  },
+
+  // ---- Filtro One Euro (suavização) ----
+  FILTER: {
+    MIN_CUTOFF: 1.2,  // menor = mais suave parado (mais atraso)
+    BETA: 0.8,        // maior = menos atraso em movimento rápido
+    D_CUTOFF: 1.0,
+  },
+
+  // ---- Gestos ----
+  GESTURE: {
+    STABLE_FRAMES: 3,       // quadros seguidos para aceitar um gesto novo
+    // Limiares padrão (a calibração substitui)
+    DEFAULT_THRESHOLDS: {
+      ext: [0.72, 0.72, 0.72, 0.72], // retidão p/ considerar dedo esticado (indicador..mínimo)
+      thumbOut: 0.62,               // polegar afastado do indicador
+      pinch: 0.32,                  // distância polegar-indicador (relativa à palma)
+      fistIndex: 0.55,              // indicador abaixo disso = dobrado de punho
+    },
+  },
+
+  // ---- Interação ----
+  INTERACTION: {
+    TOUCH_DIST: 0.30,       // ponta do indicador até a superfície da caixa (m)
+    FALLBACK_TOUCH_DIST: 3.0, // botão "Tocar": abre caixa até essa distância
+    WIRES_PER_BOX: 3,
+    PANEL_DIST: 0.55,       // painel aparece a essa distância da câmera
+    PANEL_DROP: 0.15,       // inclina o painel um pouco abaixo do olhar (rad)
+    GRAB_SCREEN_PX: 75,     // raio (px na tela) para pegar um fio
+    SNAP_SCREEN_PX: 80,     // raio (px na tela) para encaixar um fio
+    PANEL_CLOSE_DIST: 2.5,  // se afastar mais que isso fecha o painel
+  },
+
+  // ---- Detector ----
+  DETECTOR: {
+    NEAR: 1.5,   // verde quando mais perto que isso
+    FAR: 15,     // vermelho a partir disso
+  },
+
+  STORAGE_KEY: 'cacador-sinal-calib-v1',
+};
+
+const WIRE_COLORS = [0xff3b3b, 0x2ecc40, 0x2f7bff, 0xffd400];
+const WIRE_NAMES = ['vermelho', 'verde', 'azul', 'amarelo'];
+
+// ===== js/filters.js =====
+// Filtro One Euro (Casiez et al. 2012): suaviza tremor quando a mão está
+// parada e reduz atraso quando ela se move rápido.
+
+function alpha(cutoff, dt) {
+  const tau = 1 / (2 * Math.PI * cutoff);
+  return 1 / (1 + tau / dt);
+}
+
+class OneEuro {
+  constructor(minCutoff, beta, dCutoff) {
+    this.minCutoff = minCutoff;
+    this.beta = beta;
+    this.dCutoff = dCutoff;
+    this.x = null;
+    this.dx = 0;
+    this.t = 0;
+  }
+
+  reset() { this.x = null; this.dx = 0; }
+
+  filter(value, tSec) {
+    if (this.x === null) { this.x = value; this.t = tSec; return value; }
+    const dt = Math.max(1e-3, tSec - this.t);
+    this.t = tSec;
+    const dxRaw = (value - this.x) / dt;
+    this.dx += alpha(this.dCutoff, dt) * (dxRaw - this.dx);
+    const cutoff = this.minCutoff + this.beta * Math.abs(this.dx);
+    this.x += alpha(cutoff, dt) * (value - this.x);
+    return this.x;
+  }
+}
+
+// Filtro para um Vector3 (3 filtros escalares).
+class OneEuro3 {
+  constructor(cfg) {
+    this.f = [0, 1, 2].map(() => new OneEuro(cfg.MIN_CUTOFF, cfg.BETA, cfg.D_CUTOFF));
+  }
+  reset() { this.f.forEach((f) => f.reset()); }
+  filter(v, tSec) {
+    v.x = this.f[0].filter(v.x, tSec);
+    v.y = this.f[1].filter(v.y, tSec);
+    v.z = this.f[2].filter(v.z, tSec);
+    return v;
+  }
+}
+
+// ===== js/scene.js =====
+// Mapa de teste: blocos coloridos + chão branco + caixas pretas (pontos de sinal).
+// Nada da escola ainda — o objetivo é só ter referências visuais e obstáculos.
+
+const BOX_SIZE = 0.45;
+
+// [xMin, xMax, zMin, zMax, yMin, yMax, cor]
+const BLOCKS = [
+  // Corredor central: parede vermelha (esq.) e azul (dir.)
+  [-6.0, -5.0, -12, 3, 0, 3, 0xe74c3c],
+  [5.0, 6.0, -12, 3, 0, 3, 0x3498db],
+  // Mesa verde no meio do corredor
+  [-1.5, 1.5, -3.0, -1.8, 0, 1.1, 0x2ecc71],
+  // Pedestal do tutorial
+  [-0.35, 0.35, 4.15, 4.85, 0, 0.78, 0x95a5a6],
+  // Sala roxa (porta virada para o corredor)
+  [-15, -14.4, -8, 2, 0, 3, 0x9b59b6],
+  [-15, -8, -8.6, -8, 0, 3, 0x9b59b6],
+  [-15, -8, 2, 2.6, 0, 3, 0x9b59b6],
+  [-8.6, -8, -8, -4.5, 0, 3, 0x9b59b6],
+  [-8.6, -8, -1.5, 2, 0, 3, 0x9b59b6],
+  // Cobertura laranja (pilares + teto baixo)
+  [7.8, 8.1, -14.2, -13.9, 0, 2.5, 0xe67e22],
+  [11.9, 12.2, -14.2, -13.9, 0, 2.5, 0xe67e22],
+  [7.8, 8.1, -10.1, -9.8, 0, 2.5, 0xe67e22],
+  [11.9, 12.2, -10.1, -9.8, 0, 2.5, 0xe67e22],
+  [7.8, 12.2, -14.2, -9.8, 2.5, 2.7, 0xe67e22],
+  // Blocos soltos para referência
+  [8, 10, 2, 4, 0, 1.6, 0xf1c40f],
+  [-10, -8.5, 8, 9.5, 0, 2.2, 0x1abc9c],
+  [2, 3, -16, -15, 0, 4, 0xe84393],
+  [-4, -2, 12, 13, 0, 1.0, 0x34495e],
+];
+
+// Pontos de sinal. normal = face exposta (por onde a caixa "abre").
+const TARGET_DEFS = [
+  { id: 'tutorial', tutorial: true, pos: [0, 0.78 + BOX_SIZE / 2, 4.5], normal: [0, 1, 0], wires: 1 },
+  { id: 'chao-1', pos: [-3, BOX_SIZE / 2, -6], normal: [0, 1, 0] },
+  { id: 'parede-vermelha', pos: [-5 + BOX_SIZE / 2, 1.4, -1], normal: [1, 0, 0] },
+  { id: 'teto', pos: [10, 2.5 - BOX_SIZE / 2, -12], normal: [0, -1, 0] },
+  { id: 'sala-roxa', pos: [-12, BOX_SIZE / 2, -3], normal: [0, 1, 0] },
+  { id: 'parede-azul-alta', pos: [5 - BOX_SIZE / 2, 1.9, -9], normal: [-1, 0, 0] },
+  { id: 'atras', pos: [3, BOX_SIZE / 2, 11], normal: [0, 1, 0] },
+];
+
+const tmpRay = new THREE.Ray();
+const tmpV = new THREE.Vector3();
+
+function buildWorld(scene) {
+  scene.background = new THREE.Color(0xcfe3f2);
+  scene.fog = new THREE.Fog(0xcfe3f2, 18, 45);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 1.1));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+  sun.position.set(6, 12, 4);
+  scene.add(sun);
+
+  // Chão branco + "estradas" cinza-claro + grade suave (ajuda a sentir o movimento)
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(40, 40),
+    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+  );
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+  const roadMat = new THREE.MeshLambertMaterial({ color: 0xe4e4e4 });
+  for (const [w, d, x, z] of [[3.6, 32, 0, -2], [24, 3, -4, 7], [20, 3, 2, -12]]) {
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(w, d), roadMat);
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(x, 0.005, z);
+    scene.add(road);
+  }
+  const grid = new THREE.GridHelper(40, 40, 0xbbbbbb, 0xdddddd);
+  grid.position.y = 0.01;
+  scene.add(grid);
+
+  const blocks = [];
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  for (const [x0, x1, z0, z1, y0, y1, color] of BLOCKS) {
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
+    mesh.scale.set(x1 - x0, y1 - y0, z1 - z0);
+    mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    scene.add(mesh);
+    blocks.push({ mesh, box: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)) });
+  }
+
+  const world = {
+    blocks,
+    targets: [],
+    spawn: new THREE.Vector3(0, 0, 8),
+    bounds: 19.5,
+
+    // Primeiro bloco atingido pelo segmento a->b (ou null).
+    segmentHit(a, b) {
+      const len = a.distanceTo(b);
+      if (len < 1e-6) return null;
+      tmpRay.origin.copy(a);
+      tmpRay.direction.subVectors(b, a).divideScalar(len);
+      let best = null;
+      let bestD = len;
+      for (const bl of blocks) {
+        const p = tmpRay.intersectBox(bl.box, tmpV);
+        if (!p) continue;
+        const d = p.distanceTo(a);
+        if (d <= bestD) { bestD = d; best = { point: p.clone(), block: bl }; }
+      }
+      return best;
+    },
+
+    // Ponto do chão livre de blocos (com raio do jogador)?
+    isFree(x, z, r) {
+      if (Math.abs(x) > this.bounds || Math.abs(z) > this.bounds) return false;
+      for (const bl of blocks) {
+        const b = bl.box;
+        if (b.min.y > CONFIG.EYE_HEIGHT + 0.2) continue; // teto alto não bloqueia
+        if (x > b.min.x - r && x < b.max.x + r && z > b.min.z - r && z < b.max.z + r) return false;
+      }
+      return true;
+    },
+  };
+
+  for (const def of TARGET_DEFS) world.targets.push(createTarget(scene, def));
+  return world;
+}
+
+function createTarget(scene, def) {
+  const group = new THREE.Group();
+  group.position.fromArray(def.pos);
+  scene.add(group);
+
+  const normal = new THREE.Vector3().fromArray(def.normal);
+  const black = new THREE.MeshLambertMaterial({ color: 0x111111 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(BOX_SIZE, BOX_SIZE, BOX_SIZE), black);
+  group.add(body);
+
+  // Tampa: placa fina na face exposta
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(BOX_SIZE * 1.04, 0.04, BOX_SIZE * 1.04), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+  lid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+  const lidClosed = normal.clone().multiplyScalar(BOX_SIZE / 2 + 0.02);
+  lid.position.copy(lidClosed);
+  group.add(lid);
+
+  // LED piscando (ajuda a achar a caixa)
+  const led = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff2222 }));
+  led.position.copy(normal).multiplyScalar(BOX_SIZE / 2 + 0.05);
+  // desloca o LED para um canto da face
+  const side = Math.abs(normal.y) > 0.5 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  led.position.addScaledVector(side, BOX_SIZE * 0.32);
+  group.add(led);
+
+  // "Sinal" dentro da caixa
+  const signal = new THREE.Mesh(new THREE.IcosahedronGeometry(0.11, 1), new THREE.MeshBasicMaterial({ color: 0xff4444, wireframe: true }));
+  signal.visible = false;
+  group.add(signal);
+
+  const center = new THREE.Vector3().fromArray(def.pos);
+  const half = BOX_SIZE / 2;
+  return {
+    id: def.id,
+    tutorial: !!def.tutorial,
+    wires: def.wires || CONFIG.INTERACTION.WIRES_PER_BOX,
+    group, body, lid, led, signal, normal, lidClosed,
+    center,
+    aabb: new THREE.Box3(center.clone().subScalar(half), center.clone().addScalar(half)),
+    state: 'closed', // closed | open | fixed
+    openT: 0,
+  };
+}
+
+// Atualiza animações das caixas (tampa abrindo, LED piscando, sinal girando).
+function animateTargets(targets, dt, timeSec) {
+  for (const t of targets) {
+    const goal = t.state === 'closed' ? 0 : 1;
+    t.openT += Math.sign(goal - t.openT) * Math.min(Math.abs(goal - t.openT), dt * 3);
+    const k = t.state === 'fixed' ? 0.25 : t.openT; // consertada: tampa quase fechada
+    t.lid.position.copy(t.lidClosed).addScaledVector(t.normal, k * 0.22);
+    t.signal.visible = t.openT > 0.05;
+    t.signal.position.copy(t.normal).multiplyScalar(0.1 + 0.25 * t.openT);
+    t.signal.rotation.y += dt * 2;
+    t.signal.rotation.x += dt * 1.3;
+    if (t.state === 'fixed') {
+      t.led.material.color.setHex(0x22ff55);
+      t.signal.material.color.setHex(0x22ff55);
+      t.body.material.color.setHex(0x1e8f3a);
+    } else {
+      t.led.visible = Math.sin(timeSec * 8) > -0.2;
+      t.led.material.color.setHex(0xff2222);
+      t.signal.material.color.setHex(0xff4444);
+      t.body.material.color.setHex(0x111111);
+    }
+    if (t.state === 'fixed') t.led.visible = true;
+  }
+}
+
+// ===== js/orientation.js =====
+// Rotação do celular -> rotação da câmera 3D.
+// Usa RelativeOrientationSensor (Chrome Android, menor latência) e cai para
+// DeviceOrientationEvent se não estiver disponível. No PC, arrastar o mouse gira.
+
+const Q_WORLD = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const DEG = Math.PI / 180;
+
+class OrientationController {
+  constructor(camera) {
+    this.camera = camera;
+    this.source = 'nenhum';
+    this.deviceQ = new THREE.Quaternion();
+    this.offset = new THREE.Quaternion();
+    this.hasData = false;
+    this.eventCount = 0;
+    this.manualYaw = 0;
+    this.manualPitch = 0;
+    this._euler = new THREE.Euler();
+    this._q0 = new THREE.Quaternion();
+    this._fwd = new THREE.Vector3();
+    this._onDO = this._onDeviceOrientation.bind(this);
+  }
+
+  // Precisa ser chamado a partir de um toque do usuário (iOS exige).
+  async requestPermission() {
+    try {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r !== 'granted') return false;
+      }
+    } catch (e) { console.warn('Permissão de orientação:', e); return false; }
+    return true;
+  }
+
+  async start(mode = 'auto') {
+    this.stop();
+    if (mode !== 'event' && 'RelativeOrientationSensor' in window) {
+      const ok = await this._startSensor();
+      if (ok) return this.source;
+    }
+    window.addEventListener('deviceorientation', this._onDO);
+    this.source = 'deviceorientation';
+    return this.source;
+  }
+
+  stop() {
+    window.removeEventListener('deviceorientation', this._onDO);
+    if (this.sensor) { try { this.sensor.stop(); } catch (e) { /* ignore */ } this.sensor = null; }
+    this.hasData = false;
+  }
+
+  _startSensor() {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (ok) => { if (!done) { done = true; resolve(ok); } };
+      try {
+        const s = new RelativeOrientationSensor({ frequency: 60, referenceFrame: 'screen' });
+        s.addEventListener('reading', () => {
+          if (!s.quaternion) return;
+          const [x, y, z, w] = s.quaternion;
+          // Sensor: quaternion do aparelho em relação à Terra (Z para cima).
+          // Three.js: Y para cima -> gira -90° em X.
+          this.deviceQ.set(x, y, z, w).premultiply(Q_WORLD);
+          this.hasData = true;
+          this.eventCount++;
+          finish(true);
+        });
+        s.addEventListener('error', (e) => { console.warn('Sensor falhou:', e.error); try { s.stop(); } catch (_) { /* */ } finish(false); });
+        s.start();
+        this.sensor = s;
+        this.source = 'RelativeOrientationSensor';
+        setTimeout(() => { if (!this.hasData) { try { s.stop(); } catch (_) { /* */ } this.sensor = null; finish(false); } }, 1200);
+      } catch (e) {
+        console.warn('Sensor indisponível:', e);
+        finish(false);
+      }
+    });
+  }
+
+  _onDeviceOrientation(e) {
+    if (e.alpha === null && e.beta === null && e.gamma === null) return; // PC sem sensor
+    const alpha = (e.alpha || 0) * DEG;
+    const beta = (e.beta || 0) * DEG;
+    const gamma = (e.gamma || 0) * DEG;
+    const orient = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * DEG;
+    // Fórmula clássica (antigo DeviceOrientationControls do three.js)
+    this._euler.set(beta, alpha, -gamma, 'YXZ');
+    this.deviceQ.setFromEuler(this._euler);
+    this.deviceQ.multiply(this._q0.set(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)));
+    this.deviceQ.multiply(this._q0.setFromAxisAngle(Z_AXIS, -orient));
+    this.hasData = true;
+    this.eventCount++;
+  }
+
+  // Faz a direção atual virar "frente" (-Z do mundo / do jogador).
+  recenter() {
+    if (this.hasData) {
+      this._fwd.set(0, 0, -1).applyQuaternion(this.deviceQ);
+      const yaw = Math.atan2(-this._fwd.x, -this._fwd.z);
+      this.offset.setFromAxisAngle(Y_AXIS, -yaw);
+    } else {
+      this.manualYaw = 0;
+      this.manualPitch = 0;
+    }
+  }
+
+  // Arrastar com mouse/dedo (só quando não há sensor)
+  addManual(dx, dy) {
+    this.manualYaw -= dx * 0.005;
+    this.manualPitch = THREE.MathUtils.clamp(this.manualPitch - dy * 0.005, -1.45, 1.45);
+  }
+
+  update() {
+    if (this.hasData) {
+      this.camera.quaternion.multiplyQuaternions(this.offset, this.deviceQ);
+    } else {
+      this._euler.set(this.manualPitch, this.manualYaw, 0, 'YXZ');
+      this.camera.quaternion.setFromEuler(this._euler);
+    }
+  }
+}
+
+// ===== js/hands.js =====
+// Rastreamento das mãos com MediaPipe Hand Landmarker (câmera traseira).
+// - Atribui cada detecção à mão ESQUERDA ou DIREITA com estabilização
+//   (rótulo do MediaPipe + continuidade de posição), para não trocar quando
+//   a mão some por alguns quadros.
+// - Recria a mão no espaço da câmera 3D (esqueleto de esferas e linhas),
+//   usando a posição na imagem + estimativa de profundidade pelo tamanho.
+// - Suaviza com filtro One Euro.
+
+const MP_VERSION = '0.10.14';
+const WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+const BONES = [
+  [0, 1], [1, 2], [2, 3], [3, 4],
+  [0, 5], [5, 6], [6, 7], [7, 8],
+  [5, 9], [9, 10], [10, 11], [11, 12],
+  [9, 13], [13, 14], [14, 15], [15, 16],
+  [13, 17], [0, 17], [17, 18], [18, 19], [19, 20],
+];
+
+const H = CONFIG.HANDS;
+
+class Hand {
+  constructor(side) {
+    this.side = side;            // 'left' | 'right' (mão real do jogador)
+    this.visible = false;        // mostrar na tela (inclui tempo de tolerância)
+    this.present = false;        // detectada no último quadro processado
+    this.lastSeen = -1e9;        // ms
+    this.lastC = { x: 0.5, y: 0.5 };
+    this.lm = null;              // landmarks normalizados da imagem
+    this.wlm = null;             // landmarks "world" (metros, centrados na mão)
+    this.rawLabel = '';
+    this.score = 0;
+    this.rawDepth = 0;
+    this.uv = { x: 0.5, y: 0.5 };
+    this.camPts = Array.from({ length: 21 }, () => new THREE.Vector3());
+    this.worldPts = Array.from({ length: 21 }, () => new THREE.Vector3());
+    this.filters = Array.from({ length: 21 }, () => new OneEuro3(CONFIG.FILTER));
+    // preenchido por gestures.js
+    this.features = null;
+    this.gesture = 'none';
+    this.gestureConf = 0;
+    this.gestureSince = 0;
+    this.candidate = 'none';
+    this.candidateCount = 0;
+    this.prevGesture = 'none';
+  }
+}
+
+class HandTracker {
+  constructor(calib) {
+    this.calib = calib;
+    this.video = document.getElementById('cam');
+    this.landmarker = null;
+    this.delegate = '';
+    this.stream = null;
+    this.lastVideoTime = -1;
+    this.lastTs = 0;
+    this.frame = 0;
+    this.detectMs = 0;
+    this.detectFps = 0;
+    this._detCount = 0;
+    this._detT0 = performance.now();
+    this.lastResult = null;
+    this.left = new Hand('left');
+    this.right = new Hand('right');
+    this.hands = [this.left, this.right];
+    this._p = new THREE.Vector3();
+  }
+
+  get(side) { return side === 'left' ? this.left : this.right; }
+
+  async startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Este navegador não dá acesso à câmera (precisa de HTTPS).');
+    }
+    const video = { facingMode: { ideal: 'environment' }, width: { ideal: H.VIDEO_W }, height: { ideal: H.VIDEO_H }, frameRate: { ideal: 30 } };
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video });
+    this.video.srcObject = this.stream;
+    this.video.muted = true;
+    this.video.setAttribute('playsinline', '');
+    await this.video.play();
+  }
+
+  async loadModel(onStatus = () => {}) {
+    onStatus('Baixando MediaPipe…');
+    const vision = await import('@mediapipe/tasks-vision');
+    const fileset = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = (delegate) => ({
+      baseOptions: { modelAssetPath: MODEL_URL, delegate },
+      runningMode: 'VIDEO',
+      numHands: H.NUM_HANDS,
+      minHandDetectionConfidence: H.MIN_DETECTION_CONF,
+      minHandPresenceConfidence: H.MIN_PRESENCE_CONF,
+      minTrackingConfidence: H.MIN_TRACKING_CONF,
+    });
+    onStatus('Carregando modelo das mãos (GPU)…');
+    try {
+      this.landmarker = await vision.HandLandmarker.createFromOptions(fileset, opts('GPU'));
+      this.delegate = 'GPU';
+    } catch (e) {
+      console.warn('GPU falhou, usando CPU', e);
+      onStatus('GPU indisponível, carregando em CPU…');
+      this.landmarker = await vision.HandLandmarker.createFromOptions(fileset, opts('CPU'));
+      this.delegate = 'CPU';
+    }
+  }
+
+  // Chamar todo quadro, depois de atualizar a câmera 3D.
+  // Retorna true se houve uma detecção nova neste quadro.
+  update(nowMs, camera) {
+    this.frame++;
+    let fresh = this._pendingFresh || false;
+    this._pendingFresh = false;
+    const v = this.video;
+    if (this.landmarker && v.readyState >= 2 && v.currentTime !== this.lastVideoTime &&
+        this.frame % H.DETECT_EVERY_N_FRAMES === 0) {
+      this.lastVideoTime = v.currentTime;
+      const ts = Math.max(nowMs, this.lastTs + 1);
+      this.lastTs = ts;
+      const t0 = performance.now();
+      let res = null;
+      try { res = this.landmarker.detectForVideo(v, ts); } catch (e) { console.warn(e); }
+      const ms = performance.now() - t0;
+      this.detectMs = this.detectMs * 0.85 + ms * 0.15;
+      if (res) { this._process(res, nowMs, camera); this.lastResult = res; fresh = true; }
+      this._detCount++;
+      if (nowMs - this._detT0 > 1000) {
+        this.detectFps = (this._detCount * 1000) / (nowMs - this._detT0);
+        this._detCount = 0;
+        this._detT0 = nowMs;
+      }
+    }
+
+    for (const h of this.hands) {
+      h.visible = nowMs - h.lastSeen < H.LOST_GRACE_MS;
+      if (!h.visible) { h.present = false; continue; }
+      for (let i = 0; i < 21; i++) h.worldPts[i].copy(h.camPts[i]).applyMatrix4(camera.matrixWorld);
+    }
+    return fresh;
+  }
+
+  // Injeta um resultado "falso" (usado pelos testes automáticos).
+  injectResult(res, nowMs, camera) {
+    this._process(res, nowMs, camera);
+    this.lastResult = res;
+    this._pendingFresh = true;
+  }
+
+  _process(res, nowMs, camera) {
+    const handed = res.handedness || res.handednesses || [];
+    const dets = (res.landmarks || []).map((lm, i) => {
+      const cat = handed[i] && handed[i][0];
+      const label = cat ? cat.categoryName : 'Left';
+      const score = cat ? cat.score : 0.5;
+      let isLeft = label === 'Left';
+      if (this.calib.flipHandedness) isLeft = !isLeft;
+      return { lm, wlm: res.worldLandmarks[i], label, score, pLeft: isLeft ? score : 1 - score, c: { x: lm[9].x, y: lm[9].y } };
+    });
+
+    const assigned = this._assign(dets, nowMs);
+    for (const h of this.hands) h.present = false;
+    for (const [hand, det] of assigned) this._applyDetection(hand, det, nowMs, camera);
+  }
+
+  _cost(det, hand, nowMs) {
+    const labelCost = hand.side === 'left' ? 1 - det.pLeft : det.pLeft;
+    let c = labelCost * H.LABEL_WEIGHT;
+    if (nowMs - hand.lastSeen < H.TRACK_MEMORY_MS) {
+      c += Math.hypot(det.c.x - hand.lastC.x, det.c.y - hand.lastC.y) * H.POS_WEIGHT;
+    } else {
+      c += 0.25 * H.POS_WEIGHT * 0.5; // sem memória: só o rótulo decide
+    }
+    return c;
+  }
+
+  _assign(dets, nowMs) {
+    const L = this.left, R = this.right;
+    if (dets.length === 0) return [];
+    if (dets.length === 1) {
+      const d = dets[0];
+      return [[this._cost(d, L, nowMs) <= this._cost(d, R, nowMs) ? L : R, d]];
+    }
+    const [a, b] = dets;
+    const ab = this._cost(a, L, nowMs) + this._cost(b, R, nowMs);
+    const ba = this._cost(a, R, nowMs) + this._cost(b, L, nowMs);
+    return ab <= ba ? [[L, a], [R, b]] : [[R, a], [L, b]];
+  }
+
+  // Converte posição na imagem (0..1) em coordenadas normalizadas da tela (-1..1)
+  mapUV(u, v, camera) {
+    const reach = this.calib.reach;
+    if (reach && reach.uMax - reach.uMin > 0.1 && reach.vMax - reach.vMin > 0.1) {
+      const m = H.REACH_MARGIN;
+      return {
+        x: (((u - reach.uMin) / (reach.uMax - reach.uMin)) * 2 - 1) * m,
+        y: -(((v - reach.vMin) / (reach.vMax - reach.vMin)) * 2 - 1) * m,
+      };
+    }
+    // Sem calibração de alcance: imagem "cobrindo" a tela (como object-fit: cover)
+    const vw = this.video.videoWidth || H.VIDEO_W;
+    const vh = this.video.videoHeight || H.VIDEO_H;
+    const va = vw / vh;
+    const sa = camera.aspect;
+    if (va > sa) {
+      const vis = sa / va;
+      return { x: (u - 0.5) / (vis / 2), y: -(v - 0.5) / 0.5 };
+    }
+    const vis = va / sa;
+    return { x: (u - 0.5) / 0.5, y: -(v - 0.5) / (vis / 2) };
+  }
+
+  depthFromRaw(raw) {
+    const { rawNear, rawFar } = this.calib.depth;
+    let t = (raw - rawNear) / Math.max(1e-3, rawFar - rawNear);
+    t = THREE.MathUtils.clamp(t, -0.3, 1.3);
+    return Math.max(0.15, THREE.MathUtils.lerp(H.VIRTUAL_NEAR, H.VIRTUAL_FAR, t));
+  }
+
+  _applyDetection(hand, det, nowMs, camera) {
+    const { lm, wlm } = det;
+    const vw = this.video.videoWidth || H.VIDEO_W;
+    const vh = this.video.videoHeight || H.VIDEO_H;
+    const m = Math.max(vw, vh);
+    const d2 = (a, b) => Math.hypot((lm[a].x - lm[b].x) * vw / m, (lm[a].y - lm[b].y) * vh / m);
+    const d3 = (a, b) => Math.hypot(wlm[a].x - wlm[b].x, wlm[a].y - wlm[b].y, wlm[a].z - wlm[b].z);
+    const img = d2(0, 5) + d2(0, 17) + d2(5, 17) + d2(0, 9);
+    const real = d3(0, 5) + d3(0, 17) + d3(5, 17) + d3(0, 9);
+    hand.rawDepth = real / Math.max(img, 1e-4);
+
+    if (nowMs - hand.lastSeen > H.LOST_GRACE_MS) hand.filters.forEach((f) => f.reset());
+    hand.lastSeen = nowMs;
+    hand.present = true;
+    hand.lastC = det.c;
+    hand.uv = det.c;
+    hand.lm = lm;
+    hand.wlm = wlm;
+    hand.rawLabel = det.label;
+    hand.score = det.score;
+
+    const ndc = this.mapUV(lm[9].x, lm[9].y, camera);
+    const d = this.depthFromRaw(hand.rawDepth);
+    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const tanH = tanV * camera.aspect;
+    const ax = ndc.x * d * tanH, ay = ndc.y * d * tanV, az = -d;
+    const s = H.HAND_SCALE;
+    const tSec = nowMs / 1000;
+    for (let i = 0; i < 21; i++) {
+      this._p.set(
+        ax + (wlm[i].x - wlm[9].x) * s,
+        ay - (wlm[i].y - wlm[9].y) * s,
+        az - (wlm[i].z - wlm[9].z) * s,
+      );
+      hand.filters[i].filter(this._p, tSec);
+      hand.camPts[i].copy(this._p);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// Visual: esqueleto de esferas + linhas, preso à câmera.
+// ---------------------------------------------------------------------
+const GESTURE_COLORS = {
+  none: 0x888888, neutral: 0xffffff, gun: 0xff9f1a, open: 0x2ecc40, fist: 0xff3b3b, pinch: 0xffe600,
+};
+
+class HandView {
+  constructor(camera, hand) {
+    this.hand = hand;
+    this.group = new THREE.Group();
+    camera.add(this.group);
+    const base = hand.side === 'left' ? 0x3d8bff : 0xff7a1a;
+    const jointMat = new THREE.MeshBasicMaterial({ color: base });
+    const geo = new THREE.SphereGeometry(0.008, 8, 6);
+    const tipGeo = new THREE.SphereGeometry(0.012, 10, 8);
+    this.joints = [];
+    for (let i = 0; i < 21; i++) {
+      const isTip = i === 4 || i === 8;
+      const mesh = new THREE.Mesh(isTip ? tipGeo : geo, isTip ? new THREE.MeshBasicMaterial({ color: 0xffffff }) : jointMat);
+      this.group.add(mesh);
+      this.joints.push(mesh);
+    }
+    this.palm = new THREE.Mesh(new THREE.SphereGeometry(0.016, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    this.group.add(this.palm);
+    this.linePos = new Float32Array(BONES.length * 6);
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(this.linePos, 3));
+    this.lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: base }));
+    this.lines.frustumCulled = false;
+    this.group.add(this.lines);
+    this.group.visible = false;
+  }
+
+  update() {
+    const h = this.hand;
+    this.group.visible = h.visible;
+    if (!h.visible) return;
+    for (let i = 0; i < 21; i++) this.joints[i].position.copy(h.camPts[i]);
+    this.palm.position.copy(h.camPts[0]);
+    this.palm.material.color.setHex(GESTURE_COLORS[h.gesture] || 0xffffff);
+    let k = 0;
+    for (const [a, b] of BONES) {
+      const pa = h.camPts[a], pb = h.camPts[b];
+      this.linePos[k++] = pa.x; this.linePos[k++] = pa.y; this.linePos[k++] = pa.z;
+      this.linePos[k++] = pb.x; this.linePos[k++] = pb.y; this.linePos[k++] = pb.z;
+    }
+    this.lines.geometry.attributes.position.needsUpdate = true;
+  }
+}
+
+// ===== js/gestures.js =====
+// Classificação de gestos por regras sobre os 21 pontos da mão.
+// Usa os landmarks "world" (3D em metros), que não dependem da distância
+// nem da rotação da mão na imagem.
+//
+// Gestos: neutral (mão relaxada), gun (pistolinha), open (palma aberta),
+//         fist (punho fechado), pinch (pinça).
+
+const GESTURES = ['neutral', 'gun', 'open', 'fist', 'pinch'];
+const GESTURE_LABELS = {
+  none: '—', neutral: 'normal', gun: 'pistolinha', open: 'palma aberta', fist: 'punho', pinch: 'pinça',
+};
+
+const FINGERS = [ // indicador, médio, anelar, mínimo: [mcp, pip, dip, tip]
+  [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20],
+];
+
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
+
+// Retidão de um dedo: 1 = totalmente reto, ~0.3 = totalmente dobrado.
+function straightness(w, [a, b, c, d]) {
+  const len = dist(w[a], w[b]) + dist(w[b], w[c]) + dist(w[c], w[d]);
+  return dist(w[a], w[d]) / Math.max(len, 1e-6);
+}
+
+function computeFeatures(w) {
+  const palm = Math.max(dist(w[0], w[9]), 1e-4);
+  return {
+    straight: FINGERS.map((f) => straightness(w, f)),
+    thumbOut: dist(w[4], w[5]) / palm,   // ponta do polegar longe da base do indicador
+    pinch: dist(w[4], w[8]) / palm,      // ponta do polegar até ponta do indicador
+  };
+}
+
+// Retorna { gesture, conf } — conf 0..1 = quão "longe" dos limiares.
+function classify(f, thr) {
+  const ext = f.straight.map((s, i) => s > thr.ext[i]);
+  const margin = (v, t) => Math.min(1, Math.abs(v - t) / 0.15);
+  const allCurled = !ext[0] && !ext[1] && !ext[2] && !ext[3];
+  const allExt = ext[0] && ext[1] && ext[2] && ext[3];
+
+  // Pinça: polegar e indicador juntos, indicador NÃO dobrado como num punho
+  if (f.pinch < thr.pinch && f.straight[0] > thr.fistIndex) {
+    return { gesture: 'pinch', conf: Math.min(margin(f.pinch, thr.pinch), margin(f.straight[0], thr.fistIndex)) };
+  }
+  if (allCurled && f.straight[0] < thr.fistIndex + 0.08) {
+    const c = Math.min(...f.straight.map((s, i) => margin(s, thr.ext[i])));
+    return { gesture: 'fist', conf: c };
+  }
+  if (ext[0] && !ext[1] && !ext[2] && !ext[3] && f.thumbOut > thr.thumbOut) {
+    const c = Math.min(margin(f.straight[0], thr.ext[0]), margin(f.straight[1], thr.ext[1]), margin(f.thumbOut, thr.thumbOut));
+    return { gesture: 'gun', conf: c };
+  }
+  if (allExt && f.thumbOut > thr.thumbOut * 0.85 && f.pinch > thr.pinch * 1.6) {
+    const c = Math.min(...f.straight.map((s, i) => margin(s, thr.ext[i])));
+    return { gesture: 'open', conf: c };
+  }
+  return { gesture: 'neutral', conf: 0.5 };
+}
+
+// Atualiza o gesto de uma mão com "debounce": um gesto novo só vale depois de
+// aparecer em STABLE_FRAMES detecções seguidas.
+function updateHandGesture(hand, thr, nowMs, override = null) {
+  hand.prevGesture = hand.gesture;
+  if (override) {
+    hand.gesture = override; hand.gestureConf = 1; hand.candidate = override; hand.candidateCount = 99;
+    return;
+  }
+  if (!hand.visible || !hand.wlm) {
+    hand.features = null;
+    if (hand.gesture !== 'none') { hand.gesture = 'none'; hand.gestureSince = nowMs; }
+    hand.candidate = 'none'; hand.candidateCount = 0;
+    return;
+  }
+  if (!hand.present) return; // mão em tolerância: mantém o último gesto
+  hand.features = computeFeatures(hand.wlm);
+  const { gesture, conf } = classify(hand.features, thr);
+  if (gesture === hand.candidate) hand.candidateCount++;
+  else { hand.candidate = gesture; hand.candidateCount = 1; }
+  if (hand.candidate !== hand.gesture && hand.candidateCount >= CONFIG.GESTURE.STABLE_FRAMES) {
+    hand.gesture = hand.candidate;
+    hand.gestureSince = nowMs;
+  }
+  hand.gestureConf = gesture === hand.gesture ? conf : 0;
+}
+
+// ---- Calibração: calcula limiares a partir das médias de cada pose ----
+function averageFeatures(list) {
+  if (!list.length) return null;
+  const acc = { straight: [0, 0, 0, 0], thumbOut: 0, pinch: 0 };
+  for (const f of list) {
+    for (let i = 0; i < 4; i++) acc.straight[i] += f.straight[i];
+    acc.thumbOut += f.thumbOut;
+    acc.pinch += f.pinch;
+  }
+  const n = list.length;
+  return { straight: acc.straight.map((s) => s / n), thumbOut: acc.thumbOut / n, pinch: acc.pinch / n };
+}
+
+// poses: { neutral, gun, open, fist, pinch } -> médias (podem faltar)
+function thresholdsFromPoses(poses, base) {
+  const thr = JSON.parse(JSON.stringify(base));
+  const { open, fist, gun, pinch, neutral } = poses;
+  const mid = (a, b, k = 0.5) => a + (b - a) * k;
+  if (open && fist) {
+    for (let i = 0; i < 4; i++) {
+      if (open.straight[i] - fist.straight[i] > 0.12) thr.ext[i] = mid(fist.straight[i], open.straight[i]);
+    }
+    if (pinch && pinch.straight[0] - fist.straight[0] > 0.08) thr.fistIndex = mid(fist.straight[0], pinch.straight[0]);
+    else thr.fistIndex = Math.min(thr.ext[0] - 0.08, mid(fist.straight[0], open.straight[0], 0.35));
+  }
+  if (gun && fist && gun.thumbOut - fist.thumbOut > 0.1) thr.thumbOut = mid(fist.thumbOut, gun.thumbOut);
+  if (pinch) {
+    const others = [neutral, open, gun].filter(Boolean).map((p) => p.pinch);
+    const ref = others.length ? Math.min(...others) : pinch.pinch + 0.6;
+    if (ref - pinch.pinch > 0.08) thr.pinch = mid(pinch.pinch, ref, 0.45);
+  }
+  return thr;
+}
+
+// ===== js/teleport.js =====
+// Locomoção por teleporte: pistolinha = mirar (parábola + marcador),
+// palma aberta logo depois = teleportar. Com limites de distância e espera
+// entre saltos, para parecer "andar" e não "voar".
+
+const T = CONFIG.TELEPORT;
+
+class Teleport {
+  constructor(scene, rig, camera, world, hooks = {}) {
+    this.rig = rig;
+    this.camera = camera;
+    this.world = world;
+    this.hooks = hooks;
+
+    this.positions = new Float32Array((T.MAX_STEPS + 2) * 3);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+    this.line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x00e5ff }));
+    this.line.frustumCulled = false;
+    this.line.visible = false;
+    scene.add(this.line);
+
+    this.marker = new THREE.Group();
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color: 0x00e5ff, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2;
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.08, 16), ring.material);
+    dot.rotation.x = -Math.PI / 2;
+    this.marker.add(ring, dot);
+    this.marker.position.y = 0.02;
+    this.marker.visible = false;
+    scene.add(this.marker);
+    this.markerMat = ring.material;
+
+    this.aiming = false;
+    this.valid = false;
+    this.reason = '';
+    this.target = new THREE.Vector3();
+    this.lastValid = new THREE.Vector3();
+    this.lastAimTime = -1e9;
+    this.lastJump = -1e9;
+    this.jumps = 0;
+    this._lastGesture = 'none';
+    this._o = new THREE.Vector3();
+    this._d = new THREE.Vector3();
+    this._v = new THREE.Vector3();
+    this._p = new THREE.Vector3();
+    this._n = new THREE.Vector3();
+    this._a = new THREE.Vector3();
+    this._b = new THREE.Vector3();
+  }
+
+  cooldownLeft(nowMs) { return Math.max(0, T.COOLDOWN_S - (nowMs - this.lastJump) / 1000); }
+
+  // Simula a parábola a partir de origin/dir (mundo). Preenche a linha e o alvo.
+  compute(origin, dir, nowMs) {
+    const d = this._d.copy(dir).normalize();
+    d.y += T.UP_BIAS;
+    d.normalize();
+    const v = this._v.copy(d).multiplyScalar(T.SPEED);
+    const p = this._p.copy(origin);
+    let n = 0;
+    const push = (q) => { this.positions[n * 3] = q.x; this.positions[n * 3 + 1] = q.y; this.positions[n * 3 + 2] = q.z; n++; };
+    push(p);
+    let landed = false;
+    this.valid = false;
+    this.reason = 'sem chão';
+    for (let i = 0; i < T.MAX_STEPS; i++) {
+      const next = this._n.copy(p).addScaledVector(v, T.STEP_DT);
+      v.y -= T.GRAVITY * T.STEP_DT;
+      const hit = this.world.segmentHit(p, next);
+      if (hit && (next.y > 0 || hit.point.y > 0.001)) {
+        push(hit.point);
+        this.target.copy(hit.point);
+        this.reason = 'bloco no caminho';
+        landed = true;
+        break;
+      }
+      if (next.y <= 0) {
+        const k = p.y / Math.max(1e-6, p.y - next.y);
+        next.lerpVectors(p, next, k);
+        next.y = 0;
+        push(next);
+        this.target.copy(next);
+        this._validateGround(nowMs);
+        landed = true;
+        break;
+      }
+      push(next);
+      p.copy(next);
+    }
+    if (!landed) this.target.copy(p);
+    this.line.geometry.setDrawRange(0, n);
+    this.line.geometry.attributes.position.needsUpdate = true;
+  }
+
+  _validateGround(nowMs) {
+    const pos = this.rig.position;
+    const dx = this.target.x - pos.x, dz = this.target.z - pos.z;
+    let dist = Math.hypot(dx, dz);
+    if (dist > T.MAX_DIST) { // limita: o salto vai só até MAX_DIST
+      this.target.x = pos.x + (dx / dist) * T.MAX_DIST;
+      this.target.z = pos.z + (dz / dist) * T.MAX_DIST;
+      dist = T.MAX_DIST;
+    }
+    if (dist < T.MIN_DIST) { this.reason = 'perto demais'; return; }
+    if (!this.world.isFree(this.target.x, this.target.z, T.PLAYER_RADIUS)) { this.reason = 'dentro de bloco'; return; }
+    for (const t of this.world.targets) {
+      if (t.center.y < 1.2 && Math.hypot(t.center.x - this.target.x, t.center.z - this.target.z) < 0.5) { this.reason = 'em cima da caixa'; return; }
+    }
+    // caminho reto até o alvo (na altura do joelho) não pode atravessar blocos
+    this._a.set(pos.x, 0.4, pos.z);
+    this._b.set(this.target.x, 0.4, this.target.z);
+    if (this.world.segmentHit(this._a, this._b)) { this.reason = 'atravessa parede'; return; }
+    if (this.cooldownLeft(nowMs) > 0) { this.reason = 'aguarde'; this.valid = false; return; }
+    this.valid = true;
+    this.reason = 'ok';
+  }
+
+  // locoHand: mão de locomoção. manualAim: botão/teclado "Mirar" ativo.
+  update(nowMs, locoHand, manualAim) {
+    let aiming = false;
+    if (manualAim) {
+      this.camera.getWorldPosition(this._o);
+      this.camera.getWorldDirection(this._d);
+      this._o.y -= 0.35;
+      this._o.addScaledVector(this._d, 0.2);
+      aiming = true;
+    } else if (locoHand && locoHand.visible && locoHand.gesture === 'gun') {
+      this._o.copy(locoHand.worldPts[8]);
+      this._d.subVectors(locoHand.worldPts[8], locoHand.worldPts[5]);
+      aiming = this._d.lengthSq() > 1e-8;
+    }
+    this.aiming = aiming;
+    if (aiming) {
+      this.compute(this._o, this._d, nowMs);
+      if (this.valid) { this.lastAimTime = nowMs; this.lastValid.copy(this.target); }
+    }
+    const recent = nowMs - this.lastAimTime < T.CONFIRM_WINDOW_S * 1000;
+    this.line.visible = aiming;
+    this.marker.visible = aiming || recent;
+    if (this.marker.visible) {
+      this.marker.position.set(aiming ? this.target.x : this.lastValid.x, 0.02, aiming ? this.target.z : this.lastValid.z);
+      const ok = aiming ? this.valid : true;
+      const c = ok ? 0x00e5ff : this.reason === 'aguarde' ? 0x999999 : 0xff3355;
+      this.markerMat.color.setHex(c);
+      this.line.material.color.setHex(c);
+    }
+
+    // Confirmação por gesto: palma aberta logo depois da pistolinha
+    if (locoHand) {
+      const g = locoHand.gesture;
+      if (g === 'open' && this._lastGesture !== 'open' && recent) this.tryJump(nowMs);
+      this._lastGesture = g;
+    }
+  }
+
+  // Também usado pelo botão "Teleportar".
+  tryJump(nowMs) {
+    const recent = nowMs - this.lastAimTime < T.CONFIRM_WINDOW_S * 1000;
+    if (!recent) { this.hooks.onFail && this.hooks.onFail('mire primeiro (pistolinha)'); return false; }
+    if (this.cooldownLeft(nowMs) > 0) { this.hooks.onFail && this.hooks.onFail('espere um pouco'); return false; }
+    const dest = this.lastValid.clone();
+    this.lastJump = nowMs;
+    this.lastAimTime = -1e9;
+    this.jumps++;
+    const fade = document.getElementById('fade');
+    fade.style.opacity = '1';
+    setTimeout(() => {
+      this.rig.position.set(dest.x, 0, dest.z);
+      fade.style.opacity = '0';
+      this.hooks.onTeleport && this.hooks.onTeleport(dest);
+    }, T.FADE_MS);
+    return true;
+  }
+
+  hide() { this.line.visible = false; this.marker.visible = false; this.aiming = false; }
+}
+
+// ===== js/interaction.js =====
+// Interação com as caixas pretas:
+//  1) tocar a caixa com a ponta do indicador (mão de interação) -> abre
+//  2) aparece um painel com fios na frente do jogador
+//  3) pinça (ou punho) num fio, arrastar até o encaixe da mesma cor, soltar
+//  4) todos conectados -> caixa consertada
+// Também: detector de sinal preso à mão de interação.
+
+const I = CONFIG.INTERACTION;
+const PANEL_W = 0.46, PANEL_H = 0.34;
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+class Interaction {
+  constructor(scene, camera, world, hooks = {}) {
+    this.scene = scene;
+    this.camera = camera;
+    this.world = world;
+    this.hooks = hooks;
+    this.mode = 'tutorial';
+    this.panel = null;         // { target, group, plugs[], sockets[] }
+    this.grabs = new Map();    // pointerId -> plug
+    this.hover = null;
+    this.lastTouchDist = Infinity;
+    this._v = new THREE.Vector3();
+    this._w = new THREE.Vector3();
+    this._ray = new THREE.Raycaster();
+    this._plane = new THREE.Plane();
+    this._ndc = new THREE.Vector2();
+    this._buildDetector();
+  }
+
+  // ------------------------------------------------------------------
+  // Detector de sinal (seta + barra) preso à mão de interação
+  // ------------------------------------------------------------------
+  _buildDetector() {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.05, 8), mat);
+    shaft.rotation.x = Math.PI / 2;
+    shaft.position.z = 0.025;
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.035, 12), mat);
+    head.rotation.x = Math.PI / 2;
+    head.position.z = 0.065;
+    const arrow = new THREE.Group();
+    arrow.add(shaft, head);
+    g.add(arrow);
+    const barBg = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.008, 0.004), new THREE.MeshBasicMaterial({ color: 0x222222 }));
+    barBg.position.y = -0.03;
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.01, 0.006), mat);
+    bar.position.y = -0.03;
+    g.add(barBg, bar);
+    g.visible = false;
+    this.scene.add(g);
+    this.detector = { group: g, arrow, bar, barBg, mat };
+  }
+
+  // mode 'tutorial': só a caixa do tutorial; 'game': só as da partida
+  eligible(t) {
+    return t.state !== 'fixed' && (this.mode === 'tutorial' ? t.tutorial : !t.tutorial);
+  }
+
+  nearestTarget(fromPos) {
+    let best = null, bestD = Infinity;
+    for (const t of this.world.targets) {
+      if (!this.eligible(t)) continue;
+      const d = t.center.distanceTo(fromPos);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    return best ? { target: best, dist: bestD } : null;
+  }
+
+  updateDetector(hand) {
+    const det = this.detector;
+    this.camera.getWorldPosition(this._v);
+    const near = this.nearestTarget(this._v);
+    this.nearest = near;
+    if (!near || !hand || !hand.visible) { det.group.visible = false; return; }
+    det.group.visible = true;
+    // acima das costas da mão (entre pulso e base do dedo médio)
+    det.group.position.copy(hand.worldPts[0]).lerp(hand.worldPts[9], 0.5);
+    det.group.position.y += 0.05;
+    det.group.quaternion.copy(this.camera.getWorldQuaternion(new THREE.Quaternion()));
+    // seta aponta para a caixa (em coordenadas locais do grupo)
+    this._w.copy(near.target.center);
+    det.group.worldToLocal(this._w);
+    det.arrow.lookAt(this._w);
+    const D = CONFIG.DETECTOR;
+    const k = THREE.MathUtils.clamp((near.dist - D.NEAR) / (D.FAR - D.NEAR), 0, 1); // 0 perto, 1 longe
+    det.mat.color.setHSL((1 - k) * 0.33, 1, 0.5);
+    const strength = 1 - k;
+    det.bar.scale.x = Math.max(0.05, strength);
+    det.bar.position.x = -0.035 * (1 - det.bar.scale.x);
+  }
+
+  // ------------------------------------------------------------------
+  // Tocar / abrir caixa
+  // ------------------------------------------------------------------
+  // tip: ponta do indicador (mundo) da mão de interação
+  checkTouch(tip) {
+    this.lastTouchDist = Infinity;
+    if (!tip) return;
+    for (const t of this.world.targets) {
+      if (!this.eligible(t)) continue;
+      const d = t.aabb.distanceToPoint(tip);
+      if (d < this.lastTouchDist) this.lastTouchDist = d;
+      if (d < I.TOUCH_DIST && (!this.panel || this.panel.target !== t)) this.openTarget(t);
+    }
+  }
+
+  // Botão "Tocar": abre a caixa mais próxima no alcance.
+  openNearest() {
+    this.camera.getWorldPosition(this._v);
+    const near = this.nearestTarget(this._v);
+    if (near && near.dist < I.FALLBACK_TOUCH_DIST) { this.openTarget(near.target); return true; }
+    return false;
+  }
+
+  openTarget(t) {
+    if (this.panel && this.panel.target === t) return;
+    this.closePanel();
+    if (t.state === 'closed') t.state = 'open';
+    this._buildPanel(t);
+    this.hooks.onOpen && this.hooks.onOpen(t);
+  }
+
+  _buildPanel(target) {
+    const n = target.wires;
+    const group = new THREE.Group();
+    // posição: na frente do jogador, olhando para ele
+    // na direção do olhar, com inclinação limitada (nem no chão, nem no teto)
+    const cam = this.camera.getWorldPosition(new THREE.Vector3());
+    const fwd = this.camera.getWorldDirection(new THREE.Vector3());
+    const pitch = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(fwd.y, -1, 1)) - I.PANEL_DROP, -0.6, 0.35);
+    const yaw = Math.atan2(fwd.x, fwd.z);
+    const dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    group.position.copy(cam).addScaledVector(dir, I.PANEL_DIST);
+    group.lookAt(cam);
+    // em retrato a tela é estreita: encolhe o painel para caber em ~85% da largura visível
+    const visW = 2 * I.PANEL_DIST * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * this.camera.aspect;
+    group.scale.setScalar(Math.min(1, (visW * 0.85) / PANEL_W));
+    group.renderOrder = 10;
+    this.scene.add(group);
+
+    const bg = new THREE.Mesh(new THREE.PlaneGeometry(PANEL_W, PANEL_H), new THREE.MeshBasicMaterial({ color: 0x101820, transparent: true, opacity: 0.88, side: THREE.DoubleSide }));
+    group.add(bg);
+    const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(PANEL_W, PANEL_H)), new THREE.LineBasicMaterial({ color: 0x00e5ff }));
+    group.add(frame);
+
+    const colors = WIRE_COLORS.slice(0, n).map((c, i) => ({ c, i }));
+    const socketOrder = shuffle(colors.slice());
+    if (n > 1 && socketOrder.every((s, k) => s.i === k)) socketOrder.push(socketOrder.shift()); // nunca alinhado
+    const rowY = (k) => (n === 1 ? 0 : PANEL_H * 0.32 - (k * PANEL_H * 0.64) / (n - 1));
+
+    const plugs = [], sockets = [];
+    const plugGeo = new THREE.SphereGeometry(0.02, 14, 10);
+    colors.forEach(({ c, i }, k) => {
+      const anchor = new THREE.Vector3(-PANEL_W / 2 + 0.02, rowY(k), 0.005);
+      const home = new THREE.Vector3(-PANEL_W * 0.27, rowY(k), 0.02);
+      const mesh = new THREE.Mesh(plugGeo, new THREE.MeshBasicMaterial({ color: c }));
+      mesh.position.copy(home);
+      group.add(mesh);
+      const lp = new Float32Array(6);
+      const lg = new THREE.BufferGeometry();
+      lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
+      const wire = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: c }));
+      wire.frustumCulled = false;
+      group.add(wire);
+      const halo = new THREE.Mesh(new THREE.RingGeometry(0.026, 0.033, 20), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      halo.visible = false;
+      mesh.add(halo);
+      plugs.push({ color: i, mesh, anchor, home, wire, lp, halo, connected: false });
+    });
+    socketOrder.forEach(({ c, i }, k) => {
+      const pos = new THREE.Vector3(PANEL_W * 0.32, rowY(k), 0.01);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.022, 0.032, 20), new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide }));
+      ring.position.copy(pos);
+      group.add(ring);
+      sockets.push({ color: i, mesh: ring, pos, flash: 0 });
+    });
+    // painel sempre visível por cima dos blocos (não some dentro de paredes)
+    group.traverse((o) => {
+      if (o.material) { o.material.depthTest = false; o.material.transparent = true; }
+      o.renderOrder = o === bg ? 10 : 11;
+    });
+    this.panel = { target, group, plugs, sockets, doneAt: 0 };
+    this._updateWires();
+  }
+
+  closePanel() {
+    if (!this.panel) return;
+    this.scene.remove(this.panel.group);
+    this.panel.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    this.panel = null;
+    this.grabs.clear();
+  }
+
+  _updateWires() {
+    for (const p of this.panel.plugs) {
+      p.lp.set([p.anchor.x, p.anchor.y, p.anchor.z, p.mesh.position.x, p.mesh.position.y, p.mesh.position.z]);
+      p.wire.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+
+  // Projeta ponto local do painel para pixels da tela
+  _toScreen(localPos, out, w, h) {
+    this._v.copy(localPos);
+    this.panel.group.localToWorld(this._v);
+    this._v.project(this.camera);
+    out.x = (this._v.x * 0.5 + 0.5) * w;
+    out.y = (-this._v.y * 0.5 + 0.5) * h;
+    out.behind = this._v.z > 1;
+    return out;
+  }
+
+  // Ponto da tela -> ponto local no plano do painel
+  _screenToPanel(sx, sy, w, h, out) {
+    this._ndc.set((sx / w) * 2 - 1, -(sy / h) * 2 + 1);
+    this._ray.setFromCamera(this._ndc, this.camera);
+    const n = new THREE.Vector3(0, 0, 1).applyQuaternion(this.panel.group.quaternion);
+    this._plane.setFromNormalAndCoplanarPoint(n, this.panel.group.position);
+    if (!this._ray.ray.intersectPlane(this._plane, out)) return null;
+    this.panel.group.worldToLocal(out);
+    out.x = THREE.MathUtils.clamp(out.x, -PANEL_W / 2, PANEL_W / 2);
+    out.y = THREE.MathUtils.clamp(out.y, -PANEL_H / 2, PANEL_H / 2);
+    out.z = 0.03;
+    return out;
+  }
+
+  // pointers: [{ id, x, y (px), down (pegando?) }]
+  updatePanel(pointers, w, h, nowMs) {
+    const P = this.panel;
+    if (!P) return;
+    // longe demais -> fecha
+    const cam = this.camera.getWorldPosition(new THREE.Vector3());
+    if (cam.distanceTo(P.group.position) > I.PANEL_CLOSE_DIST) { this.closePanel(); return; }
+    if (P.doneAt) {
+      if (nowMs - P.doneAt > 900) this.closePanel();
+      return;
+    }
+
+    const s = { x: 0, y: 0 };
+    const activeIds = new Set();
+    this.hover = null;
+    for (const ptr of pointers) {
+      activeIds.add(ptr.id);
+      const grabbed = this.grabs.get(ptr.id);
+      if (ptr.down && !grabbed && !ptr.wasDown) {
+        // começo de pegada: fio livre mais próximo na tela
+        let best = null, bestD = I.GRAB_SCREEN_PX;
+        for (const p of P.plugs) {
+          if (p.connected || [...this.grabs.values()].includes(p)) continue;
+          this._toScreen(p.mesh.position, s, w, h);
+          // usa o ponto onde o toque começou (o dedo pode ter andado antes deste quadro)
+          const d = Math.hypot(s.x - (ptr.sx ?? ptr.x), s.y - (ptr.sy ?? ptr.y));
+          if (d < bestD) { bestD = d; best = p; }
+        }
+        if (best) {
+          this.grabs.set(ptr.id, best);
+          const lp = this._screenToPanel(ptr.x, ptr.y, w, h, new THREE.Vector3());
+          if (lp) best.mesh.position.copy(lp);
+        }
+      } else if (ptr.down && grabbed) {
+        const lp = this._screenToPanel(ptr.x, ptr.y, w, h, new THREE.Vector3());
+        if (lp) grabbed.mesh.position.copy(lp);
+      } else if (!ptr.down && grabbed) {
+        // leva o fio até onde o dedo soltou (pode ter movido no mesmo quadro)
+        const lp = this._screenToPanel(ptr.x, ptr.y, w, h, new THREE.Vector3());
+        if (lp) grabbed.mesh.position.copy(lp);
+        this._release(ptr.id, grabbed, w, h);
+      }
+      if (!ptr.down) {
+        for (const p of P.plugs) {
+          if (p.connected) continue;
+          this._toScreen(p.mesh.position, s, w, h);
+          if (Math.hypot(s.x - ptr.x, s.y - ptr.y) < I.GRAB_SCREEN_PX) this.hover = p;
+        }
+      }
+    }
+    // ponteiros que sumiram soltam o fio
+    for (const [id, plug] of [...this.grabs]) if (!activeIds.has(id)) this._release(id, plug, w, h);
+
+    for (const p of P.plugs) p.halo.visible = p === this.hover || [...this.grabs.values()].includes(p);
+    for (const sk of P.sockets) {
+      sk.flash = Math.max(0, sk.flash - 0.05);
+      sk.mesh.scale.setScalar(1 + sk.flash * 0.6);
+    }
+    this._updateWires();
+  }
+
+  _release(id, plug, w, h) {
+    this.grabs.delete(id);
+    const P = this.panel;
+    const s = { x: 0, y: 0 }, ps = { x: 0, y: 0 };
+    this._toScreen(plug.mesh.position, ps, w, h);
+    let best = null, bestD = I.SNAP_SCREEN_PX;
+    for (const sk of P.sockets) {
+      this._toScreen(sk.pos, s, w, h);
+      const d = Math.hypot(s.x - ps.x, s.y - ps.y);
+      if (d < bestD) { bestD = d; best = sk; }
+    }
+    if (best && best.color === plug.color && !P.sockets.some((o) => o === best && o.used)) {
+      plug.connected = true;
+      best.used = true;
+      plug.mesh.position.copy(best.pos).setZ(0.02);
+      this.hooks.onWire && this.hooks.onWire(true);
+      if (P.plugs.every((p) => p.connected)) this._finish();
+    } else {
+      if (best) best.flash = 1;
+      plug.mesh.position.copy(plug.home);
+      this.hooks.onWire && this.hooks.onWire(false, best ? 'cor errada' : 'longe do encaixe');
+    }
+  }
+
+  _finish() {
+    const t = this.panel.target;
+    t.state = 'fixed';
+    this.panel.doneAt = performance.now();
+    this.hooks.onFixed && this.hooks.onFixed(t);
+  }
+
+  reset() {
+    this.closePanel();
+    for (const t of this.world.targets) { t.state = 'closed'; t.openT = 0; }
+  }
+}
+
+// ===== js/calibration.js =====
+// Calibração + tutorial (tela inicial).
+// Protótipo de teste: os textos são longos de propósito.
+
+// ---------------------------------------------------------------------
+// Armazenamento (localStorage, sempre com try/catch)
+// ---------------------------------------------------------------------
+function defaultCalib() {
+  return {
+    version: 1,
+    done: false,
+    flipHandedness: CONFIG.HANDS.FLIP_HANDEDNESS,
+    locomotion: 'left',
+    thresholds: JSON.parse(JSON.stringify(CONFIG.GESTURE.DEFAULT_THRESHOLDS)),
+    reach: null,
+    depth: { rawNear: CONFIG.HANDS.RAW_NEAR, rawFar: CONFIG.HANDS.RAW_FAR },
+    poses: {},
+  };
+}
+
+function loadCalib() {
+  try {
+    const s = localStorage.getItem(CONFIG.STORAGE_KEY);
+    if (!s) return null;
+    const c = JSON.parse(s);
+    if (!c || c.version !== 1) return null;
+    const d = defaultCalib();
+    return { ...d, ...c, thresholds: { ...d.thresholds, ...c.thresholds }, depth: { ...d.depth, ...c.depth } };
+  } catch (e) { console.warn('Falha ao ler calibração', e); return null; }
+}
+
+function saveCalib(c) {
+  try { localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(c)); return true; } catch (e) { console.warn('Falha ao salvar calibração', e); return false; }
+}
+
+function clearCalib() {
+  try { localStorage.removeItem(CONFIG.STORAGE_KEY); } catch (e) { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------
+// Interface do overlay
+// ---------------------------------------------------------------------
+const POSES = [
+  { id: 'neutral', name: 'Mão normal', how: 'Deixe a mão relaxada, meio aberta, do jeito que ela fica quando você não está fazendo nada. Esse é o estado "neutro": não faz nada no jogo.' },
+  { id: 'gun', name: 'Pistolinha', how: 'Estique o INDICADOR para frente e o POLEGAR para cima. Dobre o médio, o anelar e o mínimo. Esse gesto MIRA o teleporte.' },
+  { id: 'open', name: 'Palma aberta', how: 'Abra a mão toda, dedos esticados e separados, palma virada para frente. Depois da pistolinha, isso CONFIRMA o teleporte.' },
+  { id: 'fist', name: 'Punho fechado', how: 'Feche a mão com força, todos os dedos dobrados, polegar por cima. Serve para PEGAR/SEGURAR.' },
+  { id: 'pinch', name: 'Pinça', how: 'Encoste a ponta do POLEGAR na ponta do INDICADOR (como se fosse pegar um grão de arroz). Os outros dedos podem ficar soltos. Serve para PEGAR FIO e ARRASTAR.' },
+];
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+class CalibrationFlow {
+  constructor(app) {
+    this.app = app;
+    this.el = document.getElementById('overlay');
+    this.liveTimer = null;
+    this.samplesPoses = {};
+  }
+
+  _show(title, html, buttons = [], { compact = false } = {}) {
+    this._stopLive();
+    this.el.hidden = false;
+    this.el.classList.toggle('compact', compact);
+    // folha embaixo -> depuração/prévia vão para cima (e vice-versa)
+    document.body.classList.toggle('sheet-bottom', !compact);
+    this.el.innerHTML = `<div class="sheet"><h2>${title}</h2><div class="body">${html}</div><div class="live" id="live"></div><div class="btns"></div></div>`;
+    const box = this.el.querySelector('.btns');
+    for (const b of buttons) {
+      const btn = document.createElement('button');
+      btn.textContent = b.label;
+      if (b.cls) btn.className = b.cls;
+      btn.addEventListener('click', (e) => { e.stopPropagation(); b.onClick(btn); });
+      box.appendChild(btn);
+    }
+  }
+
+  _live(fn, ms = 120) {
+    this._stopLive();
+    const live = this.el.querySelector('#live');
+    const tick = () => { if (live) live.innerHTML = fn(); };
+    tick();
+    this.liveTimer = setInterval(tick, ms);
+  }
+
+  _stopLive() { if (this.liveTimer) { clearInterval(this.liveTimer); this.liveTimer = null; } }
+
+  hide() { this._stopLive(); this.el.hidden = true; this.el.innerHTML = ''; document.body.classList.remove('sheet-bottom'); }
+
+  // Mão "ativa" para gravação: a única presente, ou a de maior confiança.
+  _activeHand() {
+    const hs = this.app.hands.hands.filter((h) => h.present);
+    if (!hs.length) return null;
+    return hs.sort((a, b) => b.score - a.score)[0];
+  }
+
+  _handStatus() {
+    const hs = this.app.hands.hands.filter((h) => h.visible);
+    if (!this.app.hands.landmarker) return '<span class="bad">Modelo das mãos não carregado.</span>';
+    if (!hs.length) return '<span class="bad">Nenhuma mão detectada</span> — coloque a mão na frente da câmera traseira.';
+    return hs.map((h) => `Mão <b>${h.side === 'left' ? 'esquerda' : 'direita'}</b>: ${GESTURE_LABELS[h.gesture]}`).join(' · ');
+  }
+
+  // Grava amostras enquanto houver mão, por durationMs (com contagem regressiva).
+  async _record(btn, durationMs, onSample, countdown = 2) {
+    if (btn) btn.disabled = true;
+    const live = this.el.querySelector('#live');
+    this._stopLive();
+    for (let i = countdown; i > 0; i--) { if (live) live.innerHTML = `Prepare… <b>${i}</b>`; await sleep(700); }
+    const t0 = performance.now();
+    let last = null, n = 0;
+    await new Promise((resolve) => {
+      const step = () => {
+        const now = performance.now();
+        const res = this.app.hands.lastResult;
+        if (res !== last) {
+          last = res;
+          const h = this._activeHand();
+          if (h) { onSample(h, res); n++; }
+        }
+        const left = Math.max(0, durationMs - (now - t0));
+        if (live) live.innerHTML = `Gravando… ${(left / 1000).toFixed(1)}s — amostras: <b>${n}</b>`;
+        if (now - t0 < durationMs) requestAnimationFrame(step); else resolve();
+      };
+      requestAnimationFrame(step);
+    });
+    if (btn) btn.disabled = false;
+    return n;
+  }
+
+  // ------------------------------------------------------------------
+  // Passos
+  // ------------------------------------------------------------------
+  welcome() {
+    const saved = loadCalib();
+    const html = `
+      <p><b>Protótipo de teste</b> das mecânicas do jogo <i>Caçador de Sinal</i>.</p>
+      <p>A rede está falhando! Ache as <b>caixas pretas</b> (pontos de sinal), toque nelas com a mão e conecte os fios antes do tempo acabar.</p>
+      <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
+      <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
+      ${saved ? '<p class="ok">✔ Existe uma calibração salva neste aparelho.</p>' : ''}
+      <p class="small">Dica: o botão 🐞 mostra o painel de depuração (FPS, gestos, prévia da câmera).</p>`;
+    const btns = [];
+    if (saved) {
+      btns.push({ label: 'Usar calibração salva → tutorial', cls: 'primary', onClick: () => this._startWithSaved(saved, 'tutorial') });
+      btns.push({ label: 'Ir direto para a partida', onClick: () => this._startWithSaved(saved, 'game') });
+      btns.push({ label: 'Recalibrar', onClick: () => this._startFresh() });
+    } else {
+      btns.push({ label: 'Começar', cls: 'primary', onClick: () => this._startFresh() });
+    }
+    btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
+    this._show('Caçador de Sinal — teste', html, btns);
+  }
+
+  async _init(withCamera = true) {
+    this._show('Preparando…', '<p>Pedindo permissões e carregando o rastreamento das mãos. Isso pode levar alguns segundos na primeira vez.</p>', []);
+    const live = this.el.querySelector('#live');
+    const ok = await this.app.initDevices((msg) => { if (live) live.innerHTML = msg; }, withCamera);
+    return ok;
+  }
+
+  _showInitError(retry) {
+    this._show('Não deu para iniciar', `
+      <p class="bad">${this.app.lastError}</p>
+      <p>Confira: o link precisa ser <b>https://</b>, a permissão da câmera precisa ser aceita (cadeado na barra de endereço → Permissões) e a internet precisa estar funcionando para baixar o MediaPipe.</p>`, [
+      { label: 'Tentar de novo', cls: 'primary', onClick: retry },
+      { label: 'Continuar só com botões', onClick: () => { this.app.orientation.recenter(); this.app.startTutorial(); } },
+    ]);
+  }
+
+  async _startWithSaved(saved, next) {
+    Object.assign(this.app.calib, saved);
+    if (!(await this._init(true))) { this._showInitError(() => this._startWithSaved(saved, next)); return; }
+    this.app.orientation.recenter();
+    if (next === 'tutorial') this.app.startTutorial(); else this.app.startGame();
+  }
+
+  async _startNoCamera() {
+    await this._init(false);
+    this.app.orientation.recenter();
+    this.app.startTutorial();
+  }
+
+  async _startFresh() {
+    Object.assign(this.app.calib, defaultCalib());
+    this.app.state = 'calibration';
+    if (!(await this._init(true))) { this._showInitError(() => this._startFresh()); return; }
+    this.app.setDebug(true);
+    this.stepRecenter();
+  }
+
+  stepRecenter() {
+    const o = this.app.orientation;
+    this._show('1. Direção da visão', `
+      <p>Segure o celular em pé, na frente dos olhos, e olhe para frente (para onde você quer que seja a "frente" do jogo).</p>
+      <p>Depois toque em <b>Recentrar</b>. Gire o corpo devagar: o mundo 3D deve girar junto.</p>
+      <p class="small">Você pode recentrar a qualquer momento pelo botão ⟲ na tela.</p>`, [
+      { label: 'Recentrar', cls: 'primary', onClick: () => { o.recenter(); this.app.toast('Direção recentrada'); } },
+      { label: 'Próximo →', onClick: () => this.stepHandedness() },
+    ]);
+    this._live(() => `Sensor: <b>${o.source}</b> · ${o.hasData ? '<span class="ok">recebendo dados</span>' : '<span class="bad">sem dados (no PC, arraste a tela)</span>'}`);
+  }
+
+  stepHandedness() {
+    const calib = this.app.calib;
+    this._show('2. Qual é a mão esquerda?', `
+      <p>A câmera traseira não espelha a imagem, então às vezes o sistema confunde esquerda e direita. Vamos conferir.</p>
+      <p>Mostre <b>só a sua mão ESQUERDA</b> para a câmera (palma ou costas, tanto faz) e toque em <b>Gravar</b>. Se você segura o celular com a esquerda, troque de mão por um instante.</p>`, [
+      {
+        label: 'Gravar (mão esquerda)', cls: 'primary', onClick: async (btn) => {
+          let left = 0, right = 0;
+          await this._record(btn, 1500, (h, res) => {
+            const handed = res.handedness || res.handednesses || [];
+            for (const cat of handed) { if (cat[0] && cat[0].categoryName === 'Left') left++; else right++; }
+          });
+          if (left + right < 5) { this.app.toast('Poucas amostras — tente de novo com a mão bem visível'); return; }
+          // Se o MediaPipe chamou a mão esquerda real de "Left", não precisa inverter.
+          calib.flipHandedness = !(left > right);
+          this.app.toast(`Rótulo do MediaPipe: ${left > right ? 'Left' : 'Right'} → inverter = ${calib.flipHandedness ? 'sim' : 'não'}`);
+          this.stepLocomotion();
+        },
+      },
+      { label: 'Pular (padrão)', onClick: () => this.stepLocomotion() },
+    ]);
+    this._live(() => this._handStatus());
+  }
+
+  stepLocomotion() {
+    const calib = this.app.calib;
+    const set = (side) => { calib.locomotion = side; this.stepPose(0); };
+    this._show('3. Mão de locomoção', `
+      <p>Uma mão serve para <b>andar</b> (teleporte com pistolinha + palma aberta) e a outra para <b>interagir</b> (tocar caixas, detector de sinal, pinça nos fios).</p>
+      <p>Qual mão você quer usar para <b>andar</b>?</p>
+      <p class="small">Teste com o celular na mão: use a mão livre para tudo — dá para trocar depois recalibrando.</p>`, [
+      { label: 'Esquerda anda (padrão)', cls: calib.locomotion === 'left' ? 'primary' : '', onClick: () => set('left') },
+      { label: 'Direita anda', cls: calib.locomotion === 'right' ? 'primary' : '', onClick: () => set('right') },
+    ]);
+    this._live(() => this._handStatus());
+  }
+
+  stepPose(i) {
+    if (i >= POSES.length) { this._applyPoses(); this.stepReach(); return; }
+    const pose = POSES[i];
+    this._show(`4. Gestos (${i + 1}/${POSES.length}): ${pose.name}`, `
+      <p>${pose.how}</p>
+      <p>Faça a pose com a mão livre, bem na frente da câmera, e toque em <b>Gravar</b>. Depois de 2 segundos ele grava por 1,5 s — mantenha a pose e mexa a mão um pouquinho.</p>`, [
+      {
+        label: 'Gravar', cls: 'primary', onClick: async (btn) => {
+          const list = [];
+          const n = await this._record(btn, 1500, (h) => { if (h.wlm) list.push(computeFeatures(h.wlm)); });
+          if (n < 5) { this.app.toast('Poucas amostras — a mão precisa estar visível'); return; }
+          this.samplesPoses[pose.id] = averageFeatures(list);
+          this.stepPose(i + 1);
+        },
+      },
+      { label: 'Pular', onClick: () => this.stepPose(i + 1) },
+      ...(i > 0 ? [{ label: '← Voltar', onClick: () => this.stepPose(i - 1) }] : []),
+    ]);
+    this._live(() => {
+      const h = this._activeHand();
+      if (!h || !h.wlm) return this._handStatus();
+      const f = computeFeatures(h.wlm);
+      const g = classify(f, this.app.calib.thresholds).gesture;
+      return `Reconhecido agora (limiares atuais): <b>${GESTURE_LABELS[g]}</b><br><span class="small">dedos ${f.straight.map((s) => s.toFixed(2)).join(' ')} · polegar ${f.thumbOut.toFixed(2)} · pinça ${f.pinch.toFixed(2)}</span>`;
+    });
+  }
+
+  _applyPoses() {
+    const calib = this.app.calib;
+    calib.poses = this.samplesPoses;
+    calib.thresholds = thresholdsFromPoses(this.samplesPoses, CONFIG.GESTURE.DEFAULT_THRESHOLDS);
+  }
+
+  stepReach() {
+    const calib = this.app.calib;
+    this._show('5. Alcance da mão', `
+      <p>Agora vamos ver até onde sua mão chega na imagem da câmera.</p>
+      <p>Toque em <b>Gravar alcance</b> e, durante 5 segundos, mova a mão livre devagar por toda a área: <b>canto de cima, de baixo, esquerda e direita</b>, sem esticar até sair da imagem.</p>
+      <p class="small">Isso faz a mão virtual cobrir a tela toda mesmo que seu braço não alcance a borda da câmera.</p>`, [
+      {
+        label: 'Gravar alcance', cls: 'primary', onClick: async (btn) => {
+          const us = [], vs = [];
+          await this._record(btn, 5000, (h) => { us.push(h.uv.x); vs.push(h.uv.y); }, 1);
+          if (us.length < 20) { this.app.toast('Poucas amostras — tente de novo'); return; }
+          us.sort((a, b) => a - b); vs.sort((a, b) => a - b);
+          const q = (arr, p) => arr[Math.floor((arr.length - 1) * p)];
+          const r = { uMin: q(us, 0.03), uMax: q(us, 0.97), vMin: q(vs, 0.03), vMax: q(vs, 0.97) };
+          if (r.uMax - r.uMin < 0.25 || r.vMax - r.vMin < 0.25) { this.app.toast('Movimento pequeno demais — cubra mais área'); return; }
+          calib.reach = r;
+          this.stepDepth();
+        },
+      },
+      { label: 'Pular (usar imagem inteira)', onClick: () => { calib.reach = null; this.stepDepth(); } },
+    ]);
+    this._live(() => this._handStatus());
+  }
+
+  stepDepth() {
+    const calib = this.app.calib;
+    const median = (a) => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+    let near = null, far = null;
+    const finish = () => {
+      if (near && far && far > near * 1.25) {
+        calib.depth = { rawNear: near, rawFar: far };
+        this.app.toast('Profundidade calibrada');
+      } else if (near && far) {
+        this.app.toast('Diferença perto/longe pequena — usando valores padrão');
+      }
+      this.stepDone();
+    };
+    this._show('6. Perto e longe', `
+      <p>O jogo estima a distância da mão pelo tamanho dela na imagem.</p>
+      <p>1) Mão <b>PERTO</b>: braço encolhido, mão a uns 20 cm do celular → <b>Gravar perto</b>.</p>
+      <p>2) Mão <b>LONGE</b>: braço esticado → <b>Gravar longe</b>.</p>`, [
+      {
+        label: 'Gravar perto', cls: 'primary', onClick: async (btn) => {
+          const a = []; await this._record(btn, 1500, (h) => a.push(h.rawDepth));
+          if (a.length >= 5) { near = median(a); btn.textContent = `Perto ✔ (${near.toFixed(2)})`; }
+        },
+      },
+      {
+        label: 'Gravar longe', cls: 'primary', onClick: async (btn) => {
+          const a = []; await this._record(btn, 1500, (h) => a.push(h.rawDepth));
+          if (a.length >= 5) { far = median(a); btn.textContent = `Longe ✔ (${far.toFixed(2)})`; }
+        },
+      },
+      { label: 'Concluir →', onClick: finish },
+    ]);
+    this._live(() => {
+      const h = this._activeHand();
+      return h ? `Estimativa bruta agora: <b>${h.rawDepth.toFixed(2)}</b> (aumenta quando a mão se afasta)` : this._handStatus();
+    });
+  }
+
+  stepDone() {
+    const calib = this.app.calib;
+    calib.done = true;
+    const saved = saveCalib(calib);
+    const t = calib.thresholds;
+    this._show('Calibração pronta!', `
+      <p>${saved ? 'Calibração <b>salva</b> neste aparelho.' : '<span class="bad">Não foi possível salvar</span> (navegador bloqueou o armazenamento) — vale só nesta sessão.'}</p>
+      <p class="small">Mão de locomoção: <b>${calib.locomotion === 'left' ? 'esquerda' : 'direita'}</b> · inverter rótulos: ${calib.flipHandedness ? 'sim' : 'não'}<br>
+      Limiares — dedos: ${t.ext.map((x) => x.toFixed(2)).join(' ')} · polegar: ${t.thumbOut.toFixed(2)} · pinça: ${t.pinch.toFixed(2)} · punho: ${t.fistIndex.toFixed(2)}<br>
+      Alcance: ${calib.reach ? 'calibrado' : 'imagem inteira'} · profundidade: ${calib.depth.rawNear.toFixed(2)} → ${calib.depth.rawFar.toFixed(2)}</p>
+      <p>Agora um mini-tutorial guiado.</p>`, [
+      { label: 'Ir para o tutorial →', cls: 'primary', onClick: () => { this.app.setDebug(false); this.app.startTutorial(); } },
+      { label: 'Refazer gestos', onClick: () => this.stepPose(0) },
+    ]);
+  }
+
+  // ------------------------------------------------------------------
+  // Tutorial
+  // ------------------------------------------------------------------
+  showTutorial(progress) {
+    const loco = this.app.calib.locomotion === 'left' ? 'esquerda' : 'direita';
+    const inter = this.app.calib.locomotion === 'left' ? 'direita' : 'esquerda';
+    const steps = [
+      { done: progress.teleport, name: 'Teleporte', how: `Mão ${loco}: <b>pistolinha</b> apontando para o chão (aparece uma curva), depois <b>abra a palma</b>. Botões: 🎯 Mirar + 🚀 Ir.` },
+      { done: progress.touch, name: 'Tocar a caixa', how: `Chegue na caixa preta do pedestal cinza e encoste a <b>ponta do indicador</b> da mão ${inter}. Botão: 👆 Tocar.` },
+      { done: progress.wire, name: 'Conectar o fio', how: 'No painel: <b>pinça</b> na bolinha colorida, arraste até o anel da mesma cor e solte. Também dá para arrastar com o dedo na tela.' },
+    ];
+    const current = steps.find((s) => !s.done);
+    const chips = steps.map((s) => `<span class="chip ${s.done ? 'done' : s === current ? 'cur' : ''}">${s.done ? '✔' : '○'} ${s.name}</span>`).join('');
+    this._show('Tutorial', `
+      <div class="chips">${chips}</div>
+      <p>${current ? current.how : '<b>Tudo certo!</b> Você já sabe andar, abrir caixas e conectar fios.'}</p>`, [
+      { label: current ? 'Pular → partida' : 'Começar partida!', cls: current ? '' : 'primary', onClick: () => this.app.startGame() },
+    ], { compact: true });
+  }
+}
+
+// ===== js/debug.js =====
+// Painel de depuração + botões na tela (alternativa a cada gesto) + teclado.
+
+class DebugUI {
+  constructor(app) {
+    this.app = app;
+    this.panel = document.getElementById('debug');
+    this.stats = document.getElementById('debug-stats');
+    this.preview = document.getElementById('preview');
+    this.canvas = document.getElementById('cam2d');
+    this.ctx = this.canvas.getContext('2d');
+    this.enabled = false;
+    this._t = 0;
+    this._frames = 0;
+    this._fpsT0 = performance.now();
+    this.fps = 0;
+    this.frameMs = 0;
+
+    // Estado das entradas alternativas (lido pelo main.js)
+    this.input = { aim: false, pinch: false, fist: false, keyAim: false, move: { f: 0, r: 0 } };
+    this._wireButtons();
+    this._wireKeyboard();
+  }
+
+  setEnabled(on) {
+    this.enabled = on;
+    this.panel.hidden = !on;
+    this.preview.classList.toggle('offscreen', !on);
+    document.getElementById('btn-debug').classList.toggle('on', on);
+  }
+
+  _btn(id, fn) {
+    const el = document.getElementById(id);
+    el.addEventListener('click', (e) => { e.stopPropagation(); fn(el); });
+    return el;
+  }
+
+  _hold(id, key) {
+    const el = document.getElementById(id);
+    const on = (e) => { e.preventDefault(); e.stopPropagation(); this.input[key] = true; el.classList.add('on'); };
+    const off = (e) => { e.preventDefault(); e.stopPropagation(); this.input[key] = false; el.classList.remove('on'); };
+    el.addEventListener('pointerdown', on);
+    el.addEventListener('pointerup', off);
+    el.addEventListener('pointercancel', off);
+    el.addEventListener('pointerleave', off);
+  }
+
+  _wireButtons() {
+    const app = this.app;
+    this._btn('btn-recenter', () => { app.orientation.recenter(); app.toast('Direção recentrada'); });
+    this._btn('btn-aim', (el) => { this.input.aim = !this.input.aim; el.classList.toggle('on', this.input.aim); });
+    this._btn('btn-teleport', () => {
+      app.teleport.tryJump(performance.now());
+      this.input.aim = false;
+      document.getElementById('btn-aim').classList.remove('on');
+    });
+    this._btn('btn-touch', () => { if (!app.interaction.openNearest()) app.toast('Nenhuma caixa perto (chegue a menos de 3 m)'); });
+    this._hold('btn-pinch', 'pinch');
+    this._hold('btn-fist', 'fist');
+    this._btn('btn-stereo', (el) => { app.stereo = !app.stereo; el.classList.toggle('on', app.stereo); document.body.classList.toggle('stereo', app.stereo); app.resize(); });
+    this._btn('btn-full', () => {
+      try {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+      } catch (e) { /* ignore */ }
+    });
+    this._btn('btn-debug', () => this.setEnabled(!this.enabled));
+    this._btn('btn-calib', () => app.recalibrate());
+  }
+
+  _wireKeyboard() {
+    // PC: Q segura = mirar, solta = teleportar · E = tocar · F segura = pinça
+    // G segura = punho · R = recentrar · WASD = andar devagar (debug) · B = debug
+    const app = this.app;
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      const k = e.key.toLowerCase();
+      if (k === 'q') this.input.keyAim = true;
+      if (k === 'e') app.interaction.openNearest();
+      if (k === 'f') this.input.pinch = true;
+      if (k === 'g') this.input.fist = true;
+      if (k === 'r') app.orientation.recenter();
+      if (k === 'b') this.setEnabled(!this.enabled);
+      if (k === 'w') this.input.move.f = 1;
+      if (k === 's') this.input.move.f = -1;
+      if (k === 'd') this.input.move.r = 1;
+      if (k === 'a') this.input.move.r = -1;
+    });
+    window.addEventListener('keyup', (e) => {
+      const k = e.key.toLowerCase();
+      if (k === 'q') { this.input.keyAim = false; app.teleport.tryJump(performance.now()); }
+      if (k === 'f') this.input.pinch = false;
+      if (k === 'g') this.input.fist = false;
+      if (k === 'w' || k === 's') this.input.move.f = 0;
+      if (k === 'a' || k === 'd') this.input.move.r = 0;
+    });
+  }
+
+  // Chamado todo quadro
+  frame(nowMs, dtMs) {
+    this._frames++;
+    this.frameMs = this.frameMs * 0.9 + dtMs * 0.1;
+    if (nowMs - this._fpsT0 >= 500) {
+      this.fps = (this._frames * 1000) / (nowMs - this._fpsT0);
+      this._frames = 0;
+      this._fpsT0 = nowMs;
+      document.getElementById('fps').textContent = `${this.fps.toFixed(0)} FPS`;
+    }
+    if (!this.enabled) return;
+    this._drawPreview();
+    if (nowMs - this._t < 200) return;
+    this._t = nowMs;
+    this._writeStats();
+  }
+
+  _writeStats() {
+    const a = this.app, h = a.hands, o = a.orientation, tp = a.teleport;
+    const hand = (x) => {
+      if (!x.visible) return `<div><b>${x.side === 'left' ? 'Esquerda' : 'Direita'}</b>: <span class="bad">não vista</span></div>`;
+      const f = x.features;
+      return `<div><b>${x.side === 'left' ? 'Esquerda' : 'Direita'}</b>${a.locoSide() === x.side ? ' (anda)' : ' (interage)'}: ` +
+        `<span class="ok">${GESTURE_LABELS[x.gesture]}</span> conf ${(x.gestureConf * 100).toFixed(0)}% · ` +
+        `MP "${x.rawLabel}" ${(x.score * 100).toFixed(0)}% · prof ${x.rawDepth.toFixed(2)}` +
+        (f ? `<br><span class="small">dedos ${f.straight.map((s) => s.toFixed(2)).join(' ')} · pol ${f.thumbOut.toFixed(2)} · pin ${f.pinch.toFixed(2)}</span>` : '') + '</div>';
+    };
+    const p = a.rig.position;
+    this.stats.innerHTML =
+      `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate}</div>` +
+      `<div>Sensor: ${o.source} ${o.hasData ? '✔' : '✖'} (${o.eventCount}) · estado: ${a.state}</div>` +
+      hand(h.left) + hand(h.right) +
+      `<div>Teleporte: ${tp.aiming ? 'mirando' : '—'} ${tp.reason} · espera ${tp.cooldownLeft(performance.now()).toFixed(1)}s · saltos ${tp.jumps}</div>` +
+      `<div>Toque: ${isFinite(a.interaction.lastTouchDist) ? a.interaction.lastTouchDist.toFixed(2) + ' m' : '—'} · pos ${p.x.toFixed(1)}, ${p.z.toFixed(1)}</div>`;
+  }
+
+  _drawPreview() {
+    const v = this.app.hands.video;
+    const c = this.canvas;
+    const w = v.videoWidth || 640, hgt = v.videoHeight || 480;
+    if (c.width !== w || c.height !== hgt) { c.width = w; c.height = hgt; }
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, w, hgt);
+    const res = this.app.hands.lastResult;
+    if (!res || !res.landmarks) return;
+    ctx.lineWidth = 3;
+    for (const hand of this.app.hands.hands) {
+      if (!hand.present || !hand.lm) continue;
+      ctx.strokeStyle = hand.side === 'left' ? '#3d8bff' : '#ff7a1a';
+      ctx.beginPath();
+      for (const [a, b] of BONES) {
+        ctx.moveTo(hand.lm[a].x * w, hand.lm[a].y * hgt);
+        ctx.lineTo(hand.lm[b].x * w, hand.lm[b].y * hgt);
+      }
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = '28px sans-serif';
+      ctx.fillText(`${hand.side === 'left' ? 'E' : 'D'} ${GESTURE_LABELS[hand.gesture]}`, hand.lm[0].x * w, hand.lm[0].y * hgt + 30);
+    }
+  }
+}
+
+// ===== js/main.js =====
+// Caçador de Sinal — protótipo. Loop principal e estados do jogo.
+// Estados: boot -> calibration -> tutorial -> playing -> ended
+
+class App {
+  constructor() {
+    this.calib = loadCalib() || defaultCalib();
+    this.state = 'boot';
+    this.stereo = false;
+    this.devicesReady = false;
+    this.lastError = '';
+
+    const canvas = document.getElementById('gl');
+    this.canvas = canvas;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 80);
+    this.camera.position.y = CONFIG.EYE_HEIGHT;
+    this.rig = new THREE.Group();
+    this.rig.add(this.camera);
+    this.scene.add(this.rig);
+    this.stereoCam = new THREE.StereoCamera();
+    this.stereoCam.eyeSep = CONFIG.STEREO_IPD;
+
+    this.world = buildWorld(this.scene);
+    this.rig.position.copy(this.world.spawn);
+    this.orientation = new OrientationController(this.camera);
+    this.hands = new HandTracker(this.calib);
+    this.handViews = [new HandView(this.camera, this.hands.left), new HandView(this.camera, this.hands.right)];
+
+    this.tutorial = { teleport: false, touch: false, wire: false };
+    this.teleport = new Teleport(this.scene, this.rig, this.camera, this.world, {
+      onTeleport: () => { if (this.state === 'tutorial' && !this.tutorial.teleport) { this.tutorial.teleport = true; this._refreshTutorial(); } },
+      onFail: (msg) => this.toast(`Teleporte: ${msg}`),
+    });
+    this.interaction = new Interaction(this.scene, this.camera, this.world, {
+      onOpen: () => {
+        this.toast('Caixa aberta! Conecte os fios.');
+        if (this.state === 'tutorial' && !this.tutorial.touch) { this.tutorial.touch = true; this._refreshTutorial(); }
+      },
+      onWire: (ok, why) => this.toast(ok ? 'Fio conectado ✔' : `Não encaixou (${why})`),
+      onFixed: () => this._onFixed(),
+    });
+    this.debug = new DebugUI(this);
+    this.calibration = new CalibrationFlow(this);
+
+    this.mouse = new Map();      // ponteiros de toque/mouse na tela
+    this.prevDown = new Map();   // id -> estava pegando no quadro anterior
+    this.timeLeft = CONFIG.GAME_TIME_S;
+    this._v = new THREE.Vector3();
+    this._wireCanvasPointers();
+    window.addEventListener('resize', () => this.resize());
+    this.resize();
+
+    this._last = performance.now();
+    this.renderer.setAnimationLoop(() => this._loop());
+    this.calibration.welcome();
+    window.__app = this; // para depuração no console / testes
+  }
+
+  locoSide() { return this.calib.locomotion; }
+  interSide() { return this.calib.locomotion === 'left' ? 'right' : 'left'; }
+
+  // ---------------------------------------------------------------
+  // Permissões / dispositivos
+  // ---------------------------------------------------------------
+  async initDevices(onStatus, withCamera = true) {
+    if (!this.sensorsReady) {
+      onStatus('Pedindo acesso aos sensores de movimento…');
+      const perm = await this.orientation.requestPermission();
+      const src = await this.orientation.start('auto');
+      onStatus(`Sensores: ${perm ? src : 'permissão negada'}`);
+      try { if (navigator.wakeLock) this.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* opcional */ }
+      this.sensorsReady = true;
+    }
+    if (!withCamera || this.hands.landmarker) { this.devicesReady = true; return true; }
+    try {
+      onStatus('Pedindo acesso à câmera traseira…');
+      if (!this.hands.stream) await this.hands.startCamera();
+    } catch (e) {
+      this.lastError = `Câmera: ${e.message || e.name}`;
+      onStatus(`<span class="bad">${this.lastError}</span>`);
+      return false;
+    }
+    try {
+      await this.hands.loadModel((m) => onStatus(m));
+    } catch (e) {
+      this.lastError = `MediaPipe: ${e.message || e}`;
+      onStatus(`<span class="bad">${this.lastError}</span>`);
+      return false;
+    }
+    onStatus(`Pronto (${this.hands.delegate}).`);
+    this.devicesReady = true;
+    return true;
+  }
+
+  // ---------------------------------------------------------------
+  // Fluxo do jogo
+  // ---------------------------------------------------------------
+  _resetWorld() {
+    this.interaction.reset();
+    this.teleport.hide();
+    this.teleport.lastJump = -1e9;
+    this.teleport.jumps = 0;
+    this.rig.position.copy(this.world.spawn);
+    this.orientation.recenter();
+  }
+
+  startTutorial() {
+    this.state = 'tutorial';
+    this._resetWorld();
+    this.interaction.mode = 'tutorial';
+    this.tutorial = { teleport: false, touch: false, wire: false };
+    this._refreshTutorial();
+    document.body.classList.remove('playing');
+  }
+
+  _refreshTutorial() { if (this.state === 'tutorial') this.calibration.showTutorial(this.tutorial); }
+
+  startGame() {
+    this.calibration.hide();
+    this.state = 'playing';
+    this._resetWorld();
+    this.interaction.mode = 'game';
+    this.timeLeft = CONFIG.GAME_TIME_S;
+    this.gameStart = performance.now();
+    document.body.classList.add('playing');
+    this.toast('Valendo! Siga o detector de sinal.');
+  }
+
+  _gameTargets() { return this.world.targets.filter((t) => !t.tutorial); }
+
+  _onFixed() {
+    if (this.state === 'tutorial') {
+      this.tutorial.wire = true;
+      this._refreshTutorial();
+      this.toast('Caixa consertada! Tutorial completo.');
+      return;
+    }
+    const all = this._gameTargets();
+    const fixed = all.filter((t) => t.state === 'fixed').length;
+    this.toast(`Sinal restaurado! ${fixed}/${all.length}`);
+    if (fixed === all.length) this.endGame(true);
+  }
+
+  endGame(win) {
+    if (this.state !== 'playing') return;
+    this.state = 'ended';
+    this.teleport.hide();
+    this.interaction.closePanel();
+    document.body.classList.remove('playing');
+    const all = this._gameTargets();
+    const fixed = all.filter((t) => t.state === 'fixed').length;
+    const used = (performance.now() - this.gameStart) / 1000;
+    const c = this.calibration;
+    c._show(win ? '🎉 Rede restaurada!' : '⏰ O tempo acabou', `
+      <p>${win ? 'Você consertou todos os pontos de sinal.' : 'A rede caiu antes de você consertar tudo.'}</p>
+      <p>Caixas consertadas: <b>${fixed}/${all.length}</b><br>Tempo: <b>${fmtTime(Math.min(used, CONFIG.GAME_TIME_S))}</b><br>Teleportes: <b>${this.teleport.jumps}</b></p>`, [
+      { label: 'Jogar de novo', cls: 'primary', onClick: () => this.startGame() },
+      { label: 'Tutorial', onClick: () => this.startTutorial() },
+      { label: 'Recalibrar', onClick: () => this.recalibrate() },
+    ]);
+  }
+
+  recalibrate() {
+    document.body.classList.remove('playing');
+    Object.assign(this.calib, defaultCalib());
+    this.state = 'calibration';
+    this.interaction.closePanel();
+    this.teleport.hide();
+    if (this.devicesReady && this.hands.landmarker) { this.setDebug(true); this.calibration.stepRecenter(); } else this.calibration.welcome();
+  }
+
+  setDebug(on) { this.debug.setEnabled(on); }
+
+  toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(this._toastT);
+    this._toastT = setTimeout(() => el.classList.remove('show'), 2200);
+  }
+
+  resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = this.stereo ? w / 2 / h : w / h;
+    this.camera.updateProjectionMatrix();
+  }
+
+  // Mouse/toque na tela: arrasta fios do painel; sem sensor, gira a visão.
+  _wireCanvasPointers() {
+    const c = this.canvas;
+    c.addEventListener('pointerdown', (e) => {
+      c.setPointerCapture(e.pointerId);
+      this.mouse.set(e.pointerId, { id: `m${e.pointerId}`, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, down: true, lx: e.clientX, ly: e.clientY });
+    });
+    c.addEventListener('pointermove', (e) => {
+      const p = this.mouse.get(e.pointerId);
+      if (!p) return;
+      const dx = e.clientX - p.lx, dy = e.clientY - p.ly;
+      p.lx = e.clientX; p.ly = e.clientY; p.x = e.clientX; p.y = e.clientY;
+      if (!this.interaction.grabs.has(p.id) && !this.orientation.hasData) this.orientation.addManual(dx, dy);
+    });
+    const up = (e) => { const p = this.mouse.get(e.pointerId); if (p) p.down = false; };
+    c.addEventListener('pointerup', up);
+    c.addEventListener('pointercancel', up);
+  }
+
+  // ---------------------------------------------------------------
+  // Loop
+  // ---------------------------------------------------------------
+  _loop() {
+    const now = performance.now();
+    const dtMs = Math.min(100, now - this._last);
+    this._last = now;
+    const dt = dtMs / 1000;
+    const input = this.debug.input;
+
+    // 1) cabeça
+    this.orientation.update();
+    if (input.move.f || input.move.r) this._debugWalk(dt, input.move);
+    this.rig.updateMatrixWorld(true);
+
+    // 2) mãos + gestos
+    const fresh = this.hands.update(now, this.camera);
+    for (const h of this.hands.hands) {
+      if (fresh || !h.visible) updateHandGesture(h, this.calib.thresholds, now);
+    }
+    for (const v of this.handViews) v.update();
+
+    const active = this.state === 'tutorial' || this.state === 'playing';
+    const loco = this.hands.get(this.locoSide());
+    const inter = this.hands.get(this.interSide());
+
+    // 3) teleporte
+    if (active) this.teleport.update(now, loco, input.aim || input.keyAim);
+    else this.teleport.hide();
+
+    // 4) interação: tocar, painel, detector
+    if (active) {
+      if (inter.visible && inter.present) this.interaction.checkTouch(inter.worldPts[8]);
+      this.interaction.updatePanel(this._collectPointers(), window.innerWidth, window.innerHeight, now);
+      this.interaction.updateDetector(inter);
+    } else {
+      this.interaction.detector.group.visible = false;
+    }
+    animateTargets(this.world.targets, dt, now / 1000);
+
+    // 5) tempo
+    if (this.state === 'playing') {
+      this.timeLeft -= dt;
+      if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
+    }
+    this._updateHud(active);
+
+    // 6) render
+    this._render();
+    this.debug.frame(now, dtMs);
+  }
+
+  _collectPointers() {
+    const list = [];
+    const w = window.innerWidth, h = window.innerHeight;
+    for (const hand of this.hands.hands) {
+      if (!hand.visible) continue;
+      this._v.copy(hand.worldPts[4]).lerp(hand.worldPts[8], 0.5).project(this.camera);
+      if (this._v.z > 1) continue;
+      list.push({ id: `hand-${hand.side}`, x: (this._v.x * 0.5 + 0.5) * w, y: (-this._v.y * 0.5 + 0.5) * h, down: hand.gesture === 'pinch' || hand.gesture === 'fist' });
+    }
+    const input = this.debug.input;
+    if (input.pinch || input.fist) list.push({ id: 'cross', x: w / 2, y: h / 2, down: true });
+    for (const [pid, p] of this.mouse) {
+      list.push({ id: p.id, x: p.x, y: p.y, sx: p.sx, sy: p.sy, down: p.down });
+      if (!p.down) this.mouse.delete(pid);
+    }
+    for (const p of list) p.wasDown = this.prevDown.get(p.id) || false;
+    this.prevDown.clear();
+    for (const p of list) this.prevDown.set(p.id, p.down);
+    return list;
+  }
+
+  _debugWalk(dt, move) {
+    const fwd = this.camera.getWorldDirection(this._v);
+    fwd.y = 0; fwd.normalize();
+    const nx = this.rig.position.x + (fwd.x * move.f - fwd.z * move.r) * 2 * dt;
+    const nz = this.rig.position.z + (fwd.z * move.f + fwd.x * move.r) * 2 * dt;
+    if (this.world.isFree(nx, nz, 0.25)) this.rig.position.set(nx, 0, nz);
+  }
+
+  _updateHud(active) {
+    const hud = document.getElementById('hud');
+    hud.classList.toggle('active', active);
+    if (!active) return;
+    const tl = document.getElementById('timer');
+    if (this.state === 'playing') {
+      tl.textContent = fmtTime(this.timeLeft);
+      tl.classList.toggle('urgent', this.timeLeft < 30);
+      const all = this._gameTargets();
+      document.getElementById('count').textContent = `📡 ${all.filter((t) => t.state === 'fixed').length}/${all.length}`;
+    } else {
+      tl.textContent = 'tutorial';
+      document.getElementById('count').textContent = '';
+    }
+    // bússola do detector (ajuda quando a mão de interação não está visível)
+    const near = this.interaction.nearest;
+    const comp = document.getElementById('compass');
+    if (!near) { comp.hidden = true; } else {
+      comp.hidden = false;
+      const local = this.camera.worldToLocal(this._v.copy(near.target.center));
+      const ang = Math.atan2(local.x, -local.z);
+      document.getElementById('compass-arrow').style.transform = `rotate(${ang}rad)`;
+      const up = local.y > 0.6 && near.dist < 5 ? ' ↑ olhe para cima' : '';
+      document.getElementById('compass-text').textContent = `${near.dist.toFixed(1)} m${up}`;
+    }
+    const input = this.debug.input;
+    document.getElementById('crosshair').classList.toggle('on', input.pinch || input.fist || input.aim);
+  }
+
+  _render() {
+    const r = this.renderer;
+    if (!this.stereo) { r.setScissorTest(false); r.render(this.scene, this.camera); return; }
+    const size = r.getSize(new THREE.Vector2());
+    this.camera.updateMatrixWorld();
+    this.stereoCam.update(this.camera);
+    r.setScissorTest(true);
+    r.setScissor(0, 0, size.x / 2, size.y); r.setViewport(0, 0, size.x / 2, size.y);
+    r.render(this.scene, this.stereoCam.cameraL);
+    r.setScissor(size.x / 2, 0, size.x / 2, size.y); r.setViewport(size.x / 2, 0, size.x / 2, size.y);
+    r.render(this.scene, this.stereoCam.cameraR);
+    r.setScissorTest(false);
+  }
+}
+
+function fmtTime(s) {
+  s = Math.max(0, Math.ceil(s));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+try {
+  new App();
+} catch (e) {
+  console.error(e);
+  document.body.insertAdjacentHTML('beforeend', `<div class="fatal">Erro ao iniciar: ${e.message}</div>`);
+}
+
+</script>
+</body>
+</html>
