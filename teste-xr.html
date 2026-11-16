@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Teste WebXR + câmera</title>
+<style>
+  body { margin: 0; background: #0b1118; color: #f2f6fa; font: 15px/1.4 system-ui, sans-serif; }
+  #ui { position: fixed; inset: 0; z-index: 2; padding: 12px; overflow: auto; pointer-events: none; }
+  #ui > * { pointer-events: auto; }
+  button { font: inherit; padding: 12px 16px; margin: 0 8px 8px 0; border-radius: 10px; border: 0; background: #00e5ff; color: #00222a; font-weight: 600; }
+  button:disabled { opacity: .5; }
+  pre { background: rgba(0,0,0,.65); padding: 8px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; }
+  #resumo { border: 1px solid #00e5ff; user-select: text; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  video { position: fixed; right: 0; bottom: 0; width: 2px; height: 2px; opacity: .01; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
+} }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="ui">
+  <button id="b1">1. Preparar câmera</button>
+  <button id="b2">2. Entrar em VR</button>
+  <pre id="resumo">1 VR suportado: ?
+2 Sessão VR abriu: ?
+3 Câmera dentro do VR: ?
+4 Mão vista dentro do VR: ?</pre>
+  <pre id="log"></pre>
+</div>
+<script type="module">
+import * as THREE from 'three';
+
+const MP_VERSION = '0.10.14';
+const WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+const log = (m) => { logEl.textContent += m + '\n'; console.log(m); };
+
+// Resumo: as 4 linhas que o Francisco copia.
+const res = { vr: '?', sessao: '?', cam: '?', mao: '?' };
+const writeResumo = () => {
+  $('resumo').textContent =
+    `1 VR suportado: ${res.vr}\n` +
+    `2 Sessão VR abriu: ${res.sessao}\n` +
+    `3 Câmera dentro do VR: ${res.cam}\n` +
+    `4 Mão vista dentro do VR: ${res.mao}`;
+};
+
+window.addEventListener('error', (e) => log('ERRO: ' + e.message));
+window.addEventListener('unhandledrejection', (e) => log('ERRO: ' + (e.reason && e.reason.message || e.reason)));
+
+// ---- Cena ----
+const renderer = new THREE.WebGLRenderer({ canvas: $('gl'), antialias: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcfe3f2);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 1.2));
+const camera = new THREE.PerspectiveCamera(70, 1, 0.03, 80);
+camera.position.set(0, 1.6, 0);
+scene.add(camera);
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+const cores = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf1c40f, 0x9b59b6, 0xe67e22];
+cores.forEach((c, i) => {
+  const a = (i / cores.length) * Math.PI * 2;
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), new THREE.MeshLambertMaterial({ color: c }));
+  m.position.set(Math.sin(a) * 3, 0.4, -Math.cos(a) * 3);
+  scene.add(m);
+});
+
+// Placa de texto fixa a 2 m na frente (mundo, não presa à câmera)
+const cv = document.createElement('canvas');
+cv.width = 512; cv.height = 256;
+const cctx = cv.getContext('2d');
+const tex = new THREE.CanvasTexture(cv);
+const plate = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.5),
+  new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+plate.position.set(0, 1.6, -2);
+plate.renderOrder = 10;
+scene.add(plate);
+function drawPlate(lines) {
+  cctx.clearRect(0, 0, 512, 256);
+  cctx.fillStyle = 'rgba(11,17,24,0.85)';
+  cctx.fillRect(0, 0, 512, 256);
+  cctx.fillStyle = '#fff';
+  cctx.font = 'bold 40px system-ui, sans-serif';
+  lines.forEach((t, i) => cctx.fillText(t, 20, 70 + i * 60));
+  tex.needsUpdate = true;
+}
+drawPlate(['FPS —', 'câmera/s —', 'mão: —']);
+
+function resize() {
+  if (renderer.xr.isPresenting) return;
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+// ---- Câmera + mãos ----
+const video = $('cam');
+let landmarker = null;
+let cameraOk = false;
+
+$('b1').addEventListener('click', async () => {
+  $('b1').disabled = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: 640, height: 480 },
+    });
+    video.srcObject = stream;
+    await video.play();
+    cameraOk = true;
+    log('Câmera: ok (' + video.videoWidth + 'x' + video.videoHeight + ')');
+    log('Baixando MediaPipe…');
+    const vision = await import('@mediapipe/tasks-vision');
+    const fileset = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = (delegate) => ({
+      baseOptions: { modelAssetPath: MODEL_URL, delegate },
+      runningMode: 'VIDEO', numHands: 1,
+    });
+    try {
+      landmarker = await vision.HandLandmarker.createFromOptions(fileset, opts('GPU'));
+      log('MediaPipe: ok (GPU)');
+    } catch (e) {
+      log('GPU falhou (' + e.message + '), tentando CPU…');
+      landmarker = await vision.HandLandmarker.createFromOptions(fileset, opts('CPU'));
+      log('MediaPipe: ok (CPU)');
+    }
+  } catch (e) {
+    log('FALHOU preparar câmera: ' + (e.message || e.name || e));
+    $('b1').disabled = false;
+  }
+});
+
+// ---- Medição ----
+let lastVideoTime = -1, lastTs = 0;
+let measuring = false;
+let m = null;
+const newMeasure = () => ({ t0: performance.now(), frames: 0, camFrames: 0, hand: false, handFrames: 0 });
+
+// Painel (placa) atualizado 2x por segundo, só quando o texto muda
+let plateT = 0, plateFrames = 0, plateCam = 0, plateHand = false, lastPlateText = '';
+function updatePlate(now) {
+  plateFrames++;
+  if (now - plateT < 500) return;
+  const secs = (now - plateT) / 1000;
+  const txt = [`FPS ${(plateFrames / secs).toFixed(0)}`, `câmera/s ${(plateCam / secs).toFixed(0)}`, `mão: ${plateHand ? 'sim' : 'não'}`];
+  const key = txt.join('|');
+  if (key !== lastPlateText) { lastPlateText = key; drawPlate(txt); }
+  plateT = now; plateFrames = 0; plateCam = 0; plateHand = false;
+}
+
+renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  if (cameraOk && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    plateCam++;
+    if (measuring) m.camFrames++;
+    if (landmarker) {
+      const ts = Math.max(now, lastTs + 1);
+      lastTs = ts;
+      try {
+        const r = landmarker.detectForVideo(video, ts);
+        if (r && r.landmarks && r.landmarks.length > 0) {
+          plateHand = true;
+          if (measuring) { m.hand = true; m.handFrames++; }
+        }
+      } catch (e) { /* ignora quadro ruim */ }
+    }
+  }
+  if (measuring) m.frames++;
+  updatePlate(now);
+  renderer.render(scene, camera);
+});
+
+// ---- Suporte a VR ----
+(async () => {
+  try {
+    if (!navigator.xr) { res.vr = 'não (navigator.xr não existe)'; log('navigator.xr: não existe'); }
+    else {
+      const ok = await navigator.xr.isSessionSupported('immersive-vr');
+      res.vr = ok ? 'sim' : 'não';
+      log("isSessionSupported('immersive-vr'): " + ok);
+    }
+  } catch (e) { res.vr = 'não (erro: ' + e.message + ')'; log('ERRO suporte: ' + e.message); }
+  writeResumo();
+})();
+
+// ---- Entrar em VR: requestSession é a PRIMEIRA chamada do clique, sem await antes ----
+$('b2').addEventListener('click', () => {
+  if (!navigator.xr) { res.sessao = 'não (erro: navigator.xr não existe)'; writeResumo(); return; }
+  renderer.xr.enabled = true;
+  renderer.xr.setReferenceSpaceType('local');
+  navigator.xr.requestSession('immersive-vr').then(async (session) => {
+    session.addEventListener('end', () => {
+      measuring = false;
+      const secs = Math.max(0.001, (performance.now() - m.t0) / 1000);
+      res.cam = `${(m.camFrames / secs).toFixed(1)} quadros/s`;
+      res.mao = `${m.hand ? 'sim' : 'não'} · FPS médio: ${(m.frames / secs).toFixed(1)}`;
+      writeResumo();
+      log(`Sessão durou ${secs.toFixed(1)} s; mão detectada em ${m.handFrames} quadros.`);
+      resize();
+    });
+    await renderer.xr.setSession(session);
+    res.sessao = 'sim';
+    m = newMeasure();
+    measuring = true;
+    writeResumo();
+    log('Sessão VR aberta. Olhe em volta 10 s com a mão na frente da câmera e saia.');
+  }).catch((e) => {
+    res.sessao = `não (erro: ${e.message || e.name || e})`;
+    writeResumo();
+    log('requestSession falhou: ' + (e.message || e.name || e));
+  });
+});
+
+writeResumo();
+</script>
+</body>
+</html>
