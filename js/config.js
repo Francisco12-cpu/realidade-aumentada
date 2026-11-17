@@ -8,7 +8,6 @@ export const CONFIG = {
   // ---- Jogador / câmera ----
   EYE_HEIGHT: 1.6,          // altura dos olhos (m)
   CAMERA_FOV: 70,           // FOV vertical da câmera 3D (graus)
-  STEREO_IPD: 0.064,        // distância entre olhos no modo estéreo (m)
 
   // ---- Partida ----
   GAME_TIME_S: 360,         // duração da partida (6 min)
@@ -19,19 +18,17 @@ export const CONFIG = {
     MIN_DIST: 0.6,          // saltos menores que isso são ignorados
     COOLDOWN_S: 0.9,        // espera mínima entre saltos
     CONFIRM_WINDOW_S: 0.9,  // tempo para abrir a palma depois da pistolinha
-    SPEED: 6.5,             // velocidade inicial da parábola (m/s)
-    UP_BIAS: 0.35,          // inclina a mira para cima (ajuda a alcançar longe)
-    GRAVITY: 9.8,
-    STEP_DT: 0.025,         // passo de simulação da parábola (s)
-    MAX_STEPS: 90,
     PLAYER_RADIUS: 0.3,     // não pousar a menos disso de um bloco
     FADE_MS: 160,
     MODE: 'dash',           // 'dash' = desliza rápido até o alvo · 'fade' = pisca a tela
     DASH_MS_BASE: 120,      // duração do deslize = base + por metro
     DASH_MS_PER_M: 45,      //   (4 m ≈ 0,3 s)
     DASH_BOB: 0.035,        // balanço vertical do "passo" (m)
-    AIM_SMOOTH: 14,         // suavização da mira (maior = responde mais rápido, treme mais)
-    AIM_WRIST_BLEND: 0.4,   // 0 = só o dedo indicador; 1 = só pulso→ponta
+    AIM_MODE: 'olhar',      // 'olhar' = alvo na direção olho→mão (estável) · 'dedo' = para onde o dedo aponta
+    AIM_SMOOTH: 12,         // suavização da direção da mira (maior = responde mais rápido, treme mais)
+    TARGET_SMOOTH: 10,      // suavização do marcador no chão
+    AIM_GRACE_MS: 350,      // a mira continua esse tempo se a pistolinha "piscar"
+    AIM_WRIST_BLEND: 0.4,   // (modo 'dedo') 0 = só o dedo indicador; 1 = só pulso→ponta
   },
 
   // ---- Mãos (MediaPipe) ----
@@ -39,7 +36,10 @@ export const CONFIG = {
     NUM_HANDS: 2,
     VIDEO_W: 640,
     VIDEO_H: 480,
-    DETECT_EVERY_N_FRAMES: 1,   // 2 = detecta em quadros alternados (mais FPS)
+    USE_WORKER: true,           // detecção numa thread separada (muito mais FPS)
+    WORKER_MAX_SIDE: 480,       // reduz a imagem enviada ao worker (px do lado maior)
+    MAX_DETECT_HZ: 30,          // detecções por segundo, no máximo
+    DETECT_EVERY_N_FRAMES: 1,   // (modo normal) 2 = detecta em quadros alternados
     MIN_DETECTION_CONF: 0.5,
     MIN_PRESENCE_CONF: 0.5,
     MIN_TRACKING_CONF: 0.5,
@@ -107,6 +107,15 @@ export const CONFIG = {
   DETECTOR: {
     NEAR: 1.5,   // verde quando mais perto que isso
     FAR: 15,     // vermelho a partir disso
+  },
+
+  // ---- Qualidade / FPS ----
+  QUALITY: {
+    PIXEL_RATIO: 1.0,       // resolução máxima (1 = um pixel por pixel CSS; celular fica bem mais leve)
+    MIN_PIXEL_RATIO: 0.55,  // nunca abaixo disso
+    AUTO: true,             // baixa a resolução se o FPS cair, sobe se sobrar
+    LOW_FPS: 40,
+    HIGH_FPS: 56,
   },
 
   STORAGE_KEY: 'cacador-sinal-calib-v1',

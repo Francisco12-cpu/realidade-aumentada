@@ -12,6 +12,38 @@ import { OneEuro, OneEuro3 } from './filters.js';
 const MP_VERSION = '0.10.14';
 const WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const BUNDLE_CJS = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.cjs`;
+
+// Worker (thread separada): a detecção das mãos não trava mais o desenho da tela.
+// Criado a partir de um Blob para funcionar também na versão em arquivo único.
+const WORKER_SRC = `
+let lm = null;
+function opts(m, delegate) {
+  return { baseOptions: { modelAssetPath: m.modelUrl, delegate }, runningMode: 'VIDEO', numHands: m.numHands,
+    minHandDetectionConfidence: m.c1, minHandPresenceConfidence: m.c2, minTrackingConfidence: m.c3 };
+}
+self.onmessage = async (e) => {
+  const m = e.data;
+  if (m.type === 'init') {
+    try {
+      self.exports = {};
+      importScripts(m.bundleUrl);
+      const v = self.exports;
+      const fs = await v.FilesetResolver.forVisionTasks(m.wasmUrl);
+      let delegate = 'GPU';
+      try { lm = await v.HandLandmarker.createFromOptions(fs, opts(m, 'GPU')); }
+      catch (err) { delegate = 'CPU'; lm = await v.HandLandmarker.createFromOptions(fs, opts(m, 'CPU')); }
+      postMessage({ type: 'ready', delegate });
+    } catch (err) { postMessage({ type: 'error', message: String((err && err.message) || err) }); }
+  } else if (m.type === 'frame') {
+    let res = null;
+    const t0 = performance.now();
+    try { res = lm.detectForVideo(m.bitmap, m.ts); } catch (err) { /* quadro perdido */ }
+    try { m.bitmap.close(); } catch (err) { /* */ }
+    postMessage({ type: 'result', ms: performance.now() - t0, res: res && {
+      landmarks: res.landmarks, worldLandmarks: res.worldLandmarks, handedness: res.handedness || res.handednesses } });
+  }
+};`;
 
 export const BONES = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -91,6 +123,44 @@ export class HandTracker {
   }
 
   async loadModel(onStatus = () => {}) {
+    if (H.USE_WORKER && typeof Worker !== 'undefined' && typeof createImageBitmap === 'function') {
+      try { await this._initWorker(onStatus); return; } catch (e) {
+        console.warn('Worker falhou, usando a thread principal', e);
+        onStatus('Modo rápido indisponível, usando o modo normal…');
+        if (this.worker) { this.worker.terminate(); this.worker = null; }
+      }
+    }
+    await this._initMainThread(onStatus);
+  }
+
+  _initWorker(onStatus) {
+    onStatus('Carregando modelo das mãos (modo rápido)…');
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' }));
+      const w = new Worker(url);
+      this.worker = w;
+      const timer = setTimeout(() => reject(new Error('tempo esgotado')), 45000);
+      w.onerror = (e) => { clearTimeout(timer); reject(new Error(e.message || 'erro no worker')); };
+      w.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'ready') {
+          clearTimeout(timer);
+          this.delegate = `${m.delegate} worker`;
+          this.landmarker = 'worker';
+          w.onmessage = (ev) => this._onWorkerMessage(ev.data);
+          resolve();
+        } else if (m.type === 'error') { clearTimeout(timer); reject(new Error(m.message)); }
+      };
+      w.postMessage({ type: 'init', bundleUrl: BUNDLE_CJS, wasmUrl: WASM_URL, modelUrl: MODEL_URL, numHands: H.NUM_HANDS,
+        c1: H.MIN_DETECTION_CONF, c2: H.MIN_PRESENCE_CONF, c3: H.MIN_TRACKING_CONF });
+    });
+  }
+
+  _onWorkerMessage(m) {
+    if (m.type === 'result') { this._busy = false; if (m.res) this._workerResult = m; }
+  }
+
+  async _initMainThread(onStatus) {
     onStatus('Baixando MediaPipe…');
     const vision = await import('@mediapipe/tasks-vision');
     const fileset = await vision.FilesetResolver.forVisionTasks(WASM_URL);
@@ -121,8 +191,34 @@ export class HandTracker {
     let fresh = this._pendingFresh || false;
     this._pendingFresh = false;
     const v = this.video;
-    if (this.landmarker && v.readyState >= 2 && v.currentTime !== this.lastVideoTime &&
-        this.frame % H.DETECT_EVERY_N_FRAMES === 0) {
+    const minGap = 1000 / H.MAX_DETECT_HZ;
+    if (this.worker && this.landmarker) {
+      // ---- modo rápido: manda o quadro para o worker e segue desenhando ----
+      if (this._busy && nowMs - this._lastSend > 4000) this._busy = false; // quadro perdido
+      if (!this._busy && v.readyState >= 2 && v.currentTime !== this.lastVideoTime && nowMs - (this._lastSend || 0) >= minGap) {
+        this._busy = true;
+        this._lastSend = nowMs;
+        this.lastVideoTime = v.currentTime;
+        const ts = Math.max(nowMs, this.lastTs + 1);
+        this.lastTs = ts;
+        const vw = v.videoWidth, vh = v.videoHeight;
+        const sc = Math.min(1, H.WORKER_MAX_SIDE / Math.max(vw, vh));
+        createImageBitmap(v, { resizeWidth: Math.round(vw * sc), resizeHeight: Math.round(vh * sc), resizeQuality: 'low' })
+          .then((bmp) => this.worker.postMessage({ type: 'frame', bitmap: bmp, ts }, [bmp]))
+          .catch(() => { this._busy = false; });
+      }
+      if (this._workerResult) {
+        const m = this._workerResult;
+        this._workerResult = null;
+        this.detectMs = this.detectMs * 0.85 + m.ms * 0.15;
+        this._process(m.res, nowMs, camera);
+        this.lastResult = m.res;
+        fresh = true;
+        this._countDetection(nowMs);
+      }
+    } else if (this.landmarker && v.readyState >= 2 && v.currentTime !== this.lastVideoTime &&
+        this.frame % H.DETECT_EVERY_N_FRAMES === 0 && nowMs - (this._lastSend || 0) >= minGap) {
+      this._lastSend = nowMs;
       this.lastVideoTime = v.currentTime;
       const ts = Math.max(nowMs, this.lastTs + 1);
       this.lastTs = ts;
@@ -132,12 +228,7 @@ export class HandTracker {
       const ms = performance.now() - t0;
       this.detectMs = this.detectMs * 0.85 + ms * 0.15;
       if (res) { this._process(res, nowMs, camera); this.lastResult = res; fresh = true; }
-      this._detCount++;
-      if (nowMs - this._detT0 > 1000) {
-        this.detectFps = (this._detCount * 1000) / (nowMs - this._detT0);
-        this._detCount = 0;
-        this._detT0 = nowMs;
-      }
+      this._countDetection(nowMs);
     }
 
     // A detecção chega a 15–30/s e a tela roda a ~60: os pontos exibidos
@@ -155,6 +246,15 @@ export class HandTracker {
       h.snap = false;
     }
     return fresh;
+  }
+
+  _countDetection(nowMs) {
+    this._detCount++;
+    if (nowMs - this._detT0 > 1000) {
+      this.detectFps = (this._detCount * 1000) / (nowMs - this._detT0);
+      this._detCount = 0;
+      this._detT0 = nowMs;
+    }
   }
 
   // Injeta um resultado "falso" (usado pelos testes automáticos).

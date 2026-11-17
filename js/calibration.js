@@ -2,6 +2,7 @@
 // Protótipo de teste: os textos são longos de propósito.
 import { CONFIG } from './config.js';
 import { computeFeatures, classify, averageFeatures, thresholdsFromPoses, GESTURE_LABELS } from './gestures.js';
+import { defaultVrSettings, saveVrSettings } from './vr.js';
 
 // ---------------------------------------------------------------------
 // Armazenamento (localStorage, sempre com try/catch)
@@ -150,6 +151,7 @@ export class CalibrationFlow {
       btns.push({ label: 'Começar', cls: 'primary', onClick: () => this._startFresh() });
     }
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
+    btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show('Caçador de Sinal — teste', html, btns);
   }
 
@@ -347,6 +349,85 @@ export class CalibrationFlow {
       { label: 'Ir para o tutorial →', cls: 'primary', onClick: () => { this.app.setDebug(false); this.app.startTutorial(); } },
       { label: 'Refazer gestos', onClick: () => this.stepPose(0) },
     ]);
+  }
+
+  // ------------------------------------------------------------------
+  // Ajuda do óculos
+  // ------------------------------------------------------------------
+  showHelp(back) {
+    const app = this.app;
+    if (app.stereo) app.setStereo(false);
+    const prevState = app.state;
+    const close = back || (() => { if (prevState === 'tutorial') app._refreshTutorial(); else this.hide(); });
+    this._show('❓ Como usar no óculos', `
+      <ol class="steps">
+        <li><b>Abra a tampa da frente do óculos</b> (ou tire). A câmera traseira precisa <b>enxergar suas mãos</b>. Com a tampa fechada as mãos não funcionam, aí só os botões.</li>
+        <li>Faça a <b>calibração e o tutorial fora do óculos</b> primeiro, segurando o celular na frente dos olhos.</li>
+        <li>Toque em <b>👓 Óculos</b>. A tela fica cheia, deitada e dividida em duas imagens.</li>
+        <li>Encaixe o celular com a <b>linha do meio</b> (entre as duas imagens) bem no <b>centro do óculos</b>, na altura do nariz.</li>
+        <li>Mexa nos <b>dois controles de cima do óculos</b> (os da sua foto):
+          um aproxima/afasta as lentes — mexa até as <b>duas imagens virarem uma só</b>;
+          o outro muda o foco — mexa até ficar <b>nítido</b>.</li>
+        <li>Se ainda aparecer dobrado, torto ou com bordas curvas, use <b>🔧 Ajustar</b>: aparece uma grade com um anel vermelho para você acertar no jogo.</li>
+        <li>Já no óculos, olhe para frente e toque na tela por fora → <b>⟲</b> (recentrar).</li>
+      </ol>
+      <p class="small">Dicas: brilho da tela no máximo. Se o celular esquentar e o FPS cair, o jogo baixa a resolução sozinho. Para sair do modo óculos, toque na tela e use <b>👓 Óculos</b> de novo.</p>`, [
+      { label: '👓 Entrar no modo óculos', cls: 'primary', onClick: () => { close(); app.setStereo(true); } },
+      { label: '🔧 Ajustar óculos', onClick: () => this.showVrAdjust() },
+      { label: 'Fechar', onClick: close },
+    ]);
+  }
+
+  // ------------------------------------------------------------------
+  // Ajuste do óculos (lentes, curvatura, campo de visão)
+  // ------------------------------------------------------------------
+  showVrAdjust() {
+    const app = this.app, v = app.vrSettings;
+    if (!app.stereo) app.setStereo(true);
+    document.body.classList.add('vr-adjust');
+    app.testPattern.visible = true;
+    const prevState = app.state;
+    const sliders = [
+      { key: 'lensOffset', name: 'Distância entre as imagens', min: -0.3, max: 0.3, step: 0.005, fmt: (x) => `${(x * 100).toFixed(0)}` },
+      { key: 'lensY', name: 'Altura das imagens', min: -0.3, max: 0.3, step: 0.005, fmt: (x) => `${(x * 100).toFixed(0)}` },
+      { key: 'k1', name: 'Curvatura da lente', min: 0, max: 0.8, step: 0.01, fmt: (x) => x.toFixed(2) },
+      { key: 'zoom', name: 'Ampliação', min: 0.55, max: 1.2, step: 0.01, invert: true, fmt: (x) => `${(1 / x).toFixed(2)}×` },
+      { key: 'fov', name: 'Campo de visão', min: 60, max: 115, step: 1, fmt: (x) => `${x}°` },
+      { key: 'ipd', name: 'Profundidade 3D (olhos)', min: 0.03, max: 0.09, step: 0.001, fmt: (x) => `${(x * 1000).toFixed(0)} mm` },
+    ];
+    const html = `
+      <p class="small">Olhe pelo óculos: acerte até o <b>anel vermelho</b> virar um só e as <b>linhas da grade</b> ficarem retas. Ajuste um pouco, tire o celular, olhe de novo.</p>
+      <div class="sliders">${sliders.map((sl) => {
+        const val = sl.invert ? sl.max + sl.min - v[sl.key] : v[sl.key];
+        return `<label class="slider"><span>${sl.name}</span><b id="sv-${sl.key}">${sl.fmt(v[sl.key])}</b>
+          <input type="range" data-key="${sl.key}" min="${sl.min}" max="${sl.max}" step="${sl.step}" value="${val}"></label>`;
+      }).join('')}</div>
+      <label class="small"><input type="checkbox" id="sv-distortion" ${v.distortion ? 'checked' : ''}> Corrigir curvatura da lente</label>`;
+    const done = () => {
+      saveVrSettings(v);
+      document.body.classList.remove('vr-adjust');
+      app.testPattern.visible = false;
+      if (prevState === 'tutorial') app._refreshTutorial(); else this.hide();
+      app.toast('Ajustes do óculos salvos');
+    };
+    this._show('🔧 Ajustar óculos', html, [
+      { label: '✔ Pronto', cls: 'primary', onClick: done },
+      { label: 'Testar sem o painel', onClick: () => { saveVrSettings(v); document.body.classList.remove('vr-adjust'); app.showVrUi(6000); } },
+      { label: 'Padrão', onClick: () => { Object.assign(v, defaultVrSettings()); saveVrSettings(v); this.showVrAdjust(); } },
+    ]);
+    this.el.querySelectorAll('input[type=range]').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const sl = sliders.find((x) => x.key === inp.dataset.key);
+        let x = parseFloat(inp.value);
+        if (sl.invert) x = sl.max + sl.min - x;
+        v[sl.key] = x;
+        if (sl.key === 'k1') v.k2 = x * 0.45;
+        this.el.querySelector(`#sv-${sl.key}`).textContent = sl.fmt(x);
+        if (sl.key === 'fov') app.resize();
+        saveVrSettings(v);
+      });
+    });
+    this.el.querySelector('#sv-distortion').addEventListener('change', (e) => { v.distortion = e.target.checked; saveVrSettings(v); });
   }
 
   // ------------------------------------------------------------------
