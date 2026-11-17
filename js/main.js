@@ -220,13 +220,22 @@ class App {
   toggleVR() {
     if (this.xrActive) { this.renderer.xr.getSession().end(); return; }
     if (this.stereo) { this.setStereo(false); return; }
-    if (this.xrSupported && this.vrSettings.engine !== 'proprio') this.startXR();
-    else this.setStereo(true);
+    // sempre tenta primeiro o modo VR do Chrome (igual ao teste-xr.html);
+    // o modo próprio só entra se ele não existir ou falhar
+    if (navigator.xr && this.vrSettings.engine !== 'proprio') this.startXR();
+    else {
+      if (!navigator.xr) this.toast('Este navegador não tem o modo VR do Chrome — usando o modo próprio');
+      this.setStereo(true);
+    }
   }
 
   startXR() {
-    navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] }).then(async (session) => {
+    // requestSession é a PRIMEIRA chamada do toque (sem await antes), como no teste
+    navigator.xr.requestSession('immersive-vr').then(async (session) => {
       session.addEventListener('end', () => this._onXREnd());
+      // botão do óculos / dedo na tela: segurar = andar
+      session.addEventListener('selectstart', () => { this.xrSelect = true; });
+      session.addEventListener('selectend', () => { this.xrSelect = false; });
       await this.renderer.xr.setSession(session);
       this.xrActive = true;
       document.body.classList.add('xr');
@@ -235,13 +244,14 @@ class App {
       setTimeout(() => this.recenter(), 800);
     }).catch((e) => {
       console.warn('WebXR falhou, usando o modo próprio', e);
-      this.toast('VR do Chrome indisponível — usando o modo próprio');
+      this.toast(`VR do Chrome não abriu (${e.message || e.name || e}) — usando o modo próprio`);
       this.setStereo(true);
     });
   }
 
   _onXREnd() {
     this.xrActive = false;
+    this.xrSelect = false;
     document.body.classList.remove('xr');
     this.hud3d.show(false);
     this.eye.rotation.y = 0;
@@ -377,8 +387,14 @@ class App {
     const inter = this.hands.get(this.interSide());
 
     // 3) locomoção: correr (padrão) ou teleporte
-    if (active && this.locoMode === 'correr') {
-      const manual = input.run || input.move.f > 0 ? 1 : 0;
+    if (active && this.locoMode !== 'teleporte') {
+      let manual = 0;
+      this.runner.manualSource = 'botão';
+      if (input.run || input.move.f > 0) manual = 1;
+      if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
+      if (this.locoMode === 'palma' && this.hands.hands.some((h) => h.visible && h.gesture === 'open')) { manual = 1; this.runner.manualSource = 'palma aberta'; }
+      this.runner.useSwing = this.locoMode === 'correr';
+      this.runner.maxSpeed = this.locoMode === 'correr' ? CONFIG.RUN.MAX_SPEED : CONFIG.RUN.WALK_SPEED;
       const busy = this.interaction.grabs.size > 0; // arrastando fio: não anda
       this.runner.update(now, dt, this.hands.hands, manual, busy);
       this.teleport.hide();
@@ -468,7 +484,7 @@ class App {
       document.getElementById('compass-text').textContent = `${near.dist.toFixed(1)} m${up}`;
       info.dist = `${near.dist.toFixed(1)} m`; info.arrowAngle = ang; info.up = !!up;
     }
-    if (this.locoMode === 'correr' && this.runner.speed > 0.2) info.count = `${info.count || ''} 🏃`;
+    if (this.locoMode !== 'teleporte' && this.runner.speed > 0.2) info.count = `${info.count || ''} 🏃`;
     if (this.stereo || this.xrActive) this.hud3d.update(info);
     const input = this.debug.input;
     document.getElementById('crosshair').classList.toggle('on', input.pinch || input.fist || input.aim);

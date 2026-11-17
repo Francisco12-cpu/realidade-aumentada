@@ -13,11 +13,14 @@ export const CONFIG = {
   GAME_TIME_S: 360,         // duração da partida (6 min)
 
   // ---- Locomoção ----
-  LOCOMOTION: 'correr',     // 'correr' = anda para onde olha balançando as mãos / correndo parado · 'teleporte'
+  VERSION: 'v6',
+  // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
+  LOCOMOTION: 'palma',
 
   // ---- Corrida ----
   RUN: {
-    MAX_SPEED: 3.2,         // m/s com balanço máximo (corrida leve)
+    WALK_SPEED: 2.0,        // m/s no modo 'palma' (andar rápido)
+    MAX_SPEED: 3.2,         // m/s no modo 'correr' com balanço máximo
     ACCEL: 6,               // m/s² para ganhar velocidade
     DECEL: 8,               // m/s² para parar
     ENERGY_SMOOTH: 6,       // suavização da intensidade (1/s)

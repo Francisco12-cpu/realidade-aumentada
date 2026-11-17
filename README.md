@@ -37,14 +37,15 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
 
    Tudo fica salvo no `localStorage`. O botão ⚙ refaz a calibração.
 3. **Tutorial.** Você precisa dar 1 teleporte, tocar a caixa do pedestal cinza e conectar 1 fio.
-4. **Partida** de 6 minutos com 6 caixas, incluindo uma no **teto** (debaixo da cobertura laranja), duas em paredes e uma atrás do ponto de partida. A partida termina em vitória (consertou todas) ou derrota (o tempo acabou).
+4. **Partida** de 6 minutos com 6 caixas espalhadas pela "escola de blocos": sala vermelha, laboratório (na parede), sala verde, **teto da cantina**, quadra e biblioteca. A partida termina em vitória (consertou todas) ou derrota (o tempo acabou).
 
 ## Gestos
 
 | Gesto | Mão | Efeito |
 |---|---|---|
 | Mão relaxada | qualquer | nada |
-| **Balançar as mãos** na frente da câmera (como correndo) ou **correr parado** | qualquer | anda para onde você está olhando (padrão) |
+| **Palma aberta** (qualquer mão) / segurar o **botão do óculos** | qualquer | anda para onde você está olhando; fechou ou abaixou a mão, para (padrão) |
+| **Balançar as mãos** ou **correr parado** | qualquer | (modo `'correr'`) anda mais rápido quanto mais forte o balanço |
 | **Pistolinha** (indicador + polegar esticados) | locomoção (modo teleporte) | mira o teleporte: o alvo é o ponto do chão que a mão "cobre" na sua visão |
 | **Palma aberta** logo depois da pistolinha | locomoção (modo teleporte) | teleporta |
 | **Ponta do indicador** encostando na caixa | interação | abre a caixa |
@@ -59,7 +60,7 @@ Por padrão a **esquerda** anda e a **direita** interage. Dá para trocar na cal
 | Botão | Tecla (PC) | Função |
 |---|---|---|
 | ⟲ | R | recentrar |
-| 🏃 Correr (segurar) | W | corre para onde está olhando |
+| 🏃 Andar (segurar) | W | anda para onde está olhando |
 | 🎯 Mirar / 🚀 Ir | segurar Q / soltar Q | (modo teleporte) mirar com o olhar / teleportar |
 | 👆 Tocar | E | abre a caixa mais próxima (até 3 m) |
 | 🤏 Pinça / ✊ Pegar (segurar) | F / G | pega o fio que estiver sob a mira do centro |
@@ -98,7 +99,7 @@ Todos os números de ajuste ficam em **`js/config.js`**, por exemplo:
 - `INTERACTION.TOUCH_DIST`: distância para o toque contar;
 - `HANDS.VIRTUAL_NEAR` e `HANDS.VIRTUAL_FAR`: até onde a mão virtual alcança;
 - `FILTER.*`, `FILTER_ANCHOR.*`, `FILTER_DEPTH.*` e `HANDS.FOLLOW_RATE`: suavização da mão (forma dos dedos, posição, profundidade e deslize entre detecções);
-- `LOCOMOTION`: `'correr'` (padrão) ou `'teleporte'`; `RUN.*`: velocidade, sensibilidade do balanço das mãos e da corrida parada;
+- `LOCOMOTION`: `'palma'` (padrão), `'correr'` ou `'teleporte'`; `RUN.WALK_SPEED`: velocidade do andar; `RUN.*`: velocidade, sensibilidade do balanço das mãos e da corrida parada;
 - `TELEPORT.AIM_MODE`: `'olhar'` (olho→mão, padrão, mais estável) ou `'dedo'` (para onde o dedo aponta);
 - `TELEPORT.MODE`: `'dash'` (desliza rápido até o alvo) ou `'fade'` (pisca a tela); `TELEPORT.AIM_SMOOTH`: suavização da mira;
 - `GESTURE.STABLE_FRAMES`: quantos quadros seguidos um gesto precisa para valer;
