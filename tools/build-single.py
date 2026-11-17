@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ORDER = ['config', 'filters', 'scene', 'orientation', 'hands', 'gestures',
-         'teleport', 'interaction', 'vr', 'calibration', 'debug', 'main']
+         'teleport', 'locomotion', 'interaction', 'vr', 'calibration', 'debug', 'main']
 
 parts = ["import * as THREE from 'three';"]
 for name in ORDER:

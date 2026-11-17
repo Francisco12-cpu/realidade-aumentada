@@ -363,16 +363,17 @@ export class CalibrationFlow {
       <ol class="steps">
         <li><b>Abra a tampa da frente do óculos</b> (ou tire). A câmera traseira precisa <b>enxergar suas mãos</b>. Com a tampa fechada as mãos não funcionam, aí só os botões.</li>
         <li>Faça a <b>calibração e o tutorial fora do óculos</b> primeiro, segurando o celular na frente dos olhos.</li>
-        <li>Toque em <b>👓 Óculos</b>. A tela fica cheia, deitada e dividida em duas imagens.</li>
+        <li>Toque em <b>👓 Óculos</b>. Se o celular tiver o <b>modo VR do Chrome</b>, ele abre e, na primeira vez, pede para <b>escanear o QR Code do seu óculos</b> (fica no óculos ou na caixa) — isso acerta as lentes sozinho. Sem QR, pode pular. Se não tiver esse modo, abre o modo próprio do jogo (tela cheia, deitada, dividida em duas).</li>
         <li>Encaixe o celular com a <b>linha do meio</b> (entre as duas imagens) bem no <b>centro do óculos</b>, na altura do nariz.</li>
         <li>Mexa nos <b>dois controles de cima do óculos</b> (os da sua foto):
           um aproxima/afasta as lentes — mexa até as <b>duas imagens virarem uma só</b>;
           o outro muda o foco — mexa até ficar <b>nítido</b>.</li>
         <li>Se ainda aparecer dobrado, torto ou com bordas curvas, use <b>🔧 Ajustar</b>: aparece uma grade com um anel vermelho para você acertar no jogo.</li>
-        <li>Já no óculos, olhe para frente e toque na tela por fora → <b>⟲</b> (recentrar).</li>
+        <li>Já no óculos, olhe para frente e toque na tela por fora → <b>⟲</b> (recentrar). No modo VR do Chrome, use o botão de voltar / ✕ da tela para sair.</li>
+        <li><b>Para andar</b>: olhe para onde quer ir e <b>balance as mãos</b> na frente da câmera como se estivesse correndo, ou <b>corra parado</b>.</li>
       </ol>
       <p class="small">Dicas: brilho da tela no máximo. Se o celular esquentar e o FPS cair, o jogo baixa a resolução sozinho. Para sair do modo óculos, toque na tela e use <b>👓 Óculos</b> de novo.</p>`, [
-      { label: '👓 Entrar no modo óculos', cls: 'primary', onClick: () => { close(); app.setStereo(true); } },
+      { label: '👓 Entrar no modo óculos', cls: 'primary', onClick: () => { close(); app.toggleVR(); } },
       { label: '🔧 Ajustar óculos', onClick: () => this.showVrAdjust() },
       { label: 'Fechar', onClick: close },
     ]);
@@ -402,7 +403,9 @@ export class CalibrationFlow {
         return `<label class="slider"><span>${sl.name}</span><b id="sv-${sl.key}">${sl.fmt(v[sl.key])}</b>
           <input type="range" data-key="${sl.key}" min="${sl.min}" max="${sl.max}" step="${sl.step}" value="${val}"></label>`;
       }).join('')}</div>
-      <label class="small"><input type="checkbox" id="sv-distortion" ${v.distortion ? 'checked' : ''}> Corrigir curvatura da lente</label>`;
+      <label class="small"><input type="checkbox" id="sv-distortion" ${v.distortion ? 'checked' : ''}> Corrigir curvatura da lente</label><br>
+      <label class="small"><input type="checkbox" id="sv-engine" ${v.engine !== 'proprio' ? 'checked' : ''}> Usar o modo VR do Chrome (QR Code do óculos) quando existir${app.xrSupported ? '' : ' — <i>não disponível neste aparelho</i>'}</label>
+      <p class="small">Estes ajustes valem para o <b>modo próprio</b>. No modo VR do Chrome as lentes são acertadas pelo QR Code (ícone de engrenagem na tela do VR).</p>`;
     const done = () => {
       saveVrSettings(v);
       document.body.classList.remove('vr-adjust');
@@ -428,6 +431,7 @@ export class CalibrationFlow {
       });
     });
     this.el.querySelector('#sv-distortion').addEventListener('change', (e) => { v.distortion = e.target.checked; saveVrSettings(v); });
+    this.el.querySelector('#sv-engine').addEventListener('change', (e) => { v.engine = e.target.checked ? 'auto' : 'proprio'; saveVrSettings(v); });
   }
 
   // ------------------------------------------------------------------
@@ -437,7 +441,9 @@ export class CalibrationFlow {
     const loco = this.app.calib.locomotion === 'left' ? 'esquerda' : 'direita';
     const inter = this.app.calib.locomotion === 'left' ? 'direita' : 'esquerda';
     const steps = [
-      { done: progress.teleport, name: 'Teleporte', how: `Mão ${loco}: <b>pistolinha</b> apontando para o chão (aparece uma curva), depois <b>abra a palma</b>. Botões: 🎯 Mirar + 🚀 Ir.` },
+      this.app.locoMode === 'correr'
+        ? { done: progress.teleport, name: 'Correr', how: 'Olhe para onde quer ir e <b>balance as mãos</b> na frente da câmera, como se estivesse correndo (ou <b>corra parado</b>). Quanto mais rápido, mais rápido você anda. Botão: 🏃 Correr.' }
+        : { done: progress.teleport, name: 'Teleporte', how: `Mão ${loco}: <b>pistolinha</b> cobrindo o lugar do chão para onde quer ir, depois <b>abra a palma</b>. Botões: 🎯 Mirar + 🚀 Ir.` },
       { done: progress.touch, name: 'Tocar a caixa', how: `Chegue na caixa preta do pedestal cinza e encoste a <b>ponta do indicador</b> da mão ${inter}. Botão: 👆 Tocar.` },
       { done: progress.wire, name: 'Conectar o fio', how: 'No painel: <b>pinça</b> na bolinha colorida, arraste até o anel da mesma cor e solte. Também dá para arrastar com o dedo na tela.' },
     ];

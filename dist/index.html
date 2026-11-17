@@ -151,6 +151,11 @@ body.stereo.vr-adjust #overlay .sheet { max-height: calc(46vh - 60px); width: mi
 @media (max-width: 560px) { .sliders { grid-template-columns: 1fr; } }
 .steps { margin: 6px 0; padding-left: 20px; }
 .steps li { margin: 6px 0; }
+
+/* ---------- Modo de locomoção ---------- */
+body.mode-correr #btn-aim, body.mode-correr #btn-teleport { display: none; }
+body.mode-teleporte #btn-run { display: none; }
+body.running #vignette { opacity: 0.55; }
 </style>
   <script type="importmap">
   {
@@ -180,6 +185,7 @@ body.stereo.vr-adjust #overlay .sheet { max-height: calc(46vh - 60px); width: mi
   <!-- Botões alternativos aos gestos (protótipo) -->
   <div id="controls">
     <button id="btn-recenter" title="Recentrar a direção">⟲</button>
+    <button id="btn-run" title="Segure para correr para onde está olhando">🏃 Correr</button>
     <button id="btn-aim" title="Mirar teleporte (liga/desliga)">🎯 Mirar</button>
     <button id="btn-teleport" title="Confirmar teleporte">🚀 Ir</button>
     <button id="btn-touch" title="Tocar/abrir a caixa mais próxima">👆 Tocar</button>
@@ -224,6 +230,30 @@ const CONFIG = {
 
   // ---- Partida ----
   GAME_TIME_S: 360,         // duração da partida (6 min)
+
+  // ---- Locomoção ----
+  LOCOMOTION: 'correr',     // 'correr' = anda para onde olha balançando as mãos / correndo parado · 'teleporte'
+
+  // ---- Corrida ----
+  RUN: {
+    MAX_SPEED: 3.2,         // m/s com balanço máximo (corrida leve)
+    ACCEL: 6,               // m/s² para ganhar velocidade
+    DECEL: 8,               // m/s² para parar
+    ENERGY_SMOOTH: 6,       // suavização da intensidade (1/s)
+    BOB: 0.045,             // balanço do passo (m)
+    USE_HANDS: true,        // balançar as mãos na frente da câmera
+    USE_JOG: true,          // correr parado (sensor de movimento do celular)
+    SWING_WINDOW_MS: 900,   // janela para medir o balanço
+    SWING_FLIP_SPEED: 0.25, // velocidade mínima (m/s) para contar ida/volta
+    SWING_MIN_FLIPS: 2,     // idas e voltas necessárias na janela (evita andar ao esticar a mão)
+    SWING_START: 0.3,       // velocidade média da mão (m/s) para começar a andar
+    SWING_FULL: 1.1,        // velocidade média da mão para correr no máximo
+    JOG_WINDOW_MS: 900,
+    JOG_FLIP_ACC: 1.2,      // m/s² mínimo de cada "quique"
+    JOG_MIN_FLIPS: 3,
+    JOG_START: 1.2,         // aceleração (RMS, m/s²) para começar a andar
+    JOG_FULL: 4.0,          // para correr no máximo
+  },
 
   // ---- Teleporte ----
   TELEPORT: {
@@ -433,31 +463,48 @@ const tmpRay = new THREE.Ray();
 const tmpV = new THREE.Vector3();
 
 function buildWorld(scene) {
-  scene.background = new THREE.Color(0xcfe3f2);
-  scene.fog = new THREE.Fog(0xcfe3f2, 18, 45);
+  scene.background = new THREE.Color(0xbfd8ee);
+  scene.fog = new THREE.Fog(0xcfe2f2, 16, 48);
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 1.1));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+  scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x9a8f80, 1.05));
+  const sun = new THREE.DirectionalLight(0xfff3e0, 1.35);
   sun.position.set(6, 12, 4);
   scene.add(sun);
 
-  // Chão branco + "estradas" cinza-claro + grade suave (ajuda a sentir o movimento)
+  // Céu: esfera com degradê (azul em cima, claro no horizonte)
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(60, 24, 12), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { top: { value: new THREE.Color(0x5d9fe0) }, horizon: { value: new THREE.Color(0xdcebf7) } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 top; uniform vec3 horizon; varying vec3 vP; void main(){ float h = clamp(vP.y, 0.0, 1.0); gl_FragColor = vec4(mix(horizon, top, pow(h, 0.6)), 1.0); }',
+  }));
+  sky.renderOrder = -1;
+  scene.add(sky);
+  scene.userData.sky = sky;
+
+  // Chão: piso claro com rejunte e leve variação (textura gerada no código)
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(40, 40),
-    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    new THREE.MeshLambertMaterial({ map: makeFloorTexture(40) }),
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
-  const roadMat = new THREE.MeshLambertMaterial({ color: 0xe4e4e4 });
+  const roadMat = new THREE.MeshLambertMaterial({ color: 0xd9dcdf });
   for (const [w, d, x, z] of [[3.6, 32, 0, -2], [24, 3, -4, 7], [20, 3, 2, -12]]) {
     const road = new THREE.Mesh(new THREE.PlaneGeometry(w, d), roadMat);
     road.rotation.x = -Math.PI / 2;
-    road.position.set(x, 0.005, z);
+    road.position.set(x, 0.004, z);
     scene.add(road);
   }
-  const grid = new THREE.GridHelper(40, 40, 0xbbbbbb, 0xdddddd);
-  grid.position.y = 0.01;
-  scene.add(grid);
+
+  const shadowTex = makeShadowTexture();
+  const addShadow = (cx, cz, w, d, opacity = 0.55) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
+      new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(cx, 0.008, cz);
+    scene.add(m);
+  };
 
   const blocks = [];
   const geo = new THREE.BoxGeometry(1, 1, 1);
@@ -467,6 +514,9 @@ function buildWorld(scene) {
     mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
     scene.add(mesh);
     blocks.push({ mesh, box: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)) });
+    // sombra de contato: escurece o chão em volta da base do bloco
+    if (y0 === 0) addShadow((x0 + x1) / 2, (z0 + z1) / 2, (x1 - x0) + 0.9, (z1 - z0) + 0.9);
+    else if (y0 > 2) addShadow((x0 + x1) / 2, (z0 + z1) / 2, (x1 - x0) + 0.4, (z1 - z0) + 0.4, 0.35); // teto
   }
 
   const world = {
@@ -504,7 +554,10 @@ function buildWorld(scene) {
     },
   };
 
-  for (const def of TARGET_DEFS) world.targets.push(createTarget(scene, def));
+  for (const def of TARGET_DEFS) {
+    world.targets.push(createTarget(scene, def));
+    if (def.pos[1] < 0.5) addShadow(def.pos[0], def.pos[2], BOX_SIZE + 0.5, BOX_SIZE + 0.5, 0.6);
+  }
   return world;
 }
 
@@ -575,6 +628,52 @@ function animateTargets(targets, dt, timeSec) {
     }
     if (t.state === 'fixed') t.led.visible = true;
   }
+}
+
+// Piso claro em placas de 1 m, com rejunte e leve variação de tom.
+function makeFloorTexture(tiles) {
+  const S = 256, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const N = 4; // 4x4 placas por imagem
+  const t = S / N;
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      const v = 238 + Math.floor(Math.random() * 12);
+      g.fillStyle = `rgb(${v},${v},${v - 3})`;
+      g.fillRect(i * t, j * t, t, t);
+      for (let k = 0; k < 60; k++) { // pontinhos (textura de concreto)
+        const w = Math.random() * 10 - 5;
+        g.fillStyle = `rgba(${120 + w * 8},${120 + w * 8},${120 + w * 8},0.06)`;
+        g.fillRect(i * t + Math.random() * t, j * t + Math.random() * t, 2, 2);
+      }
+    }
+  }
+  g.strokeStyle = 'rgba(150,150,150,0.55)';
+  g.lineWidth = 2;
+  for (let i = 0; i <= N; i++) {
+    g.beginPath(); g.moveTo(i * t, 0); g.lineTo(i * t, S); g.stroke();
+    g.beginPath(); g.moveTo(0, i * t); g.lineTo(S, i * t); g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(tiles / N, tiles / N);
+  tex.anisotropy = 4;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Sombra suave (centro escuro, bordas transparentes).
+function makeShadowTexture() {
+  const S = 128, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(S / 2, S / 2, S * 0.18, S / 2, S / 2, S * 0.5);
+  grd.addColorStop(0, 'rgba(0,0,0,0.55)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, S, S);
+  return new THREE.CanvasTexture(c);
 }
 
 // ===== js/orientation.js =====
@@ -1642,6 +1741,168 @@ class Teleport {
   }
 }
 
+// ===== js/locomotion.js =====
+// Locomoção "correndo": o jogador anda para onde está OLHANDO quando
+//  - balança as mãos na frente da câmera (como braços correndo), ou
+//  - corre parado (o sensor de movimento do celular percebe o "quique").
+// Quanto mais forte o balanço, mais rápido. Paredes bloqueiam (desliza nelas).
+
+const R = CONFIG.RUN;
+
+class Runner {
+  constructor(rig, eye, camera, world, hooks = {}) {
+    this.rig = rig;
+    this.eye = eye;           // grupo da altura dos olhos (balanço do passo)
+    this.camera = camera;
+    this.world = world;
+    this.hooks = hooks;
+    this.speed = 0;           // m/s atual (suavizada)
+    this.handEnergy = 0;      // 0..1
+    this.jogEnergy = 0;       // 0..1
+    this.source = '—';
+    this.distance = 0;        // metros percorridos (tutorial)
+    this.bobPhase = 0;
+    this.enabled = true;
+    // histórico de movimento das mãos para detectar "vai e volta"
+    this._hist = { left: [], right: [] };
+    this._prev = { left: null, right: null };
+    // sensor de movimento (corrida parada)
+    this._acc = [];           // [{t, v}] aceleração vertical (sem gravidade)
+    this._g = new THREE.Vector3(0, 9.8, 0);
+    this._onMotion = this._onMotion.bind(this);
+    this._v = new THREE.Vector3();
+    this._fwd = new THREE.Vector3();
+  }
+
+  startSensors() {
+    if (this._sensorOn) return;
+    this._sensorOn = true;
+    window.addEventListener('devicemotion', this._onMotion);
+  }
+
+  _onMotion(e) {
+    const g = e.accelerationIncludingGravity;
+    if (!g || g.x === null) return;
+    // gravidade estimada por média lenta; vertical = projeção na direção da gravidade
+    this._g.x += (g.x - this._g.x) * 0.05;
+    this._g.y += (g.y - this._g.y) * 0.05;
+    this._g.z += (g.z - this._g.z) * 0.05;
+    const gl = this._g.length() || 9.8;
+    const vert = (g.x * this._g.x + g.y * this._g.y + g.z * this._g.z) / gl - gl;
+    const t = performance.now();
+    this._acc.push({ t, v: vert });
+    while (this._acc.length && t - this._acc[0].t > 1200) this._acc.shift();
+  }
+
+  // Energia da corrida parada: precisa de "quiques" (subida/descida) repetidos.
+  _jog(now) {
+    const a = this._acc;
+    if (a.length < 10) return 0;
+    let sum = 0, n = 0, flips = 0, lastSign = 0;
+    for (const s of a) {
+      if (now - s.t > R.JOG_WINDOW_MS) continue;
+      sum += s.v * s.v; n++;
+      if (Math.abs(s.v) > R.JOG_FLIP_ACC) {
+        const sg = Math.sign(s.v);
+        if (lastSign && sg !== lastSign) flips++;
+        lastSign = sg;
+      }
+    }
+    if (!n) return 0;
+    const rms = Math.sqrt(sum / n);
+    if (flips < R.JOG_MIN_FLIPS) return 0;
+    return THREE.MathUtils.clamp((rms - R.JOG_START) / (R.JOG_FULL - R.JOG_START), 0, 1);
+  }
+
+  // Energia do balanço das mãos: velocidade da palma com vai-e-volta.
+  _handsEnergy(hands, now, dt) {
+    let best = 0;
+    for (const h of hands) {
+      const hist = this._hist[h.side];
+      if (!h.visible || h.gesture === 'pinch' || h.gesture === 'fist') { hist.length = 0; this._prev[h.side] = null; continue; }
+      const p = h.camPts[9];
+      const prev = this._prev[h.side];
+      if (prev && dt > 0) {
+        const vx = (p.x - prev.x) / dt, vy = (p.y - prev.y) / dt;
+        hist.push({ t: now, vx, vy });
+      }
+      this._prev[h.side] = p.clone();
+      while (hist.length && now - hist[0].t > R.SWING_WINDOW_MS) hist.shift();
+      if (hist.length < 6) continue;
+      // eixo dominante (horizontal ou vertical) e número de inversões
+      let sx = 0, sy = 0;
+      for (const s of hist) { sx += Math.abs(s.vx); sy += Math.abs(s.vy); }
+      const key = sx > sy ? 'vx' : 'vy';
+      let flips = 0, last = 0, speed = 0;
+      for (const s of hist) {
+        const v = s[key];
+        speed += Math.abs(v);
+        if (Math.abs(v) > R.SWING_FLIP_SPEED) {
+          const sg = Math.sign(v);
+          if (last && sg !== last) flips++;
+          last = sg;
+        }
+      }
+      speed /= hist.length;
+      if (flips < R.SWING_MIN_FLIPS) continue;
+      best = Math.max(best, THREE.MathUtils.clamp((speed - R.SWING_START) / (R.SWING_FULL - R.SWING_START), 0, 1));
+    }
+    return best;
+  }
+
+  // manualRun: botão "Correr" / tecla W (0..1)
+  update(nowMs, dt, hands, manualRun, blocked) {
+    const k = 1 - Math.exp(-dt * R.ENERGY_SMOOTH);
+    this.handEnergy += ((R.USE_HANDS ? this._handsEnergy(hands, nowMs, dt) : 0) - this.handEnergy) * k;
+    this.jogEnergy += ((R.USE_JOG ? this._jog(nowMs) : 0) - this.jogEnergy) * k;
+    let e = Math.max(this.handEnergy, this.jogEnergy, manualRun || 0);
+    this.source = e < 0.02 ? '—' : manualRun >= e ? 'botão' : this.handEnergy >= this.jogEnergy ? 'mãos' : 'corrida parada';
+    if (!this.enabled || blocked) e = 0;
+
+    const target = e * R.MAX_SPEED;
+    const rate = target > this.speed ? R.ACCEL : R.DECEL;
+    this.speed += Math.sign(target - this.speed) * Math.min(Math.abs(target - this.speed), rate * dt);
+
+    if (this.speed > 0.01) {
+      this.camera.getWorldDirection(this._fwd);
+      this._fwd.y = 0;
+      if (this._fwd.lengthSq() < 1e-6) return;
+      this._fwd.normalize();
+      const step = this.speed * dt;
+      const pos = this.rig.position;
+      const r = CONFIG.TELEPORT.PLAYER_RADIUS;
+      const nx = pos.x + this._fwd.x * step, nz = pos.z + this._fwd.z * step;
+      // desliza na parede: tenta X e Z separadamente
+      const free = (x, z) => this.world.isFree(x, z, r) && !this._hitsTarget(x, z);
+      const ox = pos.x, oz = pos.z;
+      if (free(nx, nz)) { pos.x = nx; pos.z = nz; } else if (free(nx, pos.z)) pos.x = nx; else if (free(pos.x, nz)) pos.z = nz;
+      const moved = Math.hypot(pos.x - ox, pos.z - oz);
+      this.distance += moved;
+      if (moved > 0) this.hooks.onMove && this.hooks.onMove(this.distance);
+      // balanço do passo (mais rápido = passos mais rápidos)
+      this.bobPhase += dt * (5 + this.speed * 3.2);
+    }
+    const amp = R.BOB * Math.min(1, this.speed / R.MAX_SPEED);
+    this.eye.position.y = CONFIG.EYE_HEIGHT + Math.abs(Math.sin(this.bobPhase)) * amp;
+    document.body.classList.toggle('running', this.speed > R.MAX_SPEED * 0.55);
+  }
+
+  _hitsTarget(x, z) {
+    for (const t of this.world.targets) {
+      if (t.center.y < 1.2 && Math.hypot(t.center.x - x, t.center.z - z) < 0.45) return true;
+    }
+    return false;
+  }
+
+  stop() {
+    this.speed = 0;
+    this.handEnergy = 0;
+    this.jogEnergy = 0;
+    this.eye.position.y = CONFIG.EYE_HEIGHT;
+    document.body.classList.remove('running');
+  }
+}
+
 // ===== js/interaction.js =====
 // Interação com as caixas pretas:
 //  1) tocar a caixa com a ponta do indicador (mão de interação) -> abre
@@ -1989,6 +2250,7 @@ function defaultVrSettings() {
     k2: 0.12,
     zoom: 0.82,       // tamanho da imagem dentro da lente
     distortion: true, // corrigir curvatura
+    engine: 'auto',   // 'auto' = modo VR do Chrome (WebXR) se existir · 'proprio' = sempre o modo do jogo
   };
 }
 
@@ -2554,16 +2816,17 @@ class CalibrationFlow {
       <ol class="steps">
         <li><b>Abra a tampa da frente do óculos</b> (ou tire). A câmera traseira precisa <b>enxergar suas mãos</b>. Com a tampa fechada as mãos não funcionam, aí só os botões.</li>
         <li>Faça a <b>calibração e o tutorial fora do óculos</b> primeiro, segurando o celular na frente dos olhos.</li>
-        <li>Toque em <b>👓 Óculos</b>. A tela fica cheia, deitada e dividida em duas imagens.</li>
+        <li>Toque em <b>👓 Óculos</b>. Se o celular tiver o <b>modo VR do Chrome</b>, ele abre e, na primeira vez, pede para <b>escanear o QR Code do seu óculos</b> (fica no óculos ou na caixa) — isso acerta as lentes sozinho. Sem QR, pode pular. Se não tiver esse modo, abre o modo próprio do jogo (tela cheia, deitada, dividida em duas).</li>
         <li>Encaixe o celular com a <b>linha do meio</b> (entre as duas imagens) bem no <b>centro do óculos</b>, na altura do nariz.</li>
         <li>Mexa nos <b>dois controles de cima do óculos</b> (os da sua foto):
           um aproxima/afasta as lentes — mexa até as <b>duas imagens virarem uma só</b>;
           o outro muda o foco — mexa até ficar <b>nítido</b>.</li>
         <li>Se ainda aparecer dobrado, torto ou com bordas curvas, use <b>🔧 Ajustar</b>: aparece uma grade com um anel vermelho para você acertar no jogo.</li>
-        <li>Já no óculos, olhe para frente e toque na tela por fora → <b>⟲</b> (recentrar).</li>
+        <li>Já no óculos, olhe para frente e toque na tela por fora → <b>⟲</b> (recentrar). No modo VR do Chrome, use o botão de voltar / ✕ da tela para sair.</li>
+        <li><b>Para andar</b>: olhe para onde quer ir e <b>balance as mãos</b> na frente da câmera como se estivesse correndo, ou <b>corra parado</b>.</li>
       </ol>
       <p class="small">Dicas: brilho da tela no máximo. Se o celular esquentar e o FPS cair, o jogo baixa a resolução sozinho. Para sair do modo óculos, toque na tela e use <b>👓 Óculos</b> de novo.</p>`, [
-      { label: '👓 Entrar no modo óculos', cls: 'primary', onClick: () => { close(); app.setStereo(true); } },
+      { label: '👓 Entrar no modo óculos', cls: 'primary', onClick: () => { close(); app.toggleVR(); } },
       { label: '🔧 Ajustar óculos', onClick: () => this.showVrAdjust() },
       { label: 'Fechar', onClick: close },
     ]);
@@ -2593,7 +2856,9 @@ class CalibrationFlow {
         return `<label class="slider"><span>${sl.name}</span><b id="sv-${sl.key}">${sl.fmt(v[sl.key])}</b>
           <input type="range" data-key="${sl.key}" min="${sl.min}" max="${sl.max}" step="${sl.step}" value="${val}"></label>`;
       }).join('')}</div>
-      <label class="small"><input type="checkbox" id="sv-distortion" ${v.distortion ? 'checked' : ''}> Corrigir curvatura da lente</label>`;
+      <label class="small"><input type="checkbox" id="sv-distortion" ${v.distortion ? 'checked' : ''}> Corrigir curvatura da lente</label><br>
+      <label class="small"><input type="checkbox" id="sv-engine" ${v.engine !== 'proprio' ? 'checked' : ''}> Usar o modo VR do Chrome (QR Code do óculos) quando existir${app.xrSupported ? '' : ' — <i>não disponível neste aparelho</i>'}</label>
+      <p class="small">Estes ajustes valem para o <b>modo próprio</b>. No modo VR do Chrome as lentes são acertadas pelo QR Code (ícone de engrenagem na tela do VR).</p>`;
     const done = () => {
       saveVrSettings(v);
       document.body.classList.remove('vr-adjust');
@@ -2619,6 +2884,7 @@ class CalibrationFlow {
       });
     });
     this.el.querySelector('#sv-distortion').addEventListener('change', (e) => { v.distortion = e.target.checked; saveVrSettings(v); });
+    this.el.querySelector('#sv-engine').addEventListener('change', (e) => { v.engine = e.target.checked ? 'auto' : 'proprio'; saveVrSettings(v); });
   }
 
   // ------------------------------------------------------------------
@@ -2628,7 +2894,9 @@ class CalibrationFlow {
     const loco = this.app.calib.locomotion === 'left' ? 'esquerda' : 'direita';
     const inter = this.app.calib.locomotion === 'left' ? 'direita' : 'esquerda';
     const steps = [
-      { done: progress.teleport, name: 'Teleporte', how: `Mão ${loco}: <b>pistolinha</b> apontando para o chão (aparece uma curva), depois <b>abra a palma</b>. Botões: 🎯 Mirar + 🚀 Ir.` },
+      this.app.locoMode === 'correr'
+        ? { done: progress.teleport, name: 'Correr', how: 'Olhe para onde quer ir e <b>balance as mãos</b> na frente da câmera, como se estivesse correndo (ou <b>corra parado</b>). Quanto mais rápido, mais rápido você anda. Botão: 🏃 Correr.' }
+        : { done: progress.teleport, name: 'Teleporte', how: `Mão ${loco}: <b>pistolinha</b> cobrindo o lugar do chão para onde quer ir, depois <b>abra a palma</b>. Botões: 🎯 Mirar + 🚀 Ir.` },
       { done: progress.touch, name: 'Tocar a caixa', how: `Chegue na caixa preta do pedestal cinza e encoste a <b>ponta do indicador</b> da mão ${inter}. Botão: 👆 Tocar.` },
       { done: progress.wire, name: 'Conectar o fio', how: 'No painel: <b>pinça</b> na bolinha colorida, arraste até o anel da mesma cor e solte. Também dá para arrastar com o dedo na tela.' },
     ];
@@ -2661,7 +2929,7 @@ class DebugUI {
     this.frameMs = 0;
 
     // Estado das entradas alternativas (lido pelo main.js)
-    this.input = { aim: false, pinch: false, fist: false, keyAim: false, move: { f: 0, r: 0 } };
+    this.input = { aim: false, run: false, pinch: false, fist: false, keyAim: false, move: { f: 0, r: 0 } };
     this._wireButtons();
     this._wireKeyboard();
   }
@@ -2691,7 +2959,7 @@ class DebugUI {
 
   _wireButtons() {
     const app = this.app;
-    this._btn('btn-recenter', () => { app.orientation.recenter(); app.toast('Direção recentrada'); });
+    this._btn('btn-recenter', () => { app.recenter(); app.toast('Direção recentrada'); });
     this._btn('btn-aim', (el) => { this.input.aim = !this.input.aim; el.classList.toggle('on', this.input.aim); });
     this._btn('btn-teleport', () => {
       app.teleport.tryJump(performance.now());
@@ -2699,9 +2967,10 @@ class DebugUI {
       document.getElementById('btn-aim').classList.remove('on');
     });
     this._btn('btn-touch', () => { if (!app.interaction.openNearest()) app.toast('Nenhuma caixa perto (chegue a menos de 3 m)'); });
+    this._hold('btn-run', 'run');
     this._hold('btn-pinch', 'pinch');
     this._hold('btn-fist', 'fist');
-    this._btn('btn-stereo', () => app.setStereo(!app.stereo));
+    this._btn('btn-stereo', () => app.toggleVR());
     this._btn('btn-vradjust', () => app.calibration.showVrAdjust());
     this._btn('btn-help', () => app.calibration.showHelp());
     this._btn('btn-full', () => {
@@ -2725,7 +2994,7 @@ class DebugUI {
       if (k === 'e') app.interaction.openNearest();
       if (k === 'f') this.input.pinch = true;
       if (k === 'g') this.input.fist = true;
-      if (k === 'r') app.orientation.recenter();
+      if (k === 'r') app.recenter();
       if (k === 'b') this.setEnabled(!this.enabled);
       if (k === 'w') this.input.move.f = 1;
       if (k === 's') this.input.move.f = -1;
@@ -2774,6 +3043,7 @@ class DebugUI {
       `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate}</div>` +
       `<div>Sensor: ${o.source} ${o.hasData ? '✔' : '✖'} (${o.eventCount}) · estado: ${a.state}</div>` +
       hand(h.left) + hand(h.right) +
+      (a.locoMode === 'correr' ? `<div>Corrida: ${a.runner.speed.toFixed(1)} m/s · mãos ${(a.runner.handEnergy * 100).toFixed(0)}% · corrida parada ${(a.runner.jogEnergy * 100).toFixed(0)}% · ${a.runner.source}</div>` : '') +
       `<div>Teleporte: ${tp.aiming ? 'mirando' : '—'} ${tp.reason} · espera ${tp.cooldownLeft(performance.now()).toFixed(1)}s · saltos ${tp.jumps}</div>` +
       `<div>Toque: ${isFinite(a.interaction.lastTouchDist) ? a.interaction.lastTouchDist.toFixed(2) + ' m' : '—'} · pos ${p.x.toFixed(1)}, ${p.z.toFixed(1)}</div>`;
   }
@@ -2825,10 +3095,22 @@ class App {
     this._q = { t0: performance.now(), frames: 0, low: 0, high: 0 };
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 80);
-    this.camera.position.y = CONFIG.EYE_HEIGHT;
+    // rig (posição no chão) -> eye (altura dos olhos / recentrar no WebXR) -> câmera
     this.rig = new THREE.Group();
-    this.rig.add(this.camera);
+    this.eye = new THREE.Group();
+    this.eye.position.y = CONFIG.EYE_HEIGHT;
+    this.rig.add(this.eye);
+    this.eye.add(this.camera);
     this.scene.add(this.rig);
+    this.locoMode = CONFIG.LOCOMOTION;
+    document.body.classList.add(`mode-${this.locoMode}`);
+    this.xrSupported = false;
+    this.xrActive = false;
+    this.renderer.xr.enabled = true;
+    this.renderer.xr.setReferenceSpaceType('local');
+    if (navigator.xr && navigator.xr.isSessionSupported) {
+      navigator.xr.isSessionSupported('immersive-vr').then((ok) => { this.xrSupported = ok; }).catch(() => {});
+    }
     this.vrSettings = loadVrSettings();
     this.vr = new VRView(this.renderer, this.vrSettings);
     this.hud3d = new HUD3D(this.camera);
@@ -2845,6 +3127,9 @@ class App {
     this.teleport = new Teleport(this.scene, this.rig, this.camera, this.world, {
       onTeleport: () => { if (this.state === 'tutorial' && !this.tutorial.teleport) { this.tutorial.teleport = true; this._refreshTutorial(); } },
       onFail: (msg) => this.toast(`Teleporte: ${msg}`),
+    });
+    this.runner = new Runner(this.rig, this.eye, this.camera, this.world, {
+      onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.teleport && d > 2) { this.tutorial.teleport = true; this._refreshTutorial(); } },
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
       onOpen: () => {
@@ -2863,7 +3148,7 @@ class App {
     this._v = new THREE.Vector3();
     this._wireCanvasPointers();
     window.addEventListener('resize', () => this.resize());
-    if (screen.orientation) screen.orientation.addEventListener('change', () => { if (this.stereo) setTimeout(() => this.orientation.recenter(), 600); });
+    if (screen.orientation) screen.orientation.addEventListener('change', () => { if (this.stereo) setTimeout(() => this.recenter(), 600); });
     this.resize();
 
     this._last = performance.now();
@@ -2882,6 +3167,8 @@ class App {
     if (!this.sensorsReady) {
       onStatus('Pedindo acesso aos sensores de movimento…');
       const perm = await this.orientation.requestPermission();
+      try { if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission(); } catch (e) { /* */ }
+      this.runner.startSensors();
       const src = await this.orientation.start('auto');
       onStatus(`Sensores: ${perm ? src : 'permissão negada'}`);
       try { if (navigator.wakeLock) this.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* opcional */ }
@@ -2914,10 +3201,12 @@ class App {
   _resetWorld() {
     this.interaction.reset();
     this.teleport.cancel();
+    this.runner.stop();
+    this.runner.distance = 0;
     this.teleport.lastJump = -1e9;
     this.teleport.jumps = 0;
     this.rig.position.copy(this.world.spawn);
-    this.orientation.recenter();
+    this.recenter();
   }
 
   startTutorial() {
@@ -2990,6 +3279,52 @@ class App {
   // ---------------------------------------------------------------
   // Modo óculos
   // ---------------------------------------------------------------
+  // Entrar/sair do óculos. Usa o modo VR do Chrome (WebXR, configurado pelo
+  // QR Code do óculos) quando existe; senão, o modo próprio do jogo.
+  // Precisa ser chamado direto do toque no botão (o navegador exige).
+  toggleVR() {
+    if (this.xrActive) { this.renderer.xr.getSession().end(); return; }
+    if (this.stereo) { this.setStereo(false); return; }
+    if (this.xrSupported && this.vrSettings.engine !== 'proprio') this.startXR();
+    else this.setStereo(true);
+  }
+
+  startXR() {
+    navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] }).then(async (session) => {
+      session.addEventListener('end', () => this._onXREnd());
+      await this.renderer.xr.setSession(session);
+      this.xrActive = true;
+      document.body.classList.add('xr');
+      this.hud3d.show(true);
+      this.hud3d.toast('Modo VR do Chrome');
+      setTimeout(() => this.recenter(), 800);
+    }).catch((e) => {
+      console.warn('WebXR falhou, usando o modo próprio', e);
+      this.toast('VR do Chrome indisponível — usando o modo próprio');
+      this.setStereo(true);
+    });
+  }
+
+  _onXREnd() {
+    this.xrActive = false;
+    document.body.classList.remove('xr');
+    this.hud3d.show(false);
+    this.eye.rotation.y = 0;
+    this.camera.position.set(0, 0, 0);
+    this.resize();
+    this.orientation.recenter();
+  }
+
+  // Recentrar: no WebXR gira o grupo dos olhos; fora dele, o sensor.
+  recenter() {
+    if (this.xrActive) {
+      const f = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+      this.eye.rotation.y = -Math.atan2(-f.x, -f.z);
+    } else {
+      this.orientation.recenter();
+    }
+  }
+
   async setStereo(on) {
     this.stereo = on;
     document.body.classList.toggle('stereo', on);
@@ -3001,7 +3336,7 @@ class App {
         if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
       } catch (e) { /* nem todo navegador deixa travar: o aviso "vire o celular" ajuda */ }
       this.showVrUi(4000);
-      setTimeout(() => this.orientation.recenter(), 900);
+      setTimeout(() => this.recenter(), 900);
       this.hud3d.toast('Modo óculos — toque na tela para opções');
     } else {
       try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* */ }
@@ -3046,6 +3381,7 @@ class App {
   }
 
   resize() {
+    if (this.renderer.xr.isPresenting) return;
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     if (this.stereo) this.vr.applyCamera(this.camera, w, h);
@@ -3082,9 +3418,16 @@ class App {
     const dt = dtMs / 1000;
     const input = this.debug.input;
 
-    // 1) cabeça
-    this.orientation.update();
-    if (input.move.f || input.move.r) this._debugWalk(dt, input.move);
+    // 1) cabeça (no WebXR o próprio Chrome move a câmera)
+    if (this.xrActive) {
+      // campo de visão real do óculos, para as mãos caírem no lugar certo
+      const e = this.camera.projectionMatrix.elements;
+      this.camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(1 / e[5]));
+      this.camera.aspect = e[5] / e[0];
+    } else {
+      this.orientation.update();
+    }
+    if (this.locoMode !== 'correr' && (input.move.f || input.move.r)) this._debugWalk(dt, input.move);
     this.rig.updateMatrixWorld(true);
 
     // 2) mãos + gestos
@@ -3098,9 +3441,18 @@ class App {
     const loco = this.hands.get(this.locoSide());
     const inter = this.hands.get(this.interSide());
 
-    // 3) teleporte
-    if (active) this.teleport.update(now, loco, input.aim || input.keyAim);
-    else this.teleport.hide();
+    // 3) locomoção: correr (padrão) ou teleporte
+    if (active && this.locoMode === 'correr') {
+      const manual = input.run || input.move.f > 0 ? 1 : 0;
+      const busy = this.interaction.grabs.size > 0; // arrastando fio: não anda
+      this.runner.update(now, dt, this.hands.hands, manual, busy);
+      this.teleport.hide();
+    } else if (active) {
+      this.teleport.update(now, loco, input.aim || input.keyAim);
+    } else {
+      this.teleport.hide();
+      if (this.runner.speed) this.runner.stop();
+    }
 
     // 4) interação: tocar, painel, detector
     if (active) {
@@ -3157,7 +3509,7 @@ class App {
   _updateHud(active) {
     const hud = document.getElementById('hud');
     hud.classList.toggle('active', active);
-    if (!active) { if (this.stereo) this.hud3d.update({ timer: this.state === 'ended' ? 'fim' : '' }); return; }
+    if (!active) { if (this.stereo || this.xrActive) this.hud3d.update({ timer: this.state === 'ended' ? 'fim' : '' }); return; }
     const info = {};
     const tl = document.getElementById('timer');
     if (this.state === 'playing') {
@@ -3181,14 +3533,15 @@ class App {
       document.getElementById('compass-text').textContent = `${near.dist.toFixed(1)} m${up}`;
       info.dist = `${near.dist.toFixed(1)} m`; info.arrowAngle = ang; info.up = !!up;
     }
-    if (this.stereo) this.hud3d.update(info);
+    if (this.locoMode === 'correr' && this.runner.speed > 0.2) info.count = `${info.count || ''} 🏃`;
+    if (this.stereo || this.xrActive) this.hud3d.update(info);
     const input = this.debug.input;
     document.getElementById('crosshair').classList.toggle('on', input.pinch || input.fist || input.aim);
   }
 
   _render() {
     const r = this.renderer;
-    if (!this.stereo) { r.setScissorTest(false); r.render(this.scene, this.camera); return; }
+    if (this.xrActive || !this.stereo) { r.setScissorTest(false); r.render(this.scene, this.camera); return; }
     this.vr.render(this.scene, this.camera);
   }
 }

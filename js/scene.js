@@ -48,31 +48,48 @@ const tmpRay = new THREE.Ray();
 const tmpV = new THREE.Vector3();
 
 export function buildWorld(scene) {
-  scene.background = new THREE.Color(0xcfe3f2);
-  scene.fog = new THREE.Fog(0xcfe3f2, 18, 45);
+  scene.background = new THREE.Color(0xbfd8ee);
+  scene.fog = new THREE.Fog(0xcfe2f2, 16, 48);
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 1.1));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+  scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x9a8f80, 1.05));
+  const sun = new THREE.DirectionalLight(0xfff3e0, 1.35);
   sun.position.set(6, 12, 4);
   scene.add(sun);
 
-  // Chão branco + "estradas" cinza-claro + grade suave (ajuda a sentir o movimento)
+  // Céu: esfera com degradê (azul em cima, claro no horizonte)
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(60, 24, 12), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { top: { value: new THREE.Color(0x5d9fe0) }, horizon: { value: new THREE.Color(0xdcebf7) } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 top; uniform vec3 horizon; varying vec3 vP; void main(){ float h = clamp(vP.y, 0.0, 1.0); gl_FragColor = vec4(mix(horizon, top, pow(h, 0.6)), 1.0); }',
+  }));
+  sky.renderOrder = -1;
+  scene.add(sky);
+  scene.userData.sky = sky;
+
+  // Chão: piso claro com rejunte e leve variação (textura gerada no código)
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(40, 40),
-    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    new THREE.MeshLambertMaterial({ map: makeFloorTexture(40) }),
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
-  const roadMat = new THREE.MeshLambertMaterial({ color: 0xe4e4e4 });
+  const roadMat = new THREE.MeshLambertMaterial({ color: 0xd9dcdf });
   for (const [w, d, x, z] of [[3.6, 32, 0, -2], [24, 3, -4, 7], [20, 3, 2, -12]]) {
     const road = new THREE.Mesh(new THREE.PlaneGeometry(w, d), roadMat);
     road.rotation.x = -Math.PI / 2;
-    road.position.set(x, 0.005, z);
+    road.position.set(x, 0.004, z);
     scene.add(road);
   }
-  const grid = new THREE.GridHelper(40, 40, 0xbbbbbb, 0xdddddd);
-  grid.position.y = 0.01;
-  scene.add(grid);
+
+  const shadowTex = makeShadowTexture();
+  const addShadow = (cx, cz, w, d, opacity = 0.55) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
+      new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(cx, 0.008, cz);
+    scene.add(m);
+  };
 
   const blocks = [];
   const geo = new THREE.BoxGeometry(1, 1, 1);
@@ -82,6 +99,9 @@ export function buildWorld(scene) {
     mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
     scene.add(mesh);
     blocks.push({ mesh, box: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)) });
+    // sombra de contato: escurece o chão em volta da base do bloco
+    if (y0 === 0) addShadow((x0 + x1) / 2, (z0 + z1) / 2, (x1 - x0) + 0.9, (z1 - z0) + 0.9);
+    else if (y0 > 2) addShadow((x0 + x1) / 2, (z0 + z1) / 2, (x1 - x0) + 0.4, (z1 - z0) + 0.4, 0.35); // teto
   }
 
   const world = {
@@ -119,7 +139,10 @@ export function buildWorld(scene) {
     },
   };
 
-  for (const def of TARGET_DEFS) world.targets.push(createTarget(scene, def));
+  for (const def of TARGET_DEFS) {
+    world.targets.push(createTarget(scene, def));
+    if (def.pos[1] < 0.5) addShadow(def.pos[0], def.pos[2], BOX_SIZE + 0.5, BOX_SIZE + 0.5, 0.6);
+  }
   return world;
 }
 
@@ -190,4 +213,50 @@ export function animateTargets(targets, dt, timeSec) {
     }
     if (t.state === 'fixed') t.led.visible = true;
   }
+}
+
+// Piso claro em placas de 1 m, com rejunte e leve variação de tom.
+function makeFloorTexture(tiles) {
+  const S = 256, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const N = 4; // 4x4 placas por imagem
+  const t = S / N;
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      const v = 238 + Math.floor(Math.random() * 12);
+      g.fillStyle = `rgb(${v},${v},${v - 3})`;
+      g.fillRect(i * t, j * t, t, t);
+      for (let k = 0; k < 60; k++) { // pontinhos (textura de concreto)
+        const w = Math.random() * 10 - 5;
+        g.fillStyle = `rgba(${120 + w * 8},${120 + w * 8},${120 + w * 8},0.06)`;
+        g.fillRect(i * t + Math.random() * t, j * t + Math.random() * t, 2, 2);
+      }
+    }
+  }
+  g.strokeStyle = 'rgba(150,150,150,0.55)';
+  g.lineWidth = 2;
+  for (let i = 0; i <= N; i++) {
+    g.beginPath(); g.moveTo(i * t, 0); g.lineTo(i * t, S); g.stroke();
+    g.beginPath(); g.moveTo(0, i * t); g.lineTo(S, i * t); g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(tiles / N, tiles / N);
+  tex.anisotropy = 4;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Sombra suave (centro escuro, bordas transparentes).
+function makeShadowTexture() {
+  const S = 128, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(S / 2, S / 2, S * 0.18, S / 2, S / 2, S * 0.5);
+  grd.addColorStop(0, 'rgba(0,0,0,0.55)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, S, S);
+  return new THREE.CanvasTexture(c);
 }

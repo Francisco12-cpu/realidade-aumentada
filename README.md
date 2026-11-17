@@ -44,8 +44,9 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
 | Gesto | Mão | Efeito |
 |---|---|---|
 | Mão relaxada | qualquer | nada |
-| **Pistolinha** (indicador + polegar esticados) | locomoção | mira o teleporte: o alvo é o ponto do chão que a mão "cobre" na sua visão |
-| **Palma aberta** logo depois da pistolinha | locomoção | teleporta |
+| **Balançar as mãos** na frente da câmera (como correndo) ou **correr parado** | qualquer | anda para onde você está olhando (padrão) |
+| **Pistolinha** (indicador + polegar esticados) | locomoção (modo teleporte) | mira o teleporte: o alvo é o ponto do chão que a mão "cobre" na sua visão |
+| **Palma aberta** logo depois da pistolinha | locomoção (modo teleporte) | teleporta |
 | **Ponta do indicador** encostando na caixa | interação | abre a caixa |
 | **Pinça** (polegar + indicador) ou **punho** sobre a bolinha | qualquer | pega o fio, arrasta e solta no anel da mesma cor |
 
@@ -58,13 +59,14 @@ Por padrão a **esquerda** anda e a **direita** interage. Dá para trocar na cal
 | Botão | Tecla (PC) | Função |
 |---|---|---|
 | ⟲ | R | recentrar |
-| 🎯 Mirar / 🚀 Ir | segurar Q / soltar Q | mirar com o olhar / teleportar |
+| 🏃 Correr (segurar) | W | corre para onde está olhando |
+| 🎯 Mirar / 🚀 Ir | segurar Q / soltar Q | (modo teleporte) mirar com o olhar / teleportar |
 | 👆 Tocar | E | abre a caixa mais próxima (até 3 m) |
 | 🤏 Pinça / ✊ Pegar (segurar) | F / G | pega o fio que estiver sob a mira do centro |
 | arrastar o dedo/mouse no painel | — | arrasta os fios |
 | arrastar na tela (só sem sensor) | — | gira a visão |
 | — | WASD | anda devagar (só depuração) |
-| 👓 Óculos | — | modo óculos: tela cheia, deitada, dividida, com correção da lente |
+| 👓 Óculos | — | modo óculos: usa o **modo VR do Chrome (WebXR)**, que acerta as lentes pelo QR Code do óculos; sem WebXR, usa o modo próprio (tela dividida com correção da lente) |
 | 🔧 Ajustar | — | ajusta o óculos (distância e altura das imagens, curvatura, ampliação, campo de visão) |
 | ❓ | — | passo a passo para montar e ajustar o óculos |
 | 🐞 | B | painel de depuração (FPS, mãos, gesto, confiança, prévia da câmera) |
@@ -96,6 +98,7 @@ Todos os números de ajuste ficam em **`js/config.js`**, por exemplo:
 - `INTERACTION.TOUCH_DIST`: distância para o toque contar;
 - `HANDS.VIRTUAL_NEAR` e `HANDS.VIRTUAL_FAR`: até onde a mão virtual alcança;
 - `FILTER.*`, `FILTER_ANCHOR.*`, `FILTER_DEPTH.*` e `HANDS.FOLLOW_RATE`: suavização da mão (forma dos dedos, posição, profundidade e deslize entre detecções);
+- `LOCOMOTION`: `'correr'` (padrão) ou `'teleporte'`; `RUN.*`: velocidade, sensibilidade do balanço das mãos e da corrida parada;
 - `TELEPORT.AIM_MODE`: `'olhar'` (olho→mão, padrão, mais estável) ou `'dedo'` (para onde o dedo aponta);
 - `TELEPORT.MODE`: `'dash'` (desliza rápido até o alvo) ou `'fade'` (pisca a tela); `TELEPORT.AIM_SMOOTH`: suavização da mira;
 - `GESTURE.STABLE_FRAMES`: quantos quadros seguidos um gesto precisa para valer;
