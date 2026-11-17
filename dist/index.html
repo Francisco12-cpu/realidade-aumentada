@@ -25,11 +25,6 @@ html, body {
   touch-action: none; user-select: none; -webkit-user-select: none;
 }
 #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-#vignette {
-  position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0; transition: opacity 0.12s;
-  background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.85) 100%);
-}
-body.dashing #vignette { opacity: 1; }
 #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 5; }
 
 button {
@@ -155,7 +150,11 @@ body.stereo.vr-adjust #overlay .sheet { max-height: calc(46vh - 60px); width: mi
 /* ---------- Modo de locomoção ---------- */
 body.mode-correr #btn-aim, body.mode-correr #btn-teleport, body.mode-palma #btn-aim, body.mode-palma #btn-teleport { display: none; }
 body.mode-teleporte #btn-run { display: none; }
-body.running #vignette { opacity: 0.55; }
+
+/* ---------- Opções (tela inicial / próximo jogador) ---------- */
+.opts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+.opts .opt { min-height: 40px; padding: 8px 12px; font-size: 14px; }
+.opts .opt.on { background: var(--btn-on); border-color: var(--accent); }
 </style>
   <script type="importmap">
   {
@@ -169,7 +168,6 @@ body.running #vignette { opacity: 0.55; }
 <body>
   <canvas id="gl"></canvas>
   <div id="fade"></div>
-  <div id="vignette"></div>
 
   <!-- HUD do jogo -->
   <div id="hud">
@@ -193,6 +191,7 @@ body.running #vignette { opacity: 0.55; }
     <button id="btn-fist" title="Segure: pegar na mira do centro">✊ Pegar</button>
     <button id="btn-stereo" title="Modo óculos (tela dividida)">👓 Óculos</button>
     <button id="btn-vradjust" title="Ajustar o óculos">🔧 Ajustar</button>
+    <button id="btn-sound" title="Som liga/desliga">🔊</button>
     <button id="btn-help" title="Ajuda">❓</button>
     <button id="btn-full" title="Tela cheia">⛶</button>
     <button id="btn-debug" title="Painel de depuração">🐞</button>
@@ -232,7 +231,7 @@ const CONFIG = {
   GAME_TIME_S: 360,         // duração da partida (6 min)
 
   // ---- Locomoção ----
-  VERSION: 'v7',
+  VERSION: 'v8',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -364,11 +363,193 @@ const CONFIG = {
     HIGH_FPS: 56,
   },
 
+  // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----
+  FEIRA: {
+    GAME_TIME_S: 180,       // partida de 3 min
+    TARGETS: ['sala-vermelha', 'cantina-teto', 'quadra', 'biblioteca'], // só 4 caixas
+    AUTO_RETURN_S: 25,      // depois do fim, volta sozinho para "próximo jogador"
+    TUTORIAL_SPAWN: [0, 0, 7.2], // tutorial começa do lado do pedestal (sem passo de andar)
+  },
+
+  // ---- Som e vibração ----
+  AUDIO: {
+    VOLUME: 0.5,
+    BEEP_FAR_S: 1.3,        // intervalo do bipe do detector longe da caixa
+    BEEP_NEAR_S: 0.14,      // e perto
+    BEEP_MAX_DIST: 18,      // além disso o detector fica quieto
+  },
+
+  // ---- Conforto ----
+  COMFORT: {
+    VIGNETTE_MAX: 0.75,     // escurecimento máximo das bordas ao andar (0..1)
+    VIGNETTE_SPEED: 1.0,    // velocidade (m/s) em que a vinheta fica no máximo
+  },
+
+  // ---- Caixa perto: faíscas ----
+  SPARKS: {
+    DIST: 5,                // começa a soltar faíscas a essa distância (m)
+    COUNT: 18,
+  },
+
   STORAGE_KEY: 'cacador-sinal-calib-v1',
+  OPTIONS_KEY: 'cacador-sinal-opcoes-v1',
 };
 
 const WIRE_COLORS = [0xff3b3b, 0x2ecc40, 0x2f7bff, 0xffd400];
 const WIRE_NAMES = ['vermelho', 'verde', 'azul', 'amarelo'];
+
+// ===== js/options.js =====
+// Opções do jogador (som, vibração, vinheta, modo feira), salvas no aparelho.
+
+const DEFAULTS = { sound: true, vibrate: true, vignette: true, feira: false };
+
+function loadOptions() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(CONFIG.OPTIONS_KEY) || '{}') || {}; } catch (e) { /* sem armazenamento */ }
+  const o = { ...DEFAULTS, ...saved };
+  // ?feira no link liga o modo feira (?feira=0 desliga)
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.has('feira')) o.feira = q.get('feira') !== '0';
+  } catch (e) { /* */ }
+  return o;
+}
+
+function saveOptions(o) {
+  try { localStorage.setItem(CONFIG.OPTIONS_KEY, JSON.stringify(o)); } catch (e) { /* */ }
+}
+
+// ===== js/audio.js =====
+// Sons e vibração, todos gerados no código (Web Audio): nenhum arquivo para baixar.
+//  - bipe do detector: mais rápido e mais agudo quanto mais perto da caixa
+//  - caixa aberta, fio certo/errado, caixa consertada, vitória, derrota
+//  - alarme no último minuto e contagem nos últimos 10 s
+
+const A = CONFIG.AUDIO;
+
+class Sfx {
+  constructor(options) {
+    this.options = options;   // { sound, vibrate } (objeto compartilhado)
+    this.ctx = null;
+    this.master = null;
+    this.nextBeep = 0;
+    // o navegador só libera o som depois de um toque: destrava no primeiro
+    const unlock = () => this.unlock();
+    window.addEventListener('pointerdown', unlock, { capture: true });
+    window.addEventListener('keydown', unlock, { capture: true });
+  }
+
+  unlock() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      try {
+        this.ctx = new AC();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = A.VOLUME;
+        this.master.connect(this.ctx.destination);
+      } catch (e) { this.ctx = null; return; }
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+  }
+
+  get on() { return this.options.sound && this.ctx && this.ctx.state === 'running'; }
+
+  // nota simples com envelope (ataque curto, queda exponencial)
+  _tone(freq, dur, { type = 'sine', gain = 0.5, at = 0, slide = 0 } = {}) {
+    if (!this.on) return;
+    const c = this.ctx, t = c.currentTime + at;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  _noise(dur, { gain = 0.3, at = 0, freq = 2000 } = {}) {
+    if (!this.on) return;
+    const c = this.ctx, t = c.currentTime + at;
+    const n = Math.floor(c.sampleRate * dur);
+    const buf = c.createBuffer(1, n, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    const f = c.createBiquadFilter();
+    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.8;
+    const g = c.createGain();
+    g.gain.value = gain;
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t);
+  }
+
+  vibrate(pattern) {
+    if (!this.options.vibrate || !navigator.vibrate) return;
+    try { navigator.vibrate(pattern); } catch (e) { /* */ }
+  }
+
+  // ---------------- eventos do jogo ----------------
+  open() {
+    this._noise(0.12, { gain: 0.25, freq: 900 });
+    this._tone(330, 0.12, { type: 'square', gain: 0.12, at: 0.03 });
+    this._tone(660, 0.16, { type: 'square', gain: 0.1, at: 0.1 });
+    this.vibrate(40);
+  }
+
+  grab() { this._tone(520, 0.06, { type: 'triangle', gain: 0.2 }); this.vibrate(15); }
+
+  wire(ok) {
+    if (ok) {
+      this._tone(880, 0.09, { type: 'triangle', gain: 0.35 });
+      this._tone(1320, 0.14, { type: 'triangle', gain: 0.3, at: 0.07 });
+      this.vibrate(35);
+    } else {
+      this._tone(180, 0.22, { type: 'sawtooth', gain: 0.2, slide: -60 });
+      this.vibrate([60, 40, 60]);
+    }
+  }
+
+  fixed() {
+    [523, 659, 784, 1047].forEach((f, i) => this._tone(f, 0.18, { type: 'triangle', gain: 0.32, at: i * 0.09 }));
+    this._noise(0.4, { gain: 0.12, at: 0.3, freq: 5000 });
+    this.vibrate([80, 50, 120]);
+  }
+
+  win() {
+    const notes = [523, 659, 784, 1047, 784, 1047, 1319];
+    notes.forEach((f, i) => this._tone(f, 0.22, { type: 'square', gain: 0.14, at: i * 0.13 }));
+    this.vibrate([100, 60, 100, 60, 250]);
+  }
+
+  lose() {
+    [392, 330, 262, 196].forEach((f, i) => this._tone(f, 0.35, { type: 'sawtooth', gain: 0.14, at: i * 0.28, slide: -20 }));
+    this.vibrate([300, 100, 300]);
+  }
+
+  alarm() {
+    for (let i = 0; i < 3; i++) this._tone(990, 0.16, { type: 'square', gain: 0.18, at: i * 0.24, slide: -300 });
+    this.vibrate([150, 90, 150, 90, 150]);
+  }
+
+  tick(last) { this._tone(last ? 1400 : 1000, 0.07, { type: 'square', gain: 0.14 }); }
+
+  // Bipe do detector: chame todo quadro com a distância até a caixa mais próxima.
+  detector(dist, nowS) {
+    if (!this.on || dist == null || dist > A.BEEP_MAX_DIST) return;
+    if (nowS < this.nextBeep) return;
+    const k = Math.min(1, Math.max(0, (dist - CONFIG.DETECTOR.NEAR) / (A.BEEP_MAX_DIST - CONFIG.DETECTOR.NEAR))); // 0 perto, 1 longe
+    const interval = A.BEEP_NEAR_S + (A.BEEP_FAR_S - A.BEEP_NEAR_S) * k * k;
+    this.nextBeep = nowS + interval;
+    this._tone(1500 - 700 * k, 0.05, { type: 'sine', gain: 0.22 - 0.1 * k });
+  }
+
+  resetDetector() { this.nextBeep = 0; }
+}
 
 // ===== js/filters.js =====
 // Filtro One Euro (Casiez et al. 2012): suaviza tremor quando a mão está
@@ -666,6 +847,26 @@ function createTarget(scene, def) {
   signal.visible = false;
   group.add(signal);
 
+  // Faíscas (aparecem quando o jogador chega perto de uma caixa quebrada)
+  const S = CONFIG.SPARKS;
+  const sparkPos = new Float32Array(S.COUNT * 3);
+  const sparkGeo = new THREE.BufferGeometry();
+  sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+  const sparkMat = new THREE.PointsMaterial({ color: 0xffd54a, size: 0.05, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  const sparks = new THREE.Points(sparkGeo, sparkMat);
+  sparks.frustumCulled = false;
+  sparks.visible = false;
+  group.add(sparks);
+  const sparkData = [];
+  for (let i = 0; i < S.COUNT; i++) sparkData.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), life: -Math.random() });
+  // Brilho em volta (anel que pulsa virado para fora da face exposta)
+  const glow = new THREE.Mesh(new THREE.RingGeometry(BOX_SIZE * 0.62, BOX_SIZE * 0.8, 32),
+    new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+  glow.position.copy(normal).multiplyScalar(BOX_SIZE / 2 + 0.03);
+  glow.visible = false;
+  group.add(glow);
+
   const center = new THREE.Vector3().fromArray(def.pos);
   const half = BOX_SIZE / 2;
   return {
@@ -673,6 +874,7 @@ function createTarget(scene, def) {
     tutorial: !!def.tutorial,
     wires: def.wires || CONFIG.INTERACTION.WIRES_PER_BOX,
     group, body, lid, led, signal, normal, lidClosed,
+    sparks, sparkData, glow, near: 0,
     center,
     aabb: new THREE.Box3(center.clone().subScalar(half), center.clone().addScalar(half)),
     state: 'closed', // closed | open | fixed
@@ -680,9 +882,20 @@ function createTarget(scene, def) {
   };
 }
 
-// Atualiza animações das caixas (tampa abrindo, LED piscando, sinal girando).
-function animateTargets(targets, dt, timeSec) {
+// Atualiza animações das caixas (tampa abrindo, LED piscando, sinal girando,
+// faíscas quando o jogador está perto). isHot(t) diz se a caixa vale agora.
+function animateTargets(targets, dt, timeSec, playerPos = null, isHot = null) {
   for (const t of targets) {
+    t.group.visible = !t.off;
+    if (t.off) continue;
+    // 0 = longe, 1 = colado na caixa
+    let near = 0;
+    if (playerPos && t.state !== 'fixed' && (!isHot || isHot(t))) {
+      tmpV.set(playerPos.x, t.center.y, playerPos.z);
+      near = Math.max(0, 1 - tmpV.distanceTo(t.center) / CONFIG.SPARKS.DIST);
+    }
+    t.near += (near - t.near) * Math.min(1, dt * 4);
+    animateSparks(t, dt, timeSec);
     const goal = t.state === 'closed' ? 0 : 1;
     t.openT += Math.sign(goal - t.openT) * Math.min(Math.abs(goal - t.openT), dt * 3);
     const k = t.state === 'fixed' ? 0.25 : t.openT; // consertada: tampa quase fechada
@@ -702,7 +915,49 @@ function animateTargets(targets, dt, timeSec) {
       t.body.material.color.setHex(0x111111);
     }
     if (t.state === 'fixed') t.led.visible = true;
+    else if (t.near > 0.05) {
+      // perto: LED pisca mais rápido e cresce
+      t.led.visible = Math.sin(timeSec * (8 + 16 * t.near)) > -0.4;
+      t.led.scale.setScalar(1 + t.near * 0.8);
+    } else t.led.scale.setScalar(1);
   }
+}
+
+function animateSparks(t, dt, timeSec) {
+  const k = t.near;
+  const on = k > 0.02;
+  t.glow.visible = on;
+  t.sparks.visible = on || t.sparks.material.opacity > 0.02;
+  if (on) {
+    const pulse = 0.5 + 0.5 * Math.sin(timeSec * (5 + 6 * k));
+    t.glow.material.opacity = k * (0.25 + 0.45 * pulse);
+    t.glow.scale.setScalar(1 + 0.15 * pulse * k);
+  }
+  t.sparks.material.opacity += ((on ? 0.6 + 0.4 * k : 0) - t.sparks.material.opacity) * Math.min(1, dt * 6);
+  if (!t.sparks.visible) return;
+  const arr = t.sparks.geometry.attributes.position.array;
+  const half = BOX_SIZE / 2;
+  t.sparkData.forEach((s, i) => {
+    s.life -= dt * 1.6;
+    if (s.life <= 0) {
+      if (!on || Math.random() > 0.25 + 0.75 * k) { s.p.set(0, -999, 0); s.life = Math.random() * 0.4; }
+      else {
+        // nasce num ponto da face exposta e sai voando para fora
+        s.p.copy(t.normal).multiplyScalar(half + 0.02);
+        s.p.x += (Math.random() - 0.5) * BOX_SIZE * (1 - Math.abs(t.normal.x));
+        s.p.y += (Math.random() - 0.5) * BOX_SIZE * (1 - Math.abs(t.normal.y));
+        s.p.z += (Math.random() - 0.5) * BOX_SIZE * (1 - Math.abs(t.normal.z));
+        s.v.copy(t.normal).multiplyScalar(0.6 + Math.random() * 0.8);
+        s.v.x += (Math.random() - 0.5) * 1.4; s.v.y += Math.random() * 1.2; s.v.z += (Math.random() - 0.5) * 1.4;
+        s.life = 0.35 + Math.random() * 0.45;
+      }
+    } else {
+      s.v.y -= 3.5 * dt; // gravidade
+      s.p.addScaledVector(s.v, dt);
+    }
+    arr[i * 3] = s.p.x; arr[i * 3 + 1] = s.p.y; arr[i * 3 + 2] = s.p.z;
+  });
+  t.sparks.geometry.attributes.position.needsUpdate = true;
 }
 
 // Piso claro em placas de 1 m, com rejunte e leve variação de tom.
@@ -2050,7 +2305,7 @@ class Interaction {
 
   // mode 'tutorial': só a caixa do tutorial; 'game': só as da partida
   eligible(t) {
-    return t.state !== 'fixed' && (this.mode === 'tutorial' ? t.tutorial : !t.tutorial);
+    return t.state !== 'fixed' && !t.off && (this.mode === 'tutorial' ? t.tutorial : !t.tutorial);
   }
 
   nearestTarget(fromPos) {
@@ -2250,6 +2505,7 @@ class Interaction {
         }
         if (best) {
           this.grabs.set(ptr.id, best);
+          this.hooks.onGrab && this.hooks.onGrab();
           const lp = this._screenToPanel(ptr.x, ptr.y, w, h, new THREE.Vector3());
           if (lp) best.mesh.position.copy(lp);
         }
@@ -2679,6 +2935,8 @@ class CalibrationFlow {
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Existe uma calibração salva neste aparelho.</p>' : ''}
+      ${this._optionsHtml()}
+      <p class="small" id="offline"></p>
       <p class="small">Dica: o botão 🐞 mostra o painel de depuração (FPS, gestos, prévia da câmera).</p>`;
     const btns = [];
     if (saved) {
@@ -2691,6 +2949,79 @@ class CalibrationFlow {
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show(`Caçador de Sinal — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
+    this._wireOptions(() => this.welcome());
+    this._checkOffline();
+  }
+
+  // Tela entre um visitante e outro (calibração e permissões continuam valendo).
+  nextPlayer() {
+    const feira = this.app.options.feira;
+    const html = `
+      <p><b>Próximo jogador!</b> Ache as caixas pretas, toque nelas com a ponta do dedo e ligue os fios da mesma cor.</p>
+      <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.FEIRA.TARGETS.length} caixas</b>.` : ''}
+      Siga o <b>bipe</b>: quanto mais rápido, mais perto. Perto da caixa ela solta <b>faíscas</b>.</p>
+      ${this._optionsHtml()}
+      <p class="small" id="offline"></p>`;
+    const ready = this.app.devicesReady;
+    const go = (next) => {
+      if (ready) { this.app.orientation.recenter(); if (next === 'tutorial') this.app.startTutorial(); else this.app.startGame(); return; }
+      const saved = loadCalib();
+      if (saved) this._startWithSaved(saved, next); else this._startFresh();
+    };
+    this._show('👤 Próximo jogador', html, [
+      { label: 'Tutorial rápido →', cls: 'primary', onClick: () => go('tutorial') },
+      { label: 'Direto para a partida', onClick: () => go('game') },
+      { label: 'Recalibrar (mão diferente)', onClick: () => this.app.recalibrate() },
+      { label: 'Tela inicial', onClick: () => this.welcome() },
+    ]);
+    this._wireOptions(() => this.nextPlayer());
+    this._checkOffline();
+  }
+
+  // Botões liga/desliga das opções (som, vibração, vinheta, modo feira).
+  _optionsHtml() {
+    const o = this.app.options;
+    const opt = (key, on, off) => `<button class="opt ${o[key] ? 'on' : ''}" data-opt="${key}">${o[key] ? on : off}</button>`;
+    return `<div class="opts">
+      ${opt('feira', '🎪 Modo feira: ligado', '🎪 Modo feira: desligado')}
+      ${opt('sound', '🔊 Som', '🔇 Sem som')}
+      ${opt('vibrate', '📳 Vibração', '📴 Sem vibração')}
+      ${opt('vignette', '🌑 Escurecer bordas ao andar', '⚪ Bordas normais ao andar')}
+    </div>
+    <p class="small">Modo feira: partida de ${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min, ${CONFIG.FEIRA.TARGETS.length} caixas, tutorial curto e volta sozinho para o próximo jogador.</p>`;
+  }
+
+  _wireOptions(redraw) {
+    for (const b of this.el.querySelectorAll('[data-opt]')) {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const k = b.dataset.opt;
+        this.app.setOption(k, !this.app.options[k]);
+        if (k === 'sound' && this.app.options.sound) { this.app.sfx.unlock(); setTimeout(() => this.app.sfx.wire(true), 50); }
+        if (k === 'vibrate' && this.app.options.vibrate) this.app.sfx.vibrate(60);
+        redraw();
+      });
+    }
+  }
+
+  // Mostra se o jogo inteiro (com o modelo das mãos) já está guardado para usar sem internet.
+  async _checkOffline() {
+    const el = this.el.querySelector('#offline');
+    if (!el) return;
+    if (!('caches' in window) || !navigator.serviceWorker || !navigator.serviceWorker.controller) {
+      if (location.hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname)) el.textContent = '💻 Rodando pelo servidor do PC.';
+      else el.textContent = '📶 Na primeira vez precisa de internet. Abra o jogo de novo para ele ficar guardado.';
+      return;
+    }
+    try {
+      const keys = await caches.keys();
+      let ok = false;
+      for (const k of keys) {
+        const c = await caches.open(k);
+        if (await c.match('https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', { ignoreVary: true })) { ok = true; break; }
+      }
+      el.innerHTML = ok ? '<span class="ok">✔ Jogo guardado: funciona sem internet.</span>' : '📶 Guardando o jogo para usar sem internet… (deixe a internet ligada mais um pouco)';
+    } catch (e) { el.textContent = ''; }
   }
 
   async _init(withCamera = true) {
@@ -3060,6 +3391,7 @@ class DebugUI {
     this._btn('btn-stereo', () => app.toggleVR());
     this._btn('btn-vradjust', () => app.calibration.showVrAdjust());
     this._btn('btn-help', () => app.calibration.showHelp());
+    this._btn('btn-sound', () => { app.setOption('sound', !app.options.sound); if (app.options.sound) { app.sfx.unlock(); app.sfx.wire(true); } app.toast(app.options.sound ? 'Som ligado' : 'Som desligado'); });
     this._btn('btn-full', () => {
       try {
         if (document.fullscreenElement) document.exitFullscreen();
@@ -3168,6 +3500,8 @@ class DebugUI {
 class App {
   constructor() {
     this.calib = loadCalib() || defaultCalib();
+    this.options = loadOptions();
+    this.sfx = new Sfx(this.options);
     this.state = 'boot';
     this.stereo = false;
     this.devicesReady = false;
@@ -3203,6 +3537,9 @@ class App {
     this.hud3d = new HUD3D(this.camera);
     this.testPattern = makeTestPattern();
     this.camera.add(this.testPattern);
+    this.vignette = makeVignette();
+    this.camera.add(this.vignette);
+    this.vignetteK = 0;
 
     this.world = buildWorld(this.scene);
     this.rig.position.copy(this.world.spawn);
@@ -3220,10 +3557,12 @@ class App {
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
       onOpen: () => {
+        this.sfx.open();
         this.toast('Caixa aberta! Conecte os fios.');
         if (this.state === 'tutorial' && !this.tutorial.touch) { this.tutorial.touch = true; this._refreshTutorial(); }
       },
-      onWire: (ok, why) => this.toast(ok ? 'Fio conectado ✔' : `Não encaixou (${why})`),
+      onWire: (ok, why) => { this.sfx.wire(ok); this.toast(ok ? 'Fio conectado ✔' : `Não encaixou (${why})`); },
+      onGrab: () => this.sfx.grab(),
       onFixed: () => this._onFixed(),
     });
     this.debug = new DebugUI(this);
@@ -3231,8 +3570,12 @@ class App {
 
     this.mouse = new Map();      // ponteiros de toque/mouse na tela
     this.prevDown = new Map();   // id -> estava pegando no quadro anterior
-    this.timeLeft = CONFIG.GAME_TIME_S;
+    this.timeLeft = this.gameTime();
     this._v = new THREE.Vector3();
+    this.applyOptions();
+    // a tela apaga quando o app sai da frente: pede de novo ao voltar
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.requestWakeLock(); });
+    document.addEventListener('fullscreenchange', () => this.requestWakeLock());
     this._wireCanvasPointers();
     window.addEventListener('resize', () => this.resize());
     if (screen.orientation) screen.orientation.addEventListener('change', () => { if (this.stereo) setTimeout(() => this.recenter(), 600); });
@@ -3259,8 +3602,8 @@ class App {
       this.runner.startSensors();
       const src = await this.orientation.start('auto');
       onStatus(`Sensores: ${perm ? src : 'permissão negada'}`);
-      try { if (navigator.wakeLock) this.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* opcional */ }
       this.sensorsReady = true;
+      this.requestWakeLock();
     }
     if (!withCamera || this.hands.landmarker) { this.devicesReady = true; return true; }
     try {
@@ -3283,10 +3626,40 @@ class App {
     return true;
   }
 
+  // Mantém a tela acesa. O Chrome solta a trava quando a aba sai da frente,
+  // então isto é chamado de novo ao voltar (visibilitychange).
+  async requestWakeLock() {
+    if (!navigator.wakeLock || !this.sensorsReady || document.visibilityState !== 'visible') return;
+    if (this.wakeLock && !this.wakeLock.released) return;
+    try {
+      this.wakeLock = await navigator.wakeLock.request('screen');
+    } catch (e) { /* opcional: sem permissão ou bateria fraca */ }
+  }
+
+  // ---------------------------------------------------------------
+  // Opções (som, vibração, vinheta, modo feira)
+  // ---------------------------------------------------------------
+  setOption(key, value) {
+    this.options[key] = value;
+    saveOptions(this.options);
+    this.applyOptions();
+  }
+
+  applyOptions() {
+    const feira = this.options.feira;
+    document.body.classList.toggle('feira', feira);
+    for (const t of this.world.targets) t.off = feira && !t.tutorial && !CONFIG.FEIRA.TARGETS.includes(t.id);
+    const b = document.getElementById('btn-sound');
+    if (b) { b.textContent = this.options.sound ? '🔊' : '🔇'; b.classList.toggle('on', this.options.sound); }
+  }
+
+  gameTime() { return this.options.feira ? CONFIG.FEIRA.GAME_TIME_S : CONFIG.GAME_TIME_S; }
+
   // ---------------------------------------------------------------
   // Fluxo do jogo
   // ---------------------------------------------------------------
   _resetWorld() {
+    clearInterval(this._autoT);
     this.interaction.reset();
     this.teleport.cancel();
     this.runner.stop();
@@ -3302,6 +3675,11 @@ class App {
     this._resetWorld();
     this.interaction.mode = 'tutorial';
     this.tutorial = { teleport: false, touch: false, wire: false };
+    if (this.options.feira) {
+      // modo feira: começa do lado do pedestal, sem o passo de andar
+      this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
+      this.tutorial.teleport = true;
+    }
     this._refreshTutorial();
     document.body.classList.remove('playing');
   }
@@ -3313,15 +3691,18 @@ class App {
     this.state = 'playing';
     this._resetWorld();
     this.interaction.mode = 'game';
-    this.timeLeft = CONFIG.GAME_TIME_S;
+    this.timeLeft = this.gameTime();
+    this._alarmDone = false;
+    this._lastTick = 0;
     this.gameStart = performance.now();
     document.body.classList.add('playing');
     this.toast('Valendo! Siga o detector de sinal.');
   }
 
-  _gameTargets() { return this.world.targets.filter((t) => !t.tutorial); }
+  _gameTargets() { return this.world.targets.filter((t) => !t.tutorial && !t.off); }
 
   _onFixed() {
+    this.sfx.fixed();
     if (this.state === 'tutorial') {
       this.tutorial.wire = true;
       this._refreshTutorial();
@@ -3343,14 +3724,41 @@ class App {
     const all = this._gameTargets();
     const fixed = all.filter((t) => t.state === 'fixed').length;
     const used = (performance.now() - this.gameStart) / 1000;
+    setTimeout(() => (win ? this.sfx.win() : this.sfx.lose()), 350);
     const c = this.calibration;
+    const feira = this.options.feira;
     c._show(win ? '🎉 Rede restaurada!' : '⏰ O tempo acabou', `
       <p>${win ? 'Você consertou todos os pontos de sinal.' : 'A rede caiu antes de você consertar tudo.'}</p>
-      <p>Caixas consertadas: <b>${fixed}/${all.length}</b><br>Tempo: <b>${fmtTime(Math.min(used, CONFIG.GAME_TIME_S))}</b><br>Teleportes: <b>${this.teleport.jumps}</b></p>`, [
-      { label: 'Jogar de novo', cls: 'primary', onClick: () => this.startGame() },
+      <p>Caixas consertadas: <b>${fixed}/${all.length}</b><br>Tempo: <b>${fmtTime(Math.min(used, this.gameTime()))}</b></p>
+      ${feira ? '<p class="small" id="auto-return"></p>' : ''}`, [
+      { label: '👤 Próximo jogador', cls: feira ? 'primary' : '', onClick: () => this.nextPlayer() },
+      { label: '🔁 Jogar de novo', cls: feira ? '' : 'primary', onClick: () => this.startGame() },
       { label: 'Tutorial', onClick: () => this.startTutorial() },
       { label: 'Recalibrar', onClick: () => this.recalibrate() },
     ]);
+    if (feira) {
+      // modo feira: volta sozinho para a tela do próximo jogador
+      let left = CONFIG.FEIRA.AUTO_RETURN_S;
+      const el = document.getElementById('auto-return');
+      const tick = () => { if (el) el.textContent = `Voltando para o próximo jogador em ${left} s…`; };
+      tick();
+      clearInterval(this._autoT);
+      this._autoT = setInterval(() => {
+        left--;
+        if (this.state !== 'ended') { clearInterval(this._autoT); return; }
+        if (left <= 0) { clearInterval(this._autoT); this.nextPlayer(); } else tick();
+      }, 1000);
+    }
+  }
+
+  // Tela entre um visitante e outro: zera a partida e guarda a calibração.
+  nextPlayer() {
+    clearInterval(this._autoT);
+    document.body.classList.remove('playing');
+    if (this.xrActive) this.renderer.xr.getSession().end();
+    this.state = 'next';
+    this._resetWorld();
+    this.calibration.nextPlayer();
   }
 
   recalibrate() {
@@ -3566,19 +3974,40 @@ class App {
     } else {
       this.interaction.detector.group.visible = false;
     }
-    animateTargets(this.world.targets, dt, now / 1000);
+    animateTargets(this.world.targets, dt, now / 1000, this.rig.position, (t) => active && this.interaction.eligible(t));
+    // bipe do detector (quieto com o painel aberto)
+    if (active && !this.interaction.panel && this.interaction.nearest) this.sfx.detector(this.interaction.nearest.dist, now / 1000);
 
     // 5) tempo
     if (this.state === 'playing') {
       this.timeLeft -= dt;
+      if (!this._alarmDone && this.timeLeft <= 60 && this.gameTime() > 90) { this._alarmDone = true; this.sfx.alarm(); this.toast('⚠ Falta 1 minuto!'); }
+      const sec = Math.ceil(this.timeLeft);
+      if (sec <= 10 && sec > 0 && sec !== this._lastTick) { this._lastTick = sec; this.sfx.tick(sec <= 3); }
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
     }
+    this._updateVignette(dt);
     this._updateHud(active);
 
     // 6) render
     this._render();
     this.debug.frame(now, dtMs);
     this._adaptQuality(now);
+  }
+
+  // Vinheta de conforto: escurece as bordas da visão enquanto anda (menos enjoo).
+  // Fica presa à câmera, então funciona na tela normal, no óculos e no WebXR.
+  _updateVignette(dt) {
+    const C = CONFIG.COMFORT;
+    let goal = 0;
+    if (this.options.vignette) {
+      if (document.body.classList.contains('dashing')) goal = 1;
+      else goal = Math.min(1, (this.runner.speed || 0) / C.VIGNETTE_SPEED);
+    }
+    this.vignetteK += (goal - this.vignetteK) * Math.min(1, dt * 8);
+    const k = this.vignetteK * C.VIGNETTE_MAX;
+    this.vignette.visible = k > 0.01;
+    this.vignette.material.uniforms.strength.value = k;
   }
 
   _collectPointers() {
@@ -3658,6 +4087,29 @@ function registerServiceWorker() {
   // servidor local por IP (certificado próprio): o navegador não aceita service worker
   if (location.protocol === 'https:' && /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname)) return;
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker não registrado', e));
+}
+
+// Plano preso na frente da câmera; o shader escurece pelo ângulo a partir do
+// centro da visão (independe do tamanho da tela e do campo de visão).
+function makeVignette() {
+  const D = 0.12;
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthTest: false, depthWrite: false,
+    uniforms: {
+      strength: { value: 0 },
+      inner: { value: Math.tan(THREE.MathUtils.degToRad(22)) },
+      outer: { value: Math.tan(THREE.MathUtils.degToRad(48)) },
+    },
+    vertexShader: 'varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform float strength; uniform float inner; uniform float outer; varying vec2 vP;
+      void main(){ float r = length(vP) / ${D.toFixed(3)}; float a = smoothstep(inner, outer, r) * strength; gl_FragColor = vec4(0.0, 0.0, 0.0, a); }`,
+  });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(D * 8, D * 8), mat);
+  m.position.z = -D;
+  m.renderOrder = 40; // por cima do mundo, por baixo do HUD 3D e do painel
+  m.frustumCulled = false;
+  m.visible = false;
+  return m;
 }
 
 function fmtTime(s) {

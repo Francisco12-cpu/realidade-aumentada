@@ -12,10 +12,14 @@ import { Interaction } from './interaction.js';
 import { CalibrationFlow, defaultCalib, loadCalib } from './calibration.js';
 import { DebugUI } from './debug.js';
 import { VRView, HUD3D, loadVrSettings, makeTestPattern } from './vr.js';
+import { Sfx } from './audio.js';
+import { loadOptions, saveOptions } from './options.js';
 
 class App {
   constructor() {
     this.calib = loadCalib() || defaultCalib();
+    this.options = loadOptions();
+    this.sfx = new Sfx(this.options);
     this.state = 'boot';
     this.stereo = false;
     this.devicesReady = false;
@@ -51,6 +55,9 @@ class App {
     this.hud3d = new HUD3D(this.camera);
     this.testPattern = makeTestPattern();
     this.camera.add(this.testPattern);
+    this.vignette = makeVignette();
+    this.camera.add(this.vignette);
+    this.vignetteK = 0;
 
     this.world = buildWorld(this.scene);
     this.rig.position.copy(this.world.spawn);
@@ -68,10 +75,12 @@ class App {
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
       onOpen: () => {
+        this.sfx.open();
         this.toast('Caixa aberta! Conecte os fios.');
         if (this.state === 'tutorial' && !this.tutorial.touch) { this.tutorial.touch = true; this._refreshTutorial(); }
       },
-      onWire: (ok, why) => this.toast(ok ? 'Fio conectado ✔' : `Não encaixou (${why})`),
+      onWire: (ok, why) => { this.sfx.wire(ok); this.toast(ok ? 'Fio conectado ✔' : `Não encaixou (${why})`); },
+      onGrab: () => this.sfx.grab(),
       onFixed: () => this._onFixed(),
     });
     this.debug = new DebugUI(this);
@@ -79,8 +88,12 @@ class App {
 
     this.mouse = new Map();      // ponteiros de toque/mouse na tela
     this.prevDown = new Map();   // id -> estava pegando no quadro anterior
-    this.timeLeft = CONFIG.GAME_TIME_S;
+    this.timeLeft = this.gameTime();
     this._v = new THREE.Vector3();
+    this.applyOptions();
+    // a tela apaga quando o app sai da frente: pede de novo ao voltar
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.requestWakeLock(); });
+    document.addEventListener('fullscreenchange', () => this.requestWakeLock());
     this._wireCanvasPointers();
     window.addEventListener('resize', () => this.resize());
     if (screen.orientation) screen.orientation.addEventListener('change', () => { if (this.stereo) setTimeout(() => this.recenter(), 600); });
@@ -107,8 +120,8 @@ class App {
       this.runner.startSensors();
       const src = await this.orientation.start('auto');
       onStatus(`Sensores: ${perm ? src : 'permissão negada'}`);
-      try { if (navigator.wakeLock) this.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* opcional */ }
       this.sensorsReady = true;
+      this.requestWakeLock();
     }
     if (!withCamera || this.hands.landmarker) { this.devicesReady = true; return true; }
     try {
@@ -131,10 +144,40 @@ class App {
     return true;
   }
 
+  // Mantém a tela acesa. O Chrome solta a trava quando a aba sai da frente,
+  // então isto é chamado de novo ao voltar (visibilitychange).
+  async requestWakeLock() {
+    if (!navigator.wakeLock || !this.sensorsReady || document.visibilityState !== 'visible') return;
+    if (this.wakeLock && !this.wakeLock.released) return;
+    try {
+      this.wakeLock = await navigator.wakeLock.request('screen');
+    } catch (e) { /* opcional: sem permissão ou bateria fraca */ }
+  }
+
+  // ---------------------------------------------------------------
+  // Opções (som, vibração, vinheta, modo feira)
+  // ---------------------------------------------------------------
+  setOption(key, value) {
+    this.options[key] = value;
+    saveOptions(this.options);
+    this.applyOptions();
+  }
+
+  applyOptions() {
+    const feira = this.options.feira;
+    document.body.classList.toggle('feira', feira);
+    for (const t of this.world.targets) t.off = feira && !t.tutorial && !CONFIG.FEIRA.TARGETS.includes(t.id);
+    const b = document.getElementById('btn-sound');
+    if (b) { b.textContent = this.options.sound ? '🔊' : '🔇'; b.classList.toggle('on', this.options.sound); }
+  }
+
+  gameTime() { return this.options.feira ? CONFIG.FEIRA.GAME_TIME_S : CONFIG.GAME_TIME_S; }
+
   // ---------------------------------------------------------------
   // Fluxo do jogo
   // ---------------------------------------------------------------
   _resetWorld() {
+    clearInterval(this._autoT);
     this.interaction.reset();
     this.teleport.cancel();
     this.runner.stop();
@@ -150,6 +193,11 @@ class App {
     this._resetWorld();
     this.interaction.mode = 'tutorial';
     this.tutorial = { teleport: false, touch: false, wire: false };
+    if (this.options.feira) {
+      // modo feira: começa do lado do pedestal, sem o passo de andar
+      this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
+      this.tutorial.teleport = true;
+    }
     this._refreshTutorial();
     document.body.classList.remove('playing');
   }
@@ -161,15 +209,18 @@ class App {
     this.state = 'playing';
     this._resetWorld();
     this.interaction.mode = 'game';
-    this.timeLeft = CONFIG.GAME_TIME_S;
+    this.timeLeft = this.gameTime();
+    this._alarmDone = false;
+    this._lastTick = 0;
     this.gameStart = performance.now();
     document.body.classList.add('playing');
     this.toast('Valendo! Siga o detector de sinal.');
   }
 
-  _gameTargets() { return this.world.targets.filter((t) => !t.tutorial); }
+  _gameTargets() { return this.world.targets.filter((t) => !t.tutorial && !t.off); }
 
   _onFixed() {
+    this.sfx.fixed();
     if (this.state === 'tutorial') {
       this.tutorial.wire = true;
       this._refreshTutorial();
@@ -191,14 +242,41 @@ class App {
     const all = this._gameTargets();
     const fixed = all.filter((t) => t.state === 'fixed').length;
     const used = (performance.now() - this.gameStart) / 1000;
+    setTimeout(() => (win ? this.sfx.win() : this.sfx.lose()), 350);
     const c = this.calibration;
+    const feira = this.options.feira;
     c._show(win ? '🎉 Rede restaurada!' : '⏰ O tempo acabou', `
       <p>${win ? 'Você consertou todos os pontos de sinal.' : 'A rede caiu antes de você consertar tudo.'}</p>
-      <p>Caixas consertadas: <b>${fixed}/${all.length}</b><br>Tempo: <b>${fmtTime(Math.min(used, CONFIG.GAME_TIME_S))}</b><br>Teleportes: <b>${this.teleport.jumps}</b></p>`, [
-      { label: 'Jogar de novo', cls: 'primary', onClick: () => this.startGame() },
+      <p>Caixas consertadas: <b>${fixed}/${all.length}</b><br>Tempo: <b>${fmtTime(Math.min(used, this.gameTime()))}</b></p>
+      ${feira ? '<p class="small" id="auto-return"></p>' : ''}`, [
+      { label: '👤 Próximo jogador', cls: feira ? 'primary' : '', onClick: () => this.nextPlayer() },
+      { label: '🔁 Jogar de novo', cls: feira ? '' : 'primary', onClick: () => this.startGame() },
       { label: 'Tutorial', onClick: () => this.startTutorial() },
       { label: 'Recalibrar', onClick: () => this.recalibrate() },
     ]);
+    if (feira) {
+      // modo feira: volta sozinho para a tela do próximo jogador
+      let left = CONFIG.FEIRA.AUTO_RETURN_S;
+      const el = document.getElementById('auto-return');
+      const tick = () => { if (el) el.textContent = `Voltando para o próximo jogador em ${left} s…`; };
+      tick();
+      clearInterval(this._autoT);
+      this._autoT = setInterval(() => {
+        left--;
+        if (this.state !== 'ended') { clearInterval(this._autoT); return; }
+        if (left <= 0) { clearInterval(this._autoT); this.nextPlayer(); } else tick();
+      }, 1000);
+    }
+  }
+
+  // Tela entre um visitante e outro: zera a partida e guarda a calibração.
+  nextPlayer() {
+    clearInterval(this._autoT);
+    document.body.classList.remove('playing');
+    if (this.xrActive) this.renderer.xr.getSession().end();
+    this.state = 'next';
+    this._resetWorld();
+    this.calibration.nextPlayer();
   }
 
   recalibrate() {
@@ -414,19 +492,40 @@ class App {
     } else {
       this.interaction.detector.group.visible = false;
     }
-    animateTargets(this.world.targets, dt, now / 1000);
+    animateTargets(this.world.targets, dt, now / 1000, this.rig.position, (t) => active && this.interaction.eligible(t));
+    // bipe do detector (quieto com o painel aberto)
+    if (active && !this.interaction.panel && this.interaction.nearest) this.sfx.detector(this.interaction.nearest.dist, now / 1000);
 
     // 5) tempo
     if (this.state === 'playing') {
       this.timeLeft -= dt;
+      if (!this._alarmDone && this.timeLeft <= 60 && this.gameTime() > 90) { this._alarmDone = true; this.sfx.alarm(); this.toast('⚠ Falta 1 minuto!'); }
+      const sec = Math.ceil(this.timeLeft);
+      if (sec <= 10 && sec > 0 && sec !== this._lastTick) { this._lastTick = sec; this.sfx.tick(sec <= 3); }
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
     }
+    this._updateVignette(dt);
     this._updateHud(active);
 
     // 6) render
     this._render();
     this.debug.frame(now, dtMs);
     this._adaptQuality(now);
+  }
+
+  // Vinheta de conforto: escurece as bordas da visão enquanto anda (menos enjoo).
+  // Fica presa à câmera, então funciona na tela normal, no óculos e no WebXR.
+  _updateVignette(dt) {
+    const C = CONFIG.COMFORT;
+    let goal = 0;
+    if (this.options.vignette) {
+      if (document.body.classList.contains('dashing')) goal = 1;
+      else goal = Math.min(1, (this.runner.speed || 0) / C.VIGNETTE_SPEED);
+    }
+    this.vignetteK += (goal - this.vignetteK) * Math.min(1, dt * 8);
+    const k = this.vignetteK * C.VIGNETTE_MAX;
+    this.vignette.visible = k > 0.01;
+    this.vignette.material.uniforms.strength.value = k;
   }
 
   _collectPointers() {
@@ -506,6 +605,29 @@ function registerServiceWorker() {
   // servidor local por IP (certificado próprio): o navegador não aceita service worker
   if (location.protocol === 'https:' && /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname)) return;
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker não registrado', e));
+}
+
+// Plano preso na frente da câmera; o shader escurece pelo ângulo a partir do
+// centro da visão (independe do tamanho da tela e do campo de visão).
+function makeVignette() {
+  const D = 0.12;
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthTest: false, depthWrite: false,
+    uniforms: {
+      strength: { value: 0 },
+      inner: { value: Math.tan(THREE.MathUtils.degToRad(22)) },
+      outer: { value: Math.tan(THREE.MathUtils.degToRad(48)) },
+    },
+    vertexShader: 'varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform float strength; uniform float inner; uniform float outer; varying vec2 vP;
+      void main(){ float r = length(vP) / ${D.toFixed(3)}; float a = smoothstep(inner, outer, r) * strength; gl_FragColor = vec4(0.0, 0.0, 0.0, a); }`,
+  });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(D * 8, D * 8), mat);
+  m.position.z = -D;
+  m.renderOrder = 40; // por cima do mundo, por baixo do HUD 3D e do painel
+  m.frustumCulled = false;
+  m.visible = false;
+  return m;
 }
 
 function fmtTime(s) {

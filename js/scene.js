@@ -248,6 +248,26 @@ function createTarget(scene, def) {
   signal.visible = false;
   group.add(signal);
 
+  // Faíscas (aparecem quando o jogador chega perto de uma caixa quebrada)
+  const S = CONFIG.SPARKS;
+  const sparkPos = new Float32Array(S.COUNT * 3);
+  const sparkGeo = new THREE.BufferGeometry();
+  sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+  const sparkMat = new THREE.PointsMaterial({ color: 0xffd54a, size: 0.05, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  const sparks = new THREE.Points(sparkGeo, sparkMat);
+  sparks.frustumCulled = false;
+  sparks.visible = false;
+  group.add(sparks);
+  const sparkData = [];
+  for (let i = 0; i < S.COUNT; i++) sparkData.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), life: -Math.random() });
+  // Brilho em volta (anel que pulsa virado para fora da face exposta)
+  const glow = new THREE.Mesh(new THREE.RingGeometry(BOX_SIZE * 0.62, BOX_SIZE * 0.8, 32),
+    new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+  glow.position.copy(normal).multiplyScalar(BOX_SIZE / 2 + 0.03);
+  glow.visible = false;
+  group.add(glow);
+
   const center = new THREE.Vector3().fromArray(def.pos);
   const half = BOX_SIZE / 2;
   return {
@@ -255,6 +275,7 @@ function createTarget(scene, def) {
     tutorial: !!def.tutorial,
     wires: def.wires || CONFIG.INTERACTION.WIRES_PER_BOX,
     group, body, lid, led, signal, normal, lidClosed,
+    sparks, sparkData, glow, near: 0,
     center,
     aabb: new THREE.Box3(center.clone().subScalar(half), center.clone().addScalar(half)),
     state: 'closed', // closed | open | fixed
@@ -262,9 +283,20 @@ function createTarget(scene, def) {
   };
 }
 
-// Atualiza animações das caixas (tampa abrindo, LED piscando, sinal girando).
-export function animateTargets(targets, dt, timeSec) {
+// Atualiza animações das caixas (tampa abrindo, LED piscando, sinal girando,
+// faíscas quando o jogador está perto). isHot(t) diz se a caixa vale agora.
+export function animateTargets(targets, dt, timeSec, playerPos = null, isHot = null) {
   for (const t of targets) {
+    t.group.visible = !t.off;
+    if (t.off) continue;
+    // 0 = longe, 1 = colado na caixa
+    let near = 0;
+    if (playerPos && t.state !== 'fixed' && (!isHot || isHot(t))) {
+      tmpV.set(playerPos.x, t.center.y, playerPos.z);
+      near = Math.max(0, 1 - tmpV.distanceTo(t.center) / CONFIG.SPARKS.DIST);
+    }
+    t.near += (near - t.near) * Math.min(1, dt * 4);
+    animateSparks(t, dt, timeSec);
     const goal = t.state === 'closed' ? 0 : 1;
     t.openT += Math.sign(goal - t.openT) * Math.min(Math.abs(goal - t.openT), dt * 3);
     const k = t.state === 'fixed' ? 0.25 : t.openT; // consertada: tampa quase fechada
@@ -284,7 +316,49 @@ export function animateTargets(targets, dt, timeSec) {
       t.body.material.color.setHex(0x111111);
     }
     if (t.state === 'fixed') t.led.visible = true;
+    else if (t.near > 0.05) {
+      // perto: LED pisca mais rápido e cresce
+      t.led.visible = Math.sin(timeSec * (8 + 16 * t.near)) > -0.4;
+      t.led.scale.setScalar(1 + t.near * 0.8);
+    } else t.led.scale.setScalar(1);
   }
+}
+
+function animateSparks(t, dt, timeSec) {
+  const k = t.near;
+  const on = k > 0.02;
+  t.glow.visible = on;
+  t.sparks.visible = on || t.sparks.material.opacity > 0.02;
+  if (on) {
+    const pulse = 0.5 + 0.5 * Math.sin(timeSec * (5 + 6 * k));
+    t.glow.material.opacity = k * (0.25 + 0.45 * pulse);
+    t.glow.scale.setScalar(1 + 0.15 * pulse * k);
+  }
+  t.sparks.material.opacity += ((on ? 0.6 + 0.4 * k : 0) - t.sparks.material.opacity) * Math.min(1, dt * 6);
+  if (!t.sparks.visible) return;
+  const arr = t.sparks.geometry.attributes.position.array;
+  const half = BOX_SIZE / 2;
+  t.sparkData.forEach((s, i) => {
+    s.life -= dt * 1.6;
+    if (s.life <= 0) {
+      if (!on || Math.random() > 0.25 + 0.75 * k) { s.p.set(0, -999, 0); s.life = Math.random() * 0.4; }
+      else {
+        // nasce num ponto da face exposta e sai voando para fora
+        s.p.copy(t.normal).multiplyScalar(half + 0.02);
+        s.p.x += (Math.random() - 0.5) * BOX_SIZE * (1 - Math.abs(t.normal.x));
+        s.p.y += (Math.random() - 0.5) * BOX_SIZE * (1 - Math.abs(t.normal.y));
+        s.p.z += (Math.random() - 0.5) * BOX_SIZE * (1 - Math.abs(t.normal.z));
+        s.v.copy(t.normal).multiplyScalar(0.6 + Math.random() * 0.8);
+        s.v.x += (Math.random() - 0.5) * 1.4; s.v.y += Math.random() * 1.2; s.v.z += (Math.random() - 0.5) * 1.4;
+        s.life = 0.35 + Math.random() * 0.45;
+      }
+    } else {
+      s.v.y -= 3.5 * dt; // gravidade
+      s.p.addScaledVector(s.v, dt);
+    }
+    arr[i * 3] = s.p.x; arr[i * 3 + 1] = s.p.y; arr[i * 3 + 2] = s.p.z;
+  });
+  t.sparks.geometry.attributes.position.needsUpdate = true;
 }
 
 // Piso claro em placas de 1 m, com rejunte e leve variação de tom.

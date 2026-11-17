@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 360,         // duração da partida (6 min)
 
   // ---- Locomoção ----
-  VERSION: 'v7',
+  VERSION: 'v8',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -145,7 +145,36 @@ export const CONFIG = {
     HIGH_FPS: 56,
   },
 
+  // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----
+  FEIRA: {
+    GAME_TIME_S: 180,       // partida de 3 min
+    TARGETS: ['sala-vermelha', 'cantina-teto', 'quadra', 'biblioteca'], // só 4 caixas
+    AUTO_RETURN_S: 25,      // depois do fim, volta sozinho para "próximo jogador"
+    TUTORIAL_SPAWN: [0, 0, 7.2], // tutorial começa do lado do pedestal (sem passo de andar)
+  },
+
+  // ---- Som e vibração ----
+  AUDIO: {
+    VOLUME: 0.5,
+    BEEP_FAR_S: 1.3,        // intervalo do bipe do detector longe da caixa
+    BEEP_NEAR_S: 0.14,      // e perto
+    BEEP_MAX_DIST: 18,      // além disso o detector fica quieto
+  },
+
+  // ---- Conforto ----
+  COMFORT: {
+    VIGNETTE_MAX: 0.75,     // escurecimento máximo das bordas ao andar (0..1)
+    VIGNETTE_SPEED: 1.0,    // velocidade (m/s) em que a vinheta fica no máximo
+  },
+
+  // ---- Caixa perto: faíscas ----
+  SPARKS: {
+    DIST: 5,                // começa a soltar faíscas a essa distância (m)
+    COUNT: 18,
+  },
+
   STORAGE_KEY: 'cacador-sinal-calib-v1',
+  OPTIONS_KEY: 'cacador-sinal-opcoes-v1',
 };
 
 export const WIRE_COLORS = [0xff3b3b, 0x2ecc40, 0x2f7bff, 0xffd400];
