@@ -151,7 +151,10 @@ export class HandTracker {
           resolve();
         } else if (m.type === 'error') { clearTimeout(timer); reject(new Error(m.message)); }
       };
-      w.postMessage({ type: 'init', bundleUrl: BUNDLE_CJS, wasmUrl: WASM_URL, modelUrl: MODEL_URL, numHands: H.NUM_HANDS,
+      // endereços completos: o worker nasce de um Blob e não entende caminhos relativos
+      // (o servidor local troca a CDN por /cdn/...)
+      const abs = (u) => new URL(u, location.href).href;
+      w.postMessage({ type: 'init', bundleUrl: abs(BUNDLE_CJS), wasmUrl: abs(WASM_URL), modelUrl: abs(MODEL_URL), numHands: H.NUM_HANDS,
         c1: H.MIN_DETECTION_CONF, c2: H.MIN_PRESENCE_CONF, c3: H.MIN_TRACKING_CONF });
     });
   }

@@ -26,6 +26,20 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
 > Câmera e sensores só funcionam em **HTTPS**, e o GitHub Pages já usa HTTPS.
 > No PC dá para testar com `python3 -m http.server` e abrir `http://localhost:8000`, porque o localhost também é aceito.
 
+## Usar sem o GitHub (servidor no PC com Windows)
+
+1. Dê dois cliques em **`INICIAR-SERVIDOR.bat`**.
+   - Se não tiver Python, ele oferece instalar (precisa de internet só nessa hora).
+   - Na primeira vez ele guarda as bibliotecas em `servidor/cache/`. Depois disso funciona **sem internet**.
+2. Abre uma página com um **QR Code**: aponte o celular para ele, ou digite o endereço `https://IP-DO-PC:8443`.
+   - O celular precisa estar no **mesmo Wi-Fi** do PC (ou o PC conectado no roteador do celular).
+   - Vai aparecer "Sua conexão não é particular": toque em **Avançado → Continuar**. O certificado é deste PC, e o HTTPS é obrigatório para a câmera e os sensores.
+   - Se o Windows perguntar sobre o firewall, clique em **Permitir** (redes privadas).
+3. No próprio PC o jogo fica em `http://localhost:8000`.
+4. Para desligar, feche a janela preta.
+
+O servidor (`servidor/servidor.py`) só usa a biblioteca padrão do Python. Também funciona em Linux e Mac: `python3 servidor/servidor.py`.
+
 ## Fluxo
 
 1. **Tela inicial.** Você pode começar do zero, usar a calibração salva ou entrar sem câmera, só com os botões.
@@ -112,6 +126,8 @@ Todos os números de ajuste ficam em **`js/config.js`**, por exemplo:
 ```
 index.html          página + import map (Three.js / MediaPipe via CDN)
 css/style.css
+INICIAR-SERVIDOR.bat liga o servidor local no Windows (PC + celular, sem GitHub)
+servidor/           servidor HTTPS local, página com QR Code, certificado e cache das bibliotecas
 sw.js               service worker: link sempre na versão mais nova + funciona sem internet
 js/config.js        todos os números ajustáveis
 js/main.js          loop, estados do jogo (calibração → tutorial → partida → fim), HUD
