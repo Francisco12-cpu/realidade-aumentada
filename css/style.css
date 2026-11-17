@@ -145,6 +145,6 @@ body.stereo.vr-adjust #overlay .sheet { max-height: calc(46vh - 60px); width: mi
 .steps li { margin: 6px 0; }
 
 /* ---------- Modo de locomoção ---------- */
-body.mode-correr #btn-aim, body.mode-correr #btn-teleport { display: none; }
+body.mode-correr #btn-aim, body.mode-correr #btn-teleport, body.mode-palma #btn-aim, body.mode-palma #btn-teleport { display: none; }
 body.mode-teleporte #btn-run { display: none; }
 body.running #vignette { opacity: 0.55; }

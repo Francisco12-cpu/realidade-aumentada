@@ -5,43 +5,77 @@ import { CONFIG } from './config.js';
 
 const BOX_SIZE = 0.45;
 
+// Mapa "escola de blocos" (ainda sem o modelo real da escola).
+// Norte (−Z): prédio com 3 salas e portas · centro: pátio com mastro ·
+// oeste: quadra · leste: cantina coberta · sudeste: biblioteca · sul: entrada.
 // [xMin, xMax, zMin, zMax, yMin, yMax, cor]
+const WALL = 3;
 const BLOCKS = [
-  // Corredor central: parede vermelha (esq.) e azul (dir.)
-  [-6.0, -5.0, -12, 3, 0, 3, 0xe74c3c],
-  [5.0, 6.0, -12, 3, 0, 3, 0x3498db],
-  // Mesa verde no meio do corredor
-  [-1.5, 1.5, -3.0, -1.8, 0, 1.1, 0x2ecc71],
-  // Pedestal do tutorial
-  [-0.35, 0.35, 4.15, 4.85, 0, 0.78, 0x95a5a6],
-  // Sala roxa (porta virada para o corredor)
-  [-15, -14.4, -8, 2, 0, 3, 0x9b59b6],
-  [-15, -8, -8.6, -8, 0, 3, 0x9b59b6],
-  [-15, -8, 2, 2.6, 0, 3, 0x9b59b6],
-  [-8.6, -8, -8, -4.5, 0, 3, 0x9b59b6],
-  [-8.6, -8, -1.5, 2, 0, 3, 0x9b59b6],
-  // Cobertura laranja (pilares + teto baixo)
-  [7.8, 8.1, -14.2, -13.9, 0, 2.5, 0xe67e22],
-  [11.9, 12.2, -14.2, -13.9, 0, 2.5, 0xe67e22],
-  [7.8, 8.1, -10.1, -9.8, 0, 2.5, 0xe67e22],
-  [11.9, 12.2, -10.1, -9.8, 0, 2.5, 0xe67e22],
-  [7.8, 12.2, -14.2, -9.8, 2.5, 2.7, 0xe67e22],
-  // Blocos soltos para referência
-  [8, 10, 2, 4, 0, 1.6, 0xf1c40f],
-  [-10, -8.5, 8, 9.5, 0, 2.2, 0x1abc9c],
-  [2, 3, -16, -15, 0, 4, 0xe84393],
-  [-4, -2, 12, 13, 0, 1.0, 0x34495e],
+  // --- Prédio das salas (portas viradas para o pátio) ---
+  [-15.3, 15.3, -15.3, -15, 0, WALL, 0xd8d2c4],       // fundo
+  [-15.3, -15, -15, -8, 0, WALL, 0xd8d2c4],           // lateral oeste
+  [15, 15.3, -15, -8, 0, WALL, 0xd8d2c4],             // lateral leste
+  [-15, -11, -8.3, -8, 0, WALL, 0xe74c3c],            // frente (vermelho) | porta x −11..−9
+  [-9, -5.15, -8.3, -8, 0, WALL, 0xe74c3c],
+  [-4.85, -1, -8.3, -8, 0, WALL, 0x3498db],           // frente (azul = laboratório) | porta x −1..1
+  [1, 4.85, -8.3, -8, 0, WALL, 0x3498db],
+  [5.15, 9, -8.3, -8, 0, WALL, 0x2ecc71],             // frente (verde) | porta x 9..11
+  [11, 15, -8.3, -8, 0, WALL, 0x2ecc71],
+  [-5.15, -4.85, -15, -8, 0, WALL, 0xbdb6a6],         // divisórias
+  [4.85, 5.15, -15, -8, 0, WALL, 0xbdb6a6],
+  // móveis das salas
+  [-13, -11, -12.5, -11.8, 0, 0.75, 0x8e6e53],        // mesa (sala vermelha)
+  [-3.5, 3.5, -13.6, -13, 0, 0.9, 0xecf0f1],          // bancada do laboratório
+  [-3, -2.2, -11, -10.2, 0, 0.75, 0x8e6e53],
+  [2.2, 3, -11, -10.2, 0, 0.75, 0x8e6e53],
+  [7, 9, -12.5, -11.8, 0, 0.75, 0x8e6e53],            // mesa (sala verde)
+  // --- Pátio ---
+  [-0.08, 0.08, -3.08, -2.92, 0, 5, 0xbdc3c7],        // mastro
+  [-3.8, -2.2, -3.2, -2.8, 0, 0.45, 0x8e6e53],        // bancos
+  [2.2, 3.8, -3.2, -2.8, 0, 0.45, 0x8e6e53],
+  [-0.35, 0.35, 6.15, 6.85, 0, 0.78, 0x95a5a6],       // pedestal do tutorial
+  // --- Quadra (oeste): traves ---
+  [-17.1, -16.95, -1.3, -1.15, 0, 2, 0xffffff],
+  [-17.1, -16.95, 1.15, 1.3, 0, 2, 0xffffff],
+  [-17.1, -16.95, -1.3, 1.3, 2, 2.12, 0xffffff],
+  [-8.15, -8, -1.3, -1.15, 0, 2, 0xffffff],
+  [-8.15, -8, 1.15, 1.3, 0, 2, 0xffffff],
+  [-8.15, -8, -1.3, 1.3, 2, 2.12, 0xffffff],
+  // --- Cantina coberta (leste) ---
+  [8, 8.3, -4.3, -4, 0, 2.5, 0xe67e22],
+  [13.7, 14, -4.3, -4, 0, 2.5, 0xe67e22],
+  [8, 8.3, 2, 2.3, 0, 2.5, 0xe67e22],
+  [13.7, 14, 2, 2.3, 0, 2.5, 0xe67e22],
+  [8, 14, -4.3, 2.3, 2.5, 2.7, 0xe67e22],              // teto
+  [9.2, 10.8, -2.6, -1.8, 0, 0.75, 0xf5cba7],          // mesas
+  [11.4, 13, -2.6, -1.8, 0, 0.75, 0xf5cba7],
+  [9.2, 10.8, 0.2, 1, 0, 0.75, 0xf5cba7],
+  [8.3, 8.9, -3.8, 1.8, 0, 1.1, 0x7f8c8d],             // balcão
+  // --- Biblioteca (sudeste), porta no lado oeste z 8..10 ---
+  [8, 15.3, 5.7, 6, 0, WALL, 0x9b59b6],
+  [8, 15.3, 12, 12.3, 0, WALL, 0x9b59b6],
+  [15, 15.3, 6, 12, 0, WALL, 0x9b59b6],
+  [8, 8.3, 6, 8, 0, WALL, 0x9b59b6],
+  [8, 8.3, 10, 12, 0, WALL, 0x9b59b6],
+  [10, 14.5, 6.3, 6.8, 0, 2, 0x6c3483],               // estantes
+  [10, 14.5, 11.2, 11.7, 0, 2, 0x6c3483],
+  // --- Muro da entrada (sul) ---
+  [-15, -3, 15, 15.4, 0, 1.4, 0xf1c40f],
+  [3, 15, 15, 15.4, 0, 1.4, 0xf1c40f],
 ];
+
+// Árvores (tronco com colisão + copa só visual): [x, z]
+const TREES = [[-5, 9], [5, 9], [-6.5, 3], [-11, 11], [-15, 8], [4.5, 13], [16.5, -4]];
 
 // Pontos de sinal. normal = face exposta (por onde a caixa "abre").
 export const TARGET_DEFS = [
-  { id: 'tutorial', tutorial: true, pos: [0, 0.78 + BOX_SIZE / 2, 4.5], normal: [0, 1, 0], wires: 1 },
-  { id: 'chao-1', pos: [-3, BOX_SIZE / 2, -6], normal: [0, 1, 0] },
-  { id: 'parede-vermelha', pos: [-5 + BOX_SIZE / 2, 1.4, -1], normal: [1, 0, 0] },
-  { id: 'teto', pos: [10, 2.5 - BOX_SIZE / 2, -12], normal: [0, -1, 0] },
-  { id: 'sala-roxa', pos: [-12, BOX_SIZE / 2, -3], normal: [0, 1, 0] },
-  { id: 'parede-azul-alta', pos: [5 - BOX_SIZE / 2, 1.9, -9], normal: [-1, 0, 0] },
-  { id: 'atras', pos: [3, BOX_SIZE / 2, 11], normal: [0, 1, 0] },
+  { id: 'tutorial', tutorial: true, pos: [0, 0.78 + BOX_SIZE / 2, 6.5], normal: [0, 1, 0], wires: 1 },
+  { id: 'sala-vermelha', pos: [-12, BOX_SIZE / 2, -10], normal: [0, 1, 0] },
+  { id: 'laboratorio-parede', pos: [-4.85 + BOX_SIZE / 2, 1.4, -10.5], normal: [1, 0, 0] },
+  { id: 'sala-verde', pos: [13, BOX_SIZE / 2, -13.5], normal: [0, 1, 0] },
+  { id: 'cantina-teto', pos: [11, 2.5 - BOX_SIZE / 2, -0.5], normal: [0, -1, 0] },
+  { id: 'quadra', pos: [-15.8, BOX_SIZE / 2, 4], normal: [0, 1, 0] },
+  { id: 'biblioteca', pos: [12.5, BOX_SIZE / 2, 9], normal: [0, 1, 0] },
 ];
 
 const tmpRay = new THREE.Ray();
@@ -74,13 +108,35 @@ export function buildWorld(scene) {
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
+  // caminhos (cinza-claro) ligando as áreas
   const roadMat = new THREE.MeshLambertMaterial({ color: 0xd9dcdf });
-  for (const [w, d, x, z] of [[3.6, 32, 0, -2], [24, 3, -4, 7], [20, 3, 2, -12]]) {
+  for (const [w, d, x, z] of [[3, 23, 0, 3.5], [34, 2.4, 0, -6.2], [6, 2.4, 6, 1], [2.4, 6, -5.6, 1]]) {
     const road = new THREE.Mesh(new THREE.PlaneGeometry(w, d), roadMat);
     road.rotation.x = -Math.PI / 2;
     road.position.set(x, 0.004, z);
     scene.add(road);
   }
+  // quadra: piso verde com linhas brancas
+  const court = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 10), new THREE.MeshLambertMaterial({ color: 0x3f9b5b }));
+  court.rotation.x = -Math.PI / 2;
+  court.position.set(-12.55, 0.006, 0);
+  scene.add(court);
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  for (const [w, d, x, z] of [[9.2, 0.08, -12.55, 4.8], [9.2, 0.08, -12.55, -4.8], [0.08, 9.6, -17.15, 0], [0.08, 9.6, -7.95, 0], [0.08, 9.6, -12.55, 0]]) {
+    const l = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineMat);
+    l.rotation.x = -Math.PI / 2;
+    l.position.set(x, 0.008, z);
+    scene.add(l);
+  }
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.23, 40), lineMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(-12.55, 0.008, 0);
+  scene.add(ring);
+  // bandeira no mastro
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.7), new THREE.MeshLambertMaterial({ color: 0x00a3ad, side: THREE.DoubleSide }));
+  flag.position.set(0.63, 4.55, -3);
+  scene.add(flag);
+  scene.userData.flag = flag;
 
   const shadowTex = makeShadowTexture();
   const addShadow = (cx, cz, w, d, opacity = 0.55) => {
@@ -104,10 +160,26 @@ export function buildWorld(scene) {
     else if (y0 > 2) addShadow((x0 + x1) / 2, (z0 + z1) / 2, (x1 - x0) + 0.4, (z1 - z0) + 0.4, 0.35); // teto
   }
 
+  // árvores: tronco (bloco com colisão) + copa (só visual)
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x3e8e41 });
+  const leafGeo = new THREE.IcosahedronGeometry(1.1, 1);
+  for (const [x, z] of TREES) {
+    const trunk = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x7b5233 }));
+    trunk.scale.set(0.3, 1.8, 0.3);
+    trunk.position.set(x, 0.9, z);
+    scene.add(trunk);
+    blocks.push({ mesh: trunk, box: new THREE.Box3(new THREE.Vector3(x - 0.15, 0, z - 0.15), new THREE.Vector3(x + 0.15, 1.8, z + 0.15)) });
+    const crown = new THREE.Mesh(leafGeo, leafMat);
+    crown.position.set(x, 2.5, z);
+    crown.scale.set(1, 0.9, 1);
+    scene.add(crown);
+    addShadow(x, z, 2.4, 2.4, 0.45);
+  }
+
   const world = {
     blocks,
     targets: [],
-    spawn: new THREE.Vector3(0, 0, 8),
+    spawn: new THREE.Vector3(0, 0, 10),
     bounds: 19.5,
 
     // Primeiro bloco atingido pelo segmento a->b (ou null).

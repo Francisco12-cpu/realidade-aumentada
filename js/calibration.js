@@ -152,7 +152,7 @@ export class CalibrationFlow {
     }
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
-    this._show('Caçador de Sinal — teste', html, btns);
+    this._show(`Caçador de Sinal — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
   }
 
   async _init(withCamera = true) {
@@ -370,7 +370,7 @@ export class CalibrationFlow {
           o outro muda o foco — mexa até ficar <b>nítido</b>.</li>
         <li>Se ainda aparecer dobrado, torto ou com bordas curvas, use <b>🔧 Ajustar</b>: aparece uma grade com um anel vermelho para você acertar no jogo.</li>
         <li>Já no óculos, olhe para frente e toque na tela por fora → <b>⟲</b> (recentrar). No modo VR do Chrome, use o botão de voltar / ✕ da tela para sair.</li>
-        <li><b>Para andar</b>: olhe para onde quer ir e <b>balance as mãos</b> na frente da câmera como se estivesse correndo, ou <b>corra parado</b>.</li>
+        <li><b>Para andar</b>: olhe para onde quer ir e <b>mostre a palma aberta</b> para a câmera — feche a mão para parar. Ou <b>segure o botão do óculos</b>.</li>
       </ol>
       <p class="small">Dicas: brilho da tela no máximo. Se o celular esquentar e o FPS cair, o jogo baixa a resolução sozinho. Para sair do modo óculos, toque na tela e use <b>👓 Óculos</b> de novo.</p>`, [
       { label: '👓 Entrar no modo óculos', cls: 'primary', onClick: () => { close(); app.toggleVR(); } },
@@ -441,7 +441,9 @@ export class CalibrationFlow {
     const loco = this.app.calib.locomotion === 'left' ? 'esquerda' : 'direita';
     const inter = this.app.calib.locomotion === 'left' ? 'direita' : 'esquerda';
     const steps = [
-      this.app.locoMode === 'correr'
+      this.app.locoMode === 'palma'
+        ? { done: progress.teleport, name: 'Andar', how: 'Olhe para onde quer ir e <b>mostre a palma aberta</b> para a câmera (qualquer mão): você anda. <b>Feche ou abaixe a mão</b> para parar. No óculos, <b>segurar o botão do óculos</b> também anda. Botão: 🏃 Andar.' }
+        : this.app.locoMode === 'correr'
         ? { done: progress.teleport, name: 'Correr', how: 'Olhe para onde quer ir e <b>balance as mãos</b> na frente da câmera, como se estivesse correndo (ou <b>corra parado</b>). Quanto mais rápido, mais rápido você anda. Botão: 🏃 Correr.' }
         : { done: progress.teleport, name: 'Teleporte', how: `Mão ${loco}: <b>pistolinha</b> cobrindo o lugar do chão para onde quer ir, depois <b>abra a palma</b>. Botões: 🎯 Mirar + 🚀 Ir.` },
       { done: progress.touch, name: 'Tocar a caixa', how: `Chegue na caixa preta do pedestal cinza e encoste a <b>ponta do indicador</b> da mão ${inter}. Botão: 👆 Tocar.` },

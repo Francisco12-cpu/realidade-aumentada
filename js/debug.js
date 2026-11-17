@@ -132,7 +132,7 @@ export class DebugUI {
       `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate}</div>` +
       `<div>Sensor: ${o.source} ${o.hasData ? '✔' : '✖'} (${o.eventCount}) · estado: ${a.state}</div>` +
       hand(h.left) + hand(h.right) +
-      (a.locoMode === 'correr' ? `<div>Corrida: ${a.runner.speed.toFixed(1)} m/s · mãos ${(a.runner.handEnergy * 100).toFixed(0)}% · corrida parada ${(a.runner.jogEnergy * 100).toFixed(0)}% · ${a.runner.source}</div>` : '') +
+      (a.locoMode !== 'teleporte' ? `<div>Andar (${a.locoMode}): ${a.runner.speed.toFixed(1)} m/s · mãos ${(a.runner.handEnergy * 100).toFixed(0)}% · corrida parada ${(a.runner.jogEnergy * 100).toFixed(0)}% · ${a.runner.source}</div>` : '') +
       `<div>Teleporte: ${tp.aiming ? 'mirando' : '—'} ${tp.reason} · espera ${tp.cooldownLeft(performance.now()).toFixed(1)}s · saltos ${tp.jumps}</div>` +
       `<div>Toque: ${isFinite(a.interaction.lastTouchDist) ? a.interaction.lastTouchDist.toFixed(2) + ' m' : '—'} · pos ${p.x.toFixed(1)}, ${p.z.toFixed(1)}</div>`;
   }

@@ -1,7 +1,9 @@
-// Locomoção "correndo": o jogador anda para onde está OLHANDO quando
-//  - balança as mãos na frente da câmera (como braços correndo), ou
-//  - corre parado (o sensor de movimento do celular percebe o "quique").
-// Quanto mais forte o balanço, mais rápido. Paredes bloqueiam (desliza nelas).
+// Locomoção: o jogador anda para onde está OLHANDO.
+//  Modo 'palma' (padrão, mais simples): palma aberta = anda; fechou/abaixou = para.
+//    Também anda com o botão do óculos (WebXR), o botão 🏃 ou a tecla W.
+//  Modo 'correr': balançar as mãos na frente da câmera ou correr parado
+//    (sensor de movimento); quanto mais forte, mais rápido.
+// Paredes bloqueiam (o jogador desliza nelas).
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 
@@ -21,6 +23,9 @@ export class Runner {
     this.distance = 0;        // metros percorridos (tutorial)
     this.bobPhase = 0;
     this.enabled = true;
+    this.useSwing = false;    // modo 'correr' (balanço/corrida parada)
+    this.maxSpeed = R.WALK_SPEED;
+    this.manualSource = 'botão';
     // histórico de movimento das mãos para detectar "vai e volta"
     this._hist = { left: [], right: [] };
     this._prev = { left: null, right: null };
@@ -111,13 +116,15 @@ export class Runner {
   // manualRun: botão "Correr" / tecla W (0..1)
   update(nowMs, dt, hands, manualRun, blocked) {
     const k = 1 - Math.exp(-dt * R.ENERGY_SMOOTH);
-    this.handEnergy += ((R.USE_HANDS ? this._handsEnergy(hands, nowMs, dt) : 0) - this.handEnergy) * k;
-    this.jogEnergy += ((R.USE_JOG ? this._jog(nowMs) : 0) - this.jogEnergy) * k;
+    const swing = this.useSwing && R.USE_HANDS ? this._handsEnergy(hands, nowMs, dt) : 0;
+    const jog = this.useSwing && R.USE_JOG ? this._jog(nowMs) : 0;
+    this.handEnergy += (swing - this.handEnergy) * k;
+    this.jogEnergy += (jog - this.jogEnergy) * k;
     let e = Math.max(this.handEnergy, this.jogEnergy, manualRun || 0);
-    this.source = e < 0.02 ? '—' : manualRun >= e ? 'botão' : this.handEnergy >= this.jogEnergy ? 'mãos' : 'corrida parada';
+    this.source = e < 0.02 ? '—' : manualRun >= e ? this.manualSource : this.handEnergy >= this.jogEnergy ? 'balanço das mãos' : 'corrida parada';
     if (!this.enabled || blocked) e = 0;
 
-    const target = e * R.MAX_SPEED;
+    const target = e * this.maxSpeed;
     const rate = target > this.speed ? R.ACCEL : R.DECEL;
     this.speed += Math.sign(target - this.speed) * Math.min(Math.abs(target - this.speed), rate * dt);
 
