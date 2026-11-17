@@ -109,7 +109,7 @@ class App {
   // ---------------------------------------------------------------
   _resetWorld() {
     this.interaction.reset();
-    this.teleport.hide();
+    this.teleport.cancel();
     this.teleport.lastJump = -1e9;
     this.teleport.jumps = 0;
     this.rig.position.copy(this.world.spawn);
@@ -156,7 +156,7 @@ class App {
   endGame(win) {
     if (this.state !== 'playing') return;
     this.state = 'ended';
-    this.teleport.hide();
+    this.teleport.cancel();
     this.interaction.closePanel();
     document.body.classList.remove('playing');
     const all = this._gameTargets();

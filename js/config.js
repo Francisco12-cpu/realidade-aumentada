@@ -26,6 +26,12 @@ export const CONFIG = {
     MAX_STEPS: 90,
     PLAYER_RADIUS: 0.3,     // não pousar a menos disso de um bloco
     FADE_MS: 160,
+    MODE: 'dash',           // 'dash' = desliza rápido até o alvo · 'fade' = pisca a tela
+    DASH_MS_BASE: 120,      // duração do deslize = base + por metro
+    DASH_MS_PER_M: 45,      //   (4 m ≈ 0,3 s)
+    DASH_BOB: 0.035,        // balanço vertical do "passo" (m)
+    AIM_SMOOTH: 14,         // suavização da mira (maior = responde mais rápido, treme mais)
+    AIM_WRIST_BLEND: 0.4,   // 0 = só o dedo indicador; 1 = só pulso→ponta
   },
 
   // ---- Mãos (MediaPipe) ----
@@ -50,14 +56,26 @@ export const CONFIG = {
     // Estimativa bruta padrão (sem calibrar) para mão perto/longe
     RAW_NEAR: 0.25,
     RAW_FAR: 0.70,
-    HAND_SCALE: 1.0,            // escala do esqueleto da mão
+    HAND_SCALE: 1.0,            // escala da mão virtual
+    FOLLOW_RATE: 22,            // velocidade com que a mão desliza até a última detecção (1/s)
     REACH_MARGIN: 0.92,         // alcance calibrado ocupa 92% da tela
   },
 
-  // ---- Filtro One Euro (suavização) ----
-  FILTER: {
-    MIN_CUTOFF: 1.2,  // menor = mais suave parado (mais atraso)
-    BETA: 0.8,        // maior = menos atraso em movimento rápido
+  // ---- Filtros One Euro (suavização) ----
+  // MIN_CUTOFF menor = mais suave parado (mais atraso); BETA maior = menos atraso rápido
+  FILTER: {          // forma dos dedos (relativa ao centro da mão, em metros)
+    MIN_CUTOFF: 2.0,
+    BETA: 1.0,
+    D_CUTOFF: 1.0,
+  },
+  FILTER_ANCHOR: {   // posição da mão na tela (-1..1)
+    MIN_CUTOFF: 1.0,
+    BETA: 1.5,
+    D_CUTOFF: 1.0,
+  },
+  FILTER_DEPTH: {    // profundidade estimada (a medida mais tremida)
+    MIN_CUTOFF: 0.5,
+    BETA: 0.4,
     D_CUTOFF: 1.0,
   },
 

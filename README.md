@@ -78,8 +78,8 @@ O **FPS** fica sempre no canto superior esquerdo. O painel 🐞 mostra também:
 
 - [ ] Abrir o link no Infinix, aceitar as permissões e passar pela calibração.
 - [ ] Girar o celular e ver o mundo girar junto, sem atraso perceptível.
-- [ ] Ver as duas mãos no mundo (azul = esquerda, laranja = direita).
-- [ ] A pistolinha mostra a parábola, e a palma aberta teleporta respeitando o máximo de 4 m e a espera de 0,9 s.
+- [ ] Ver as duas mãos no mundo, como luvas sólidas (pulseira azul = esquerda, laranja = direita; a ponta dos dedos muda de cor com o gesto).
+- [ ] A pistolinha mostra a parábola (bolinhas), o círculo de alcance e o alvo; a palma aberta faz o jogador deslizar até lá, respeitando o máximo de 4 m e a espera de 0,9 s.
 - [ ] O detector aponta para a caixa preta mais próxima.
 - [ ] Tocar a caixa abre o painel; a pinça arrasta e conecta os fios; a caixa fica verde.
 - [ ] O cronômetro termina a partida com vitória ou derrota.
@@ -93,7 +93,8 @@ Todos os números de ajuste ficam em **`js/config.js`**, por exemplo:
 - `GAME_TIME_S`: duração da partida;
 - `INTERACTION.TOUCH_DIST`: distância para o toque contar;
 - `HANDS.VIRTUAL_NEAR` e `HANDS.VIRTUAL_FAR`: até onde a mão virtual alcança;
-- `FILTER.*`: suavização da mão;
+- `FILTER.*`, `FILTER_ANCHOR.*`, `FILTER_DEPTH.*` e `HANDS.FOLLOW_RATE`: suavização da mão (forma dos dedos, posição, profundidade e deslize entre detecções);
+- `TELEPORT.MODE`: `'dash'` (desliza rápido até o alvo) ou `'fade'` (pisca a tela); `TELEPORT.AIM_SMOOTH`: suavização da mira;
 - `GESTURE.STABLE_FRAMES`: quantos quadros seguidos um gesto precisa para valer;
 - `HANDS.DETECT_EVERY_N_FRAMES = 2`: detecta as mãos em quadros alternados, o que dá mais FPS se o celular sofrer.
 

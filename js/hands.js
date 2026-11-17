@@ -7,7 +7,7 @@
 // - Suaviza com filtro One Euro.
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { OneEuro3 } from './filters.js';
+import { OneEuro, OneEuro3 } from './filters.js';
 
 const MP_VERSION = '0.10.14';
 const WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
@@ -38,7 +38,12 @@ class Hand {
     this.uv = { x: 0.5, y: 0.5 };
     this.camPts = Array.from({ length: 21 }, () => new THREE.Vector3());
     this.worldPts = Array.from({ length: 21 }, () => new THREE.Vector3());
-    this.filters = Array.from({ length: 21 }, () => new OneEuro3(CONFIG.FILTER));
+    this.targetPts = Array.from({ length: 21 }, () => new THREE.Vector3()); // última detecção (filtrada)
+    this.filters = Array.from({ length: 21 }, () => new OneEuro3(CONFIG.FILTER)); // forma dos dedos
+    this.anchorFilter = new OneEuro3(CONFIG.FILTER_ANCHOR);  // posição da mão na tela
+    this.depthFilter = new OneEuro(CONFIG.FILTER_DEPTH.MIN_CUTOFF, CONFIG.FILTER_DEPTH.BETA, CONFIG.FILTER_DEPTH.D_CUTOFF);
+    this.rawDepthF = 0;
+    this.snap = true;            // próxima atualização copia direto (sem deslizar)
     // preenchido por gestures.js
     this.features = null;
     this.gesture = 'none';
@@ -135,10 +140,19 @@ export class HandTracker {
       }
     }
 
+    // A detecção chega a 15–30/s e a tela roda a ~60: os pontos exibidos
+    // deslizam até o alvo a cada quadro, para a mão não andar "aos pulos".
+    const dt = Math.min(0.1, Math.max(0, (nowMs - (this._lastUpdate || nowMs)) / 1000));
+    this._lastUpdate = nowMs;
+    const k = 1 - Math.exp(-dt * H.FOLLOW_RATE);
     for (const h of this.hands) {
       h.visible = nowMs - h.lastSeen < H.LOST_GRACE_MS;
-      if (!h.visible) { h.present = false; continue; }
-      for (let i = 0; i < 21; i++) h.worldPts[i].copy(h.camPts[i]).applyMatrix4(camera.matrixWorld);
+      if (!h.visible) { h.present = false; h.snap = true; continue; }
+      for (let i = 0; i < 21; i++) {
+        if (h.snap) h.camPts[i].copy(h.targetPts[i]); else h.camPts[i].lerp(h.targetPts[i], k);
+        h.worldPts[i].copy(h.camPts[i]).applyMatrix4(camera.matrixWorld);
+      }
+      h.snap = false;
     }
     return fresh;
   }
@@ -231,7 +245,12 @@ export class HandTracker {
     const real = d3(0, 5) + d3(0, 17) + d3(5, 17) + d3(0, 9);
     hand.rawDepth = real / Math.max(img, 1e-4);
 
-    if (nowMs - hand.lastSeen > H.LOST_GRACE_MS) hand.filters.forEach((f) => f.reset());
+    if (nowMs - hand.lastSeen > H.LOST_GRACE_MS) {
+      hand.filters.forEach((f) => f.reset());
+      hand.anchorFilter.reset();
+      hand.depthFilter.reset();
+      hand.snap = true;
+    }
     hand.lastSeen = nowMs;
     hand.present = true;
     hand.lastC = det.c;
@@ -241,56 +260,94 @@ export class HandTracker {
     hand.rawLabel = det.label;
     hand.score = det.score;
 
+    const tSec = nowMs / 1000;
+    // 1) posição na tela e profundidade: filtros separados (a profundidade é o mais tremido)
     const ndc = this.mapUV(lm[9].x, lm[9].y, camera);
-    const d = this.depthFromRaw(hand.rawDepth);
+    this._p.set(ndc.x, ndc.y, 0);
+    hand.anchorFilter.filter(this._p, tSec);
+    hand.rawDepthF = hand.depthFilter.filter(hand.rawDepth, tSec);
+    const d = this.depthFromRaw(hand.rawDepthF);
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     const tanH = tanV * camera.aspect;
-    const ax = ndc.x * d * tanH, ay = ndc.y * d * tanV, az = -d;
+    const ax = this._p.x * d * tanH, ay = this._p.y * d * tanV, az = -d;
+    // 2) forma da mão (dedos) relativa ao centro, com filtro mais leve
     const s = H.HAND_SCALE;
-    const tSec = nowMs / 1000;
     for (let i = 0; i < 21; i++) {
       this._p.set(
-        ax + (wlm[i].x - wlm[9].x) * s,
-        ay - (wlm[i].y - wlm[9].y) * s,
-        az - (wlm[i].z - wlm[9].z) * s,
+        (wlm[i].x - wlm[9].x) * s,
+        -(wlm[i].y - wlm[9].y) * s,
+        -(wlm[i].z - wlm[9].z) * s,
       );
       hand.filters[i].filter(this._p, tSec);
-      hand.camPts[i].copy(this._p);
+      hand.targetPts[i].set(ax + this._p.x, ay + this._p.y, az + this._p.z);
     }
   }
 }
 
 // ---------------------------------------------------------------------
-// Visual: esqueleto de esferas + linhas, preso à câmera.
+// Visual: "luva" sólida — dedos em cilindros afinando até a ponta,
+// articulações, palma preenchida e pontas que acendem com o gesto.
+// Usa InstancedMesh (poucas chamadas de desenho = leve no celular).
 // ---------------------------------------------------------------------
 const GESTURE_COLORS = {
-  none: 0x888888, neutral: 0xffffff, gun: 0xff9f1a, open: 0x2ecc40, fist: 0xff3b3b, pinch: 0xffe600,
+  none: 0x6a7a88, neutral: 0x7fe9ff, gun: 0xff9f1a, open: 0x3ddc84, fist: 0xff4d5e, pinch: 0xffe14d,
 };
+const TIPS = [4, 8, 12, 16, 20];
+
+// raio (m) em cada ponto da mão: dedos afinam do nó até a ponta
+const JOINT_R = [
+  0.016,                         // pulso
+  0.0125, 0.0115, 0.0102, 0.0092, // polegar
+  0.0115, 0.0098, 0.0088, 0.0080, // indicador
+  0.0118, 0.0100, 0.0090, 0.0082, // médio
+  0.0112, 0.0095, 0.0086, 0.0078, // anelar
+  0.0102, 0.0085, 0.0077, 0.0070, // mínimo
+];
+
+const _up = new THREE.Vector3(0, 1, 0);
+const _dir = new THREE.Vector3();
+const _mid = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _sc = new THREE.Vector3();
+const _m = new THREE.Matrix4();
 
 export class HandView {
   constructor(camera, hand) {
     this.hand = hand;
     this.group = new THREE.Group();
     camera.add(this.group);
-    const base = hand.side === 'left' ? 0x3d8bff : 0xff7a1a;
-    const jointMat = new THREE.MeshBasicMaterial({ color: base });
-    const geo = new THREE.SphereGeometry(0.008, 8, 6);
-    const tipGeo = new THREE.SphereGeometry(0.012, 10, 8);
-    this.joints = [];
-    for (let i = 0; i < 21; i++) {
-      const isTip = i === 4 || i === 8;
-      const mesh = new THREE.Mesh(isTip ? tipGeo : geo, isTip ? new THREE.MeshBasicMaterial({ color: 0xffffff }) : jointMat);
-      this.group.add(mesh);
-      this.joints.push(mesh);
+
+    const accent = hand.side === 'left' ? 0x3d8bff : 0xff7a1a; // azul = esquerda, laranja = direita
+    const glove = new THREE.MeshLambertMaterial({ color: 0x2b3440 });
+    this.joints = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshLambertMaterial({ color: 0x3a4654 }), 21);
+    // cilindro com Y de 0 a 1, um pouco mais fino no topo (ponta do dedo)
+    const cyl = new THREE.CylinderGeometry(0.88, 1, 1, 10, 1, true);
+    cyl.translate(0, 0.5, 0);
+    this.bones = new THREE.InstancedMesh(cyl, glove, BONES.length);
+    this.tipMat = new THREE.MeshBasicMaterial({ color: GESTURE_COLORS.neutral });
+    this.tips = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), this.tipMat, TIPS.length);
+    for (const im of [this.joints, this.bones, this.tips]) {
+      im.frustumCulled = false;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.group.add(im);
     }
-    this.palm = new THREE.Mesh(new THREE.SphereGeometry(0.016, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+
+    // palma: leque de triângulos entre pulso e bases dos dedos
+    this.palmIdx = [0, 1, 5, 9, 13, 17];
+    this.palmPos = new Float32Array((this.palmIdx.length + 1) * 3);
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(this.palmPos, 3));
+    const idx = [];
+    for (let i = 1; i < this.palmIdx.length; i++) idx.push(0, i, i + 1);
+    idx.push(0, this.palmIdx.length, 1);
+    pg.setIndex(idx);
+    this.palm = new THREE.Mesh(pg, new THREE.MeshLambertMaterial({ color: 0x2b3440, side: THREE.DoubleSide }));
+    this.palm.frustumCulled = false;
     this.group.add(this.palm);
-    this.linePos = new Float32Array(BONES.length * 6);
-    const lg = new THREE.BufferGeometry();
-    lg.setAttribute('position', new THREE.BufferAttribute(this.linePos, 3));
-    this.lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: base }));
-    this.lines.frustumCulled = false;
-    this.group.add(this.lines);
+
+    // pulseira colorida (identifica esquerda/direita)
+    this.band = new THREE.Mesh(new THREE.TorusGeometry(1, 0.22, 8, 20), new THREE.MeshBasicMaterial({ color: accent }));
+    this.group.add(this.band);
     this.group.visible = false;
   }
 
@@ -298,15 +355,45 @@ export class HandView {
     const h = this.hand;
     this.group.visible = h.visible;
     if (!h.visible) return;
-    for (let i = 0; i < 21; i++) this.joints[i].position.copy(h.camPts[i]);
-    this.palm.position.copy(h.camPts[0]);
-    this.palm.material.color.setHex(GESTURE_COLORS[h.gesture] || 0xffffff);
-    let k = 0;
-    for (const [a, b] of BONES) {
-      const pa = h.camPts[a], pb = h.camPts[b];
-      this.linePos[k++] = pa.x; this.linePos[k++] = pa.y; this.linePos[k++] = pa.z;
-      this.linePos[k++] = pb.x; this.linePos[k++] = pb.y; this.linePos[k++] = pb.z;
+    const P = h.camPts;
+
+    for (let i = 0; i < 21; i++) {
+      const r = JOINT_R[i] * 1.08;
+      _m.compose(P[i], _q.identity(), _sc.set(r, r, r));
+      this.joints.setMatrixAt(i, _m);
     }
-    this.lines.geometry.attributes.position.needsUpdate = true;
+    BONES.forEach(([a, b], k) => {
+      _dir.subVectors(P[b], P[a]);
+      const len = _dir.length();
+      if (len < 1e-5) { _m.makeScale(0, 0, 0); this.bones.setMatrixAt(k, _m); return; }
+      _q.setFromUnitVectors(_up, _dir.divideScalar(len));
+      const r = JOINT_R[b];
+      _m.compose(P[a], _q, _sc.set(r, len, r));
+      this.bones.setMatrixAt(k, _m);
+    });
+    TIPS.forEach((i, k) => {
+      const r = JOINT_R[i] * (i === 4 || i === 8 ? 1.2 : 1.0);
+      _m.compose(P[i], _q.identity(), _sc.set(r, r, r));
+      this.tips.setMatrixAt(k, _m);
+    });
+    this.joints.instanceMatrix.needsUpdate = true;
+    this.bones.instanceMatrix.needsUpdate = true;
+    this.tips.instanceMatrix.needsUpdate = true;
+    this.tipMat.color.setHex(GESTURE_COLORS[h.gesture] || GESTURE_COLORS.neutral);
+
+    // palma
+    _mid.set(0, 0, 0);
+    this.palmIdx.forEach((i) => _mid.add(P[i]));
+    _mid.multiplyScalar(1 / this.palmIdx.length);
+    this.palmPos.set([_mid.x, _mid.y, _mid.z], 0);
+    this.palmIdx.forEach((i, k) => this.palmPos.set([P[i].x, P[i].y, P[i].z], (k + 1) * 3));
+    this.palm.geometry.attributes.position.needsUpdate = true;
+    this.palm.geometry.computeVertexNormals();
+
+    // pulseira: no pulso, de frente para o antebraço
+    _dir.subVectors(P[9], P[0]).normalize();
+    this.band.position.copy(P[0]).addScaledVector(_dir, -0.012);
+    this.band.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), _dir);
+    this.band.scale.setScalar(0.02);
   }
 }
