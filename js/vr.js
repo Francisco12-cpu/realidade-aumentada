@@ -16,6 +16,7 @@ export function defaultVrSettings() {
     k2: 0.12,
     zoom: 0.82,       // tamanho da imagem dentro da lente
     distortion: true, // corrigir curvatura
+    engine: 'auto',   // 'auto' = modo VR do Chrome (WebXR) se existir · 'proprio' = sempre o modo do jogo
   };
 }
 

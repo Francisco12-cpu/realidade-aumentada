@@ -18,7 +18,7 @@ export class DebugUI {
     this.frameMs = 0;
 
     // Estado das entradas alternativas (lido pelo main.js)
-    this.input = { aim: false, pinch: false, fist: false, keyAim: false, move: { f: 0, r: 0 } };
+    this.input = { aim: false, run: false, pinch: false, fist: false, keyAim: false, move: { f: 0, r: 0 } };
     this._wireButtons();
     this._wireKeyboard();
   }
@@ -48,7 +48,7 @@ export class DebugUI {
 
   _wireButtons() {
     const app = this.app;
-    this._btn('btn-recenter', () => { app.orientation.recenter(); app.toast('Direção recentrada'); });
+    this._btn('btn-recenter', () => { app.recenter(); app.toast('Direção recentrada'); });
     this._btn('btn-aim', (el) => { this.input.aim = !this.input.aim; el.classList.toggle('on', this.input.aim); });
     this._btn('btn-teleport', () => {
       app.teleport.tryJump(performance.now());
@@ -56,9 +56,10 @@ export class DebugUI {
       document.getElementById('btn-aim').classList.remove('on');
     });
     this._btn('btn-touch', () => { if (!app.interaction.openNearest()) app.toast('Nenhuma caixa perto (chegue a menos de 3 m)'); });
+    this._hold('btn-run', 'run');
     this._hold('btn-pinch', 'pinch');
     this._hold('btn-fist', 'fist');
-    this._btn('btn-stereo', () => app.setStereo(!app.stereo));
+    this._btn('btn-stereo', () => app.toggleVR());
     this._btn('btn-vradjust', () => app.calibration.showVrAdjust());
     this._btn('btn-help', () => app.calibration.showHelp());
     this._btn('btn-full', () => {
@@ -82,7 +83,7 @@ export class DebugUI {
       if (k === 'e') app.interaction.openNearest();
       if (k === 'f') this.input.pinch = true;
       if (k === 'g') this.input.fist = true;
-      if (k === 'r') app.orientation.recenter();
+      if (k === 'r') app.recenter();
       if (k === 'b') this.setEnabled(!this.enabled);
       if (k === 'w') this.input.move.f = 1;
       if (k === 's') this.input.move.f = -1;
@@ -131,6 +132,7 @@ export class DebugUI {
       `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate}</div>` +
       `<div>Sensor: ${o.source} ${o.hasData ? '✔' : '✖'} (${o.eventCount}) · estado: ${a.state}</div>` +
       hand(h.left) + hand(h.right) +
+      (a.locoMode === 'correr' ? `<div>Corrida: ${a.runner.speed.toFixed(1)} m/s · mãos ${(a.runner.handEnergy * 100).toFixed(0)}% · corrida parada ${(a.runner.jogEnergy * 100).toFixed(0)}% · ${a.runner.source}</div>` : '') +
       `<div>Teleporte: ${tp.aiming ? 'mirando' : '—'} ${tp.reason} · espera ${tp.cooldownLeft(performance.now()).toFixed(1)}s · saltos ${tp.jumps}</div>` +
       `<div>Toque: ${isFinite(a.interaction.lastTouchDist) ? a.interaction.lastTouchDist.toFixed(2) + ' m' : '—'} · pos ${p.x.toFixed(1)}, ${p.z.toFixed(1)}</div>`;
   }

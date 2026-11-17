@@ -7,6 +7,7 @@ import { OrientationController } from './orientation.js';
 import { HandTracker, HandView } from './hands.js';
 import { updateHandGesture } from './gestures.js';
 import { Teleport } from './teleport.js';
+import { Runner } from './locomotion.js';
 import { Interaction } from './interaction.js';
 import { CalibrationFlow, defaultCalib, loadCalib } from './calibration.js';
 import { DebugUI } from './debug.js';
@@ -29,10 +30,22 @@ class App {
     this._q = { t0: performance.now(), frames: 0, low: 0, high: 0 };
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 80);
-    this.camera.position.y = CONFIG.EYE_HEIGHT;
+    // rig (posição no chão) -> eye (altura dos olhos / recentrar no WebXR) -> câmera
     this.rig = new THREE.Group();
-    this.rig.add(this.camera);
+    this.eye = new THREE.Group();
+    this.eye.position.y = CONFIG.EYE_HEIGHT;
+    this.rig.add(this.eye);
+    this.eye.add(this.camera);
     this.scene.add(this.rig);
+    this.locoMode = CONFIG.LOCOMOTION;
+    document.body.classList.add(`mode-${this.locoMode}`);
+    this.xrSupported = false;
+    this.xrActive = false;
+    this.renderer.xr.enabled = true;
+    this.renderer.xr.setReferenceSpaceType('local');
+    if (navigator.xr && navigator.xr.isSessionSupported) {
+      navigator.xr.isSessionSupported('immersive-vr').then((ok) => { this.xrSupported = ok; }).catch(() => {});
+    }
     this.vrSettings = loadVrSettings();
     this.vr = new VRView(this.renderer, this.vrSettings);
     this.hud3d = new HUD3D(this.camera);
@@ -49,6 +62,9 @@ class App {
     this.teleport = new Teleport(this.scene, this.rig, this.camera, this.world, {
       onTeleport: () => { if (this.state === 'tutorial' && !this.tutorial.teleport) { this.tutorial.teleport = true; this._refreshTutorial(); } },
       onFail: (msg) => this.toast(`Teleporte: ${msg}`),
+    });
+    this.runner = new Runner(this.rig, this.eye, this.camera, this.world, {
+      onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.teleport && d > 2) { this.tutorial.teleport = true; this._refreshTutorial(); } },
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
       onOpen: () => {
@@ -67,7 +83,7 @@ class App {
     this._v = new THREE.Vector3();
     this._wireCanvasPointers();
     window.addEventListener('resize', () => this.resize());
-    if (screen.orientation) screen.orientation.addEventListener('change', () => { if (this.stereo) setTimeout(() => this.orientation.recenter(), 600); });
+    if (screen.orientation) screen.orientation.addEventListener('change', () => { if (this.stereo) setTimeout(() => this.recenter(), 600); });
     this.resize();
 
     this._last = performance.now();
@@ -86,6 +102,8 @@ class App {
     if (!this.sensorsReady) {
       onStatus('Pedindo acesso aos sensores de movimento…');
       const perm = await this.orientation.requestPermission();
+      try { if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission(); } catch (e) { /* */ }
+      this.runner.startSensors();
       const src = await this.orientation.start('auto');
       onStatus(`Sensores: ${perm ? src : 'permissão negada'}`);
       try { if (navigator.wakeLock) this.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* opcional */ }
@@ -118,10 +136,12 @@ class App {
   _resetWorld() {
     this.interaction.reset();
     this.teleport.cancel();
+    this.runner.stop();
+    this.runner.distance = 0;
     this.teleport.lastJump = -1e9;
     this.teleport.jumps = 0;
     this.rig.position.copy(this.world.spawn);
-    this.orientation.recenter();
+    this.recenter();
   }
 
   startTutorial() {
@@ -194,6 +214,52 @@ class App {
   // ---------------------------------------------------------------
   // Modo óculos
   // ---------------------------------------------------------------
+  // Entrar/sair do óculos. Usa o modo VR do Chrome (WebXR, configurado pelo
+  // QR Code do óculos) quando existe; senão, o modo próprio do jogo.
+  // Precisa ser chamado direto do toque no botão (o navegador exige).
+  toggleVR() {
+    if (this.xrActive) { this.renderer.xr.getSession().end(); return; }
+    if (this.stereo) { this.setStereo(false); return; }
+    if (this.xrSupported && this.vrSettings.engine !== 'proprio') this.startXR();
+    else this.setStereo(true);
+  }
+
+  startXR() {
+    navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] }).then(async (session) => {
+      session.addEventListener('end', () => this._onXREnd());
+      await this.renderer.xr.setSession(session);
+      this.xrActive = true;
+      document.body.classList.add('xr');
+      this.hud3d.show(true);
+      this.hud3d.toast('Modo VR do Chrome');
+      setTimeout(() => this.recenter(), 800);
+    }).catch((e) => {
+      console.warn('WebXR falhou, usando o modo próprio', e);
+      this.toast('VR do Chrome indisponível — usando o modo próprio');
+      this.setStereo(true);
+    });
+  }
+
+  _onXREnd() {
+    this.xrActive = false;
+    document.body.classList.remove('xr');
+    this.hud3d.show(false);
+    this.eye.rotation.y = 0;
+    this.camera.position.set(0, 0, 0);
+    this.resize();
+    this.orientation.recenter();
+  }
+
+  // Recentrar: no WebXR gira o grupo dos olhos; fora dele, o sensor.
+  recenter() {
+    if (this.xrActive) {
+      const f = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+      this.eye.rotation.y = -Math.atan2(-f.x, -f.z);
+    } else {
+      this.orientation.recenter();
+    }
+  }
+
   async setStereo(on) {
     this.stereo = on;
     document.body.classList.toggle('stereo', on);
@@ -205,7 +271,7 @@ class App {
         if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
       } catch (e) { /* nem todo navegador deixa travar: o aviso "vire o celular" ajuda */ }
       this.showVrUi(4000);
-      setTimeout(() => this.orientation.recenter(), 900);
+      setTimeout(() => this.recenter(), 900);
       this.hud3d.toast('Modo óculos — toque na tela para opções');
     } else {
       try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* */ }
@@ -250,6 +316,7 @@ class App {
   }
 
   resize() {
+    if (this.renderer.xr.isPresenting) return;
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     if (this.stereo) this.vr.applyCamera(this.camera, w, h);
@@ -286,9 +353,16 @@ class App {
     const dt = dtMs / 1000;
     const input = this.debug.input;
 
-    // 1) cabeça
-    this.orientation.update();
-    if (input.move.f || input.move.r) this._debugWalk(dt, input.move);
+    // 1) cabeça (no WebXR o próprio Chrome move a câmera)
+    if (this.xrActive) {
+      // campo de visão real do óculos, para as mãos caírem no lugar certo
+      const e = this.camera.projectionMatrix.elements;
+      this.camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(1 / e[5]));
+      this.camera.aspect = e[5] / e[0];
+    } else {
+      this.orientation.update();
+    }
+    if (this.locoMode !== 'correr' && (input.move.f || input.move.r)) this._debugWalk(dt, input.move);
     this.rig.updateMatrixWorld(true);
 
     // 2) mãos + gestos
@@ -302,9 +376,18 @@ class App {
     const loco = this.hands.get(this.locoSide());
     const inter = this.hands.get(this.interSide());
 
-    // 3) teleporte
-    if (active) this.teleport.update(now, loco, input.aim || input.keyAim);
-    else this.teleport.hide();
+    // 3) locomoção: correr (padrão) ou teleporte
+    if (active && this.locoMode === 'correr') {
+      const manual = input.run || input.move.f > 0 ? 1 : 0;
+      const busy = this.interaction.grabs.size > 0; // arrastando fio: não anda
+      this.runner.update(now, dt, this.hands.hands, manual, busy);
+      this.teleport.hide();
+    } else if (active) {
+      this.teleport.update(now, loco, input.aim || input.keyAim);
+    } else {
+      this.teleport.hide();
+      if (this.runner.speed) this.runner.stop();
+    }
 
     // 4) interação: tocar, painel, detector
     if (active) {
@@ -361,7 +444,7 @@ class App {
   _updateHud(active) {
     const hud = document.getElementById('hud');
     hud.classList.toggle('active', active);
-    if (!active) { if (this.stereo) this.hud3d.update({ timer: this.state === 'ended' ? 'fim' : '' }); return; }
+    if (!active) { if (this.stereo || this.xrActive) this.hud3d.update({ timer: this.state === 'ended' ? 'fim' : '' }); return; }
     const info = {};
     const tl = document.getElementById('timer');
     if (this.state === 'playing') {
@@ -385,14 +468,15 @@ class App {
       document.getElementById('compass-text').textContent = `${near.dist.toFixed(1)} m${up}`;
       info.dist = `${near.dist.toFixed(1)} m`; info.arrowAngle = ang; info.up = !!up;
     }
-    if (this.stereo) this.hud3d.update(info);
+    if (this.locoMode === 'correr' && this.runner.speed > 0.2) info.count = `${info.count || ''} 🏃`;
+    if (this.stereo || this.xrActive) this.hud3d.update(info);
     const input = this.debug.input;
     document.getElementById('crosshair').classList.toggle('on', input.pinch || input.fist || input.aim);
   }
 
   _render() {
     const r = this.renderer;
-    if (!this.stereo) { r.setScissorTest(false); r.render(this.scene, this.camera); return; }
+    if (this.xrActive || !this.stereo) { r.setScissorTest(false); r.render(this.scene, this.camera); return; }
     this.vr.render(this.scene, this.camera);
   }
 }

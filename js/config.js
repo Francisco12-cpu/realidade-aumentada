@@ -12,6 +12,30 @@ export const CONFIG = {
   // ---- Partida ----
   GAME_TIME_S: 360,         // duração da partida (6 min)
 
+  // ---- Locomoção ----
+  LOCOMOTION: 'correr',     // 'correr' = anda para onde olha balançando as mãos / correndo parado · 'teleporte'
+
+  // ---- Corrida ----
+  RUN: {
+    MAX_SPEED: 3.2,         // m/s com balanço máximo (corrida leve)
+    ACCEL: 6,               // m/s² para ganhar velocidade
+    DECEL: 8,               // m/s² para parar
+    ENERGY_SMOOTH: 6,       // suavização da intensidade (1/s)
+    BOB: 0.045,             // balanço do passo (m)
+    USE_HANDS: true,        // balançar as mãos na frente da câmera
+    USE_JOG: true,          // correr parado (sensor de movimento do celular)
+    SWING_WINDOW_MS: 900,   // janela para medir o balanço
+    SWING_FLIP_SPEED: 0.25, // velocidade mínima (m/s) para contar ida/volta
+    SWING_MIN_FLIPS: 2,     // idas e voltas necessárias na janela (evita andar ao esticar a mão)
+    SWING_START: 0.3,       // velocidade média da mão (m/s) para começar a andar
+    SWING_FULL: 1.1,        // velocidade média da mão para correr no máximo
+    JOG_WINDOW_MS: 900,
+    JOG_FLIP_ACC: 1.2,      // m/s² mínimo de cada "quique"
+    JOG_MIN_FLIPS: 3,
+    JOG_START: 1.2,         // aceleração (RMS, m/s²) para começar a andar
+    JOG_FULL: 4.0,          // para correr no máximo
+  },
+
   // ---- Teleporte ----
   TELEPORT: {
     MAX_DIST: 4.0,          // distância máxima por salto (m, no plano do chão)

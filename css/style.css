@@ -143,3 +143,8 @@ body.stereo.vr-adjust #overlay .sheet { max-height: calc(46vh - 60px); width: mi
 @media (max-width: 560px) { .sliders { grid-template-columns: 1fr; } }
 .steps { margin: 6px 0; padding-left: 20px; }
 .steps li { margin: 6px 0; }
+
+/* ---------- Modo de locomoção ---------- */
+body.mode-correr #btn-aim, body.mode-correr #btn-teleport { display: none; }
+body.mode-teleporte #btn-run { display: none; }
+body.running #vignette { opacity: 0.55; }
