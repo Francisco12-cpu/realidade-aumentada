@@ -90,6 +90,7 @@ class App {
     this.renderer.setAnimationLoop(() => this._loop());
     this.calibration.welcome();
     window.__app = this; // para depuração no console / testes
+    registerServiceWorker();
   }
 
   locoSide() { return this.calib.locomotion; }
@@ -495,6 +496,14 @@ class App {
     if (this.xrActive || !this.stereo) { r.setScissorTest(false); r.render(this.scene, this.camera); return; }
     this.vr.render(this.scene, this.camera);
   }
+}
+
+// Service worker: faz o link normal sempre abrir a versão mais nova
+// (e o jogo abrir mesmo sem internet, com a última versão baixada).
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+  if (!/\/(index\.html)?$/.test(location.pathname)) return; // só na página principal
+  navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker não registrado', e));
 }
 
 function fmtTime(s) {
