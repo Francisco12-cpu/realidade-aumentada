@@ -19,9 +19,27 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
    **https://francisco12-cpu.github.io/realidade-aumentada/**
 3. Abra o link no **Chrome do Infinix** e aceite as permissões de **câmera** e de **sensores de movimento**.
 
-**Sempre a versão mais nova:** o `sw.js` (service worker) faz o link normal conferir com o GitHub a cada abertura e baixar o que mudou. Não precisa de aba anônima nem de `?v=`. Ele também guarda a última versão, então o jogo abre mesmo sem internet (útil na feira). A versão aparece na tela inicial, ao lado do título.
+**Sempre a versão mais nova:** o `sw.js` (service worker) faz o link normal conferir com o GitHub a cada abertura e baixar o que mudou. Não precisa de aba anônima nem de `?v=`. A versão aparece na tela inicial, ao lado do título.
 
-**Atalho: arquivo único.** O arquivo `dist/index.html` tem o jogo inteiro (CSS e JS embutidos). Para publicar sem mexer em pastas, envie só ele pelo site do GitHub como `index.html` na raiz da `main` (**Add file → Upload files**). Para gerar de novo depois de mudar o código: `python3 tools/build-single.py`.
+**Sem internet na feira:** na primeira vez que o link abre com internet, o `sw.js` já baixa **tudo** (jogo, Three.js, MediaPipe e o modelo das mãos). Depois disso o jogo abre e rastreia as mãos sem internet. A tela inicial avisa quando está pronto: *"✔ Jogo guardado: funciona sem internet"*.
+
+**Atalho: arquivo único.** O arquivo `dist/index.html` tem o jogo inteiro (CSS e JS embutidos). Ele é **gerado sozinho** por uma GitHub Action (`.github/workflows/arquivo-unico.yml`) a cada mudança no código da `main`, então nunca fica desatualizado. Para gerar à mão: `python3 tools/build-single.py`.
+
+## Modo feira
+
+Ligue o botão **🎪 Modo feira** na tela inicial (fica salvo no celular), ou abra o link com `?feira` no final.
+
+- Partida de **3 minutos** com **4 caixas** (sala vermelha, teto da cantina, quadra e biblioteca).
+- O tutorial começa do lado do pedestal: só tocar a caixa e ligar o fio.
+- No fim da partida aparece **👤 Próximo jogador**, e depois de 25 s o jogo volta sozinho para essa tela. A calibração e as permissões continuam valendo.
+- Os números ficam em `CONFIG.FEIRA` (`js/config.js`).
+
+## Som, vibração e conforto
+
+- **Som** gerado no código (sem arquivos): bipe do detector, que acelera e fica mais agudo perto da caixa; sons de caixa aberta, fio certo/errado, caixa consertada, vitória e derrota; alarme quando falta 1 minuto e contagem nos últimos 10 s. Botão 🔊 para ligar/desligar.
+- **Vibração** ao abrir a caixa, pegar e encaixar o fio, e ao consertar.
+- **Faíscas:** a menos de 5 m de uma caixa quebrada, ela solta faíscas, brilha e o LED pisca mais rápido.
+- **Escurecer bordas ao andar** (vinheta): diminui o enjoo. Funciona na tela normal, no óculos e no modo VR do Chrome. Dá para desligar na tela inicial.
 
 > Câmera e sensores só funcionam em **HTTPS**, e o GitHub Pages já usa HTTPS.
 > No PC dá para testar com `python3 -m http.server` e abrir `http://localhost:8000`, porque o localhost também é aceito.
@@ -37,6 +55,8 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
    - Se o Windows perguntar sobre o firewall, clique em **Permitir** (redes privadas).
 3. No próprio PC o jogo fica em `http://localhost:8000`.
 4. Para desligar, feche a janela preta.
+
+O **certificado HTTPS** (`servidor/cert.pem` e `key.pem`) é criado **em cada PC** na primeira vez, com o `openssl` que vem com o Git para Windows ou, se não tiver, com o módulo Python `cryptography` (instala sozinho se tiver internet). Esses arquivos não vão para o GitHub.
 
 O servidor (`servidor/servidor.py`) só usa a biblioteca padrão do Python. Também funciona em Linux e Mac: `python3 servidor/servidor.py`.
 
@@ -126,10 +146,15 @@ Todos os números de ajuste ficam em **`js/config.js`**, por exemplo:
 ```
 index.html          página + import map (Three.js / MediaPipe via CDN)
 css/style.css
+teste-xr.html       página de teste do WebXR + câmera (veio da branch feira-vr)
+docs/               desenho e plano da versão da feira
+.github/workflows/  Action que gera o dist/index.html sozinho
 INICIAR-SERVIDOR.bat liga o servidor local no Windows (PC + celular, sem GitHub)
 servidor/           servidor HTTPS local, página com QR Code, certificado e cache das bibliotecas
 sw.js               service worker: link sempre na versão mais nova + funciona sem internet
 js/config.js        todos os números ajustáveis
+js/options.js       opções do jogador (som, vibração, vinheta, modo feira)
+js/audio.js         sons (Web Audio) e vibração
 js/main.js          loop, estados do jogo (calibração → tutorial → partida → fim), HUD
 js/scene.js         mapa de blocos e caixas pretas
 js/orientation.js   rotação do celular → câmera (RelativeOrientationSensor / deviceorientation)

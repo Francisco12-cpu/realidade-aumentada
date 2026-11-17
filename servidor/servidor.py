@@ -12,8 +12,10 @@ Só usa a biblioteca padrão do Python 3.
 """
 import http.server
 import os
+import shutil
 import socket
 import ssl
+import subprocess
 import sys
 import threading
 import urllib.request
@@ -149,6 +151,97 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(msg)
 
 
+# ---------------------------------------------------------------------------
+# Certificado HTTPS deste PC. Cada computador cria o seu na primeira vez
+# (a chave privada nunca vai para o GitHub). Tenta, nesta ordem:
+#   1) openssl (vem junto com o Git para Windows)
+#   2) módulo Python "cryptography" (instala sozinho se tiver internet)
+# ---------------------------------------------------------------------------
+def _openssl():
+    cands = [shutil.which('openssl')]
+    for base in (os.environ.get('ProgramFiles', r'C:\Program Files'), os.environ.get('ProgramFiles(x86)', ''),
+                 os.environ.get('LOCALAPPDATA', '') and os.path.join(os.environ['LOCALAPPDATA'], 'Programs')):
+        if base:
+            cands += [os.path.join(base, 'Git', 'usr', 'bin', 'openssl.exe'),
+                      os.path.join(base, 'Git', 'mingw64', 'bin', 'openssl.exe')]
+    return next((c for c in cands if c and os.path.isfile(c)), None)
+
+
+def _cert_with_openssl(ips):
+    exe = _openssl()
+    if not exe:
+        return False
+    san = ','.join(['DNS:localhost', 'IP:127.0.0.1'] + [f'IP:{ip}' for ip in ips])
+    cmd = [exe, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256', '-days', '825',
+           '-keyout', KEY, '-out', CERT, '-subj', '/CN=Cacador de Sinal (PC local)',
+           '-addext', f'subjectAltName={san}']
+    env = dict(os.environ, MSYS_NO_PATHCONV='1', MSYS2_ARG_CONV_EXCL='*')
+    r = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    return r.returncode == 0 and os.path.exists(CERT) and os.path.exists(KEY)
+
+
+def _cert_with_cryptography(ips, allow_install):
+    try:
+        import cryptography  # noqa: F401
+    except ImportError:
+        if not allow_install:
+            return False
+        print('  instalando o módulo "cryptography" para criar o certificado...')
+        r = subprocess.run([sys.executable, '-m', 'pip', 'install', '--user', '--quiet', 'cryptography'])
+        if r.returncode != 0:
+            return False
+        import site
+        import importlib
+        sys.path.append(site.getusersitepackages())
+        importlib.invalidate_caches()
+    import datetime
+    import ipaddress
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'Cacador de Sinal (PC local)')])
+    alt = [x509.DNSName('localhost'), x509.IPAddress(ipaddress.ip_address('127.0.0.1'))]
+    for ip in ips:
+        try:
+            alt.append(x509.IPAddress(ipaddress.ip_address(ip)))
+        except ValueError:
+            pass
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1)).not_valid_after(now + datetime.timedelta(days=825))
+            .add_extension(x509.SubjectAlternativeName(alt), critical=False)
+            .sign(key, hashes.SHA256()))
+    with open(KEY, 'wb') as f:
+        f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+                                  serialization.NoEncryption()))
+    with open(CERT, 'wb') as f:
+        f.write(cert.public_bytes(serialization.Encoding.PEM))
+    return True
+
+
+def ensure_cert(allow_install=True):
+    """Garante cert.pem + key.pem deste PC. Devolve True se o HTTPS pode ligar."""
+    if os.path.exists(CERT) and os.path.exists(KEY):
+        return True
+    print('Criando o certificado HTTPS deste PC (so na primeira vez)...')
+    ips = [ip for ip in lan_ips() if ip != '127.0.0.1']
+    try:
+        if _cert_with_openssl(ips) or _cert_with_cryptography(ips, allow_install):
+            print('  certificado criado em servidor/cert.pem')
+            return True
+    except Exception as e:  # noqa: BLE001
+        print('  erro:', e)
+    for f in (CERT, KEY):
+        if os.path.exists(f):
+            os.remove(f)
+    print('  NAO foi possivel criar o certificado. Instale o Git para Windows (traz o openssl)')
+    print('  ou rode uma vez com internet. Sem certificado o celular nao abre (so o PC).')
+    return False
+
+
 def lan_ips():
     ips = []
     try:  # IP da rede principal (não envia nada pela rede)
@@ -184,6 +277,7 @@ def start(port, use_ssl):
 
 def main():
     if '--baixar' in sys.argv:
+        ensure_cert()
         print('Baixando as bibliotecas para usar sem internet...')
         falhas = 0
         for url in PRELOAD:
@@ -196,16 +290,19 @@ def main():
         print('Pronto!' if not falhas else f'{falhas} arquivo(s) falharam (sem internet?). O resto já está guardado.')
         return
     http_port = start(8000, False)
-    https_port = start(8443, True)
+    has_cert = ensure_cert()
+    https_port = start(8443, True) if has_cert else None
     ips = lan_ips()
-    phone = f'https://{ips[0]}:{https_port}/'
+    phone = f'https://{ips[0]}:{https_port}/' if https_port else f'http://localhost:{http_port}/'
     print()
     print('=' * 62)
     print('  CACADOR DE SINAL - servidor local rodando')
     print('=' * 62)
     print(f'  No PC:      http://localhost:{http_port}/')
     print('  No CELULAR (mesmo Wi-Fi do PC):')
-    for ip in ips:
+    if not https_port:
+        print('              (desligado: falta o certificado, veja a mensagem acima)')
+    for ip in (ips if https_port else []):
         print(f'              https://{ip}:{https_port}/')
     print()
     print('  No celular aparece "conexao nao particular":')

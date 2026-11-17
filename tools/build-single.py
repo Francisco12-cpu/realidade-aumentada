@@ -8,8 +8,12 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ORDER = ['config', 'filters', 'scene', 'orientation', 'hands', 'gestures',
+ORDER = ['config', 'options', 'audio', 'filters', 'scene', 'orientation', 'hands', 'gestures',
          'teleport', 'locomotion', 'interaction', 'vr', 'calibration', 'debug', 'main']
+
+# todo arquivo de js/ precisa estar na lista (senão o arquivo único quebra)
+missing = sorted({f.stem for f in (ROOT / 'js').glob('*.js')} - set(ORDER))
+assert not missing, f'adicione ao ORDER em tools/build-single.py: {missing}'
 
 parts = ["import * as THREE from 'three';"]
 for name in ORDER:
@@ -29,7 +33,7 @@ html = html.replace('<script type="module" src="js/main.js"></script>',
                     f'<script type="module">\n{js}\n</script>')
 out = ROOT / 'dist' / 'index.html'
 out.parent.mkdir(exist_ok=True)
-out.write_text(html, encoding='utf-8')
+out.write_text(html, encoding='utf-8', newline='\n')
 # service worker junto (faz o link sempre abrir a versão mais nova)
-(out.parent / 'sw.js').write_text((ROOT / 'sw.js').read_text(encoding='utf-8'), encoding='utf-8')
+(out.parent / 'sw.js').write_text((ROOT / 'sw.js').read_text(encoding='utf-8'), encoding='utf-8', newline='\n')
 print(f'{out} ({len(html) // 1024} KB)')

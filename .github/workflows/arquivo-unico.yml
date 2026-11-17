@@ -1,0 +1,56 @@
+# Gera dist/index.html (o jogo inteiro em um arquivo) sempre que o código muda na main.
+# Assim o arquivo único nunca fica desatualizado.
+name: Arquivo único (dist)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'css/**'
+      - 'js/**'
+      - 'sw.js'
+      - 'tools/build-single.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: arquivo-unico
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Gerar dist/index.html
+        run: python tools/build-single.py
+
+      - name: Conferir a sintaxe do JavaScript
+        run: |
+          sed -n '/<script type="module">/,/<\/script>/p' dist/index.html | sed '1d;$d' > /tmp/jogo.mjs
+          node --check /tmp/jogo.mjs
+          node --check sw.js
+
+      - name: Salvar se mudou
+        run: |
+          if git diff --quiet -- dist; then
+            echo "dist/ já estava atualizado."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist
+          git commit -m "dist: gera o arquivo único automaticamente"
+          git push

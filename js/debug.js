@@ -62,6 +62,7 @@ export class DebugUI {
     this._btn('btn-stereo', () => app.toggleVR());
     this._btn('btn-vradjust', () => app.calibration.showVrAdjust());
     this._btn('btn-help', () => app.calibration.showHelp());
+    this._btn('btn-sound', () => { app.setOption('sound', !app.options.sound); if (app.options.sound) { app.sfx.unlock(); app.sfx.wire(true); } app.toast(app.options.sound ? 'Som ligado' : 'Som desligado'); });
     this._btn('btn-full', () => {
       try {
         if (document.fullscreenElement) document.exitFullscreen();

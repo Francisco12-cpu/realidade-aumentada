@@ -61,7 +61,7 @@ export class Interaction {
 
   // mode 'tutorial': só a caixa do tutorial; 'game': só as da partida
   eligible(t) {
-    return t.state !== 'fixed' && (this.mode === 'tutorial' ? t.tutorial : !t.tutorial);
+    return t.state !== 'fixed' && !t.off && (this.mode === 'tutorial' ? t.tutorial : !t.tutorial);
   }
 
   nearestTarget(fromPos) {
@@ -261,6 +261,7 @@ export class Interaction {
         }
         if (best) {
           this.grabs.set(ptr.id, best);
+          this.hooks.onGrab && this.hooks.onGrab();
           const lp = this._screenToPanel(ptr.x, ptr.y, w, h, new THREE.Vector3());
           if (lp) best.mesh.position.copy(lp);
         }

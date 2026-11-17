@@ -141,6 +141,8 @@ export class CalibrationFlow {
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Existe uma calibração salva neste aparelho.</p>' : ''}
+      ${this._optionsHtml()}
+      <p class="small" id="offline"></p>
       <p class="small">Dica: o botão 🐞 mostra o painel de depuração (FPS, gestos, prévia da câmera).</p>`;
     const btns = [];
     if (saved) {
@@ -153,6 +155,79 @@ export class CalibrationFlow {
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show(`Caçador de Sinal — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
+    this._wireOptions(() => this.welcome());
+    this._checkOffline();
+  }
+
+  // Tela entre um visitante e outro (calibração e permissões continuam valendo).
+  nextPlayer() {
+    const feira = this.app.options.feira;
+    const html = `
+      <p><b>Próximo jogador!</b> Ache as caixas pretas, toque nelas com a ponta do dedo e ligue os fios da mesma cor.</p>
+      <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.FEIRA.TARGETS.length} caixas</b>.` : ''}
+      Siga o <b>bipe</b>: quanto mais rápido, mais perto. Perto da caixa ela solta <b>faíscas</b>.</p>
+      ${this._optionsHtml()}
+      <p class="small" id="offline"></p>`;
+    const ready = this.app.devicesReady;
+    const go = (next) => {
+      if (ready) { this.app.orientation.recenter(); if (next === 'tutorial') this.app.startTutorial(); else this.app.startGame(); return; }
+      const saved = loadCalib();
+      if (saved) this._startWithSaved(saved, next); else this._startFresh();
+    };
+    this._show('👤 Próximo jogador', html, [
+      { label: 'Tutorial rápido →', cls: 'primary', onClick: () => go('tutorial') },
+      { label: 'Direto para a partida', onClick: () => go('game') },
+      { label: 'Recalibrar (mão diferente)', onClick: () => this.app.recalibrate() },
+      { label: 'Tela inicial', onClick: () => this.welcome() },
+    ]);
+    this._wireOptions(() => this.nextPlayer());
+    this._checkOffline();
+  }
+
+  // Botões liga/desliga das opções (som, vibração, vinheta, modo feira).
+  _optionsHtml() {
+    const o = this.app.options;
+    const opt = (key, on, off) => `<button class="opt ${o[key] ? 'on' : ''}" data-opt="${key}">${o[key] ? on : off}</button>`;
+    return `<div class="opts">
+      ${opt('feira', '🎪 Modo feira: ligado', '🎪 Modo feira: desligado')}
+      ${opt('sound', '🔊 Som', '🔇 Sem som')}
+      ${opt('vibrate', '📳 Vibração', '📴 Sem vibração')}
+      ${opt('vignette', '🌑 Escurecer bordas ao andar', '⚪ Bordas normais ao andar')}
+    </div>
+    <p class="small">Modo feira: partida de ${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min, ${CONFIG.FEIRA.TARGETS.length} caixas, tutorial curto e volta sozinho para o próximo jogador.</p>`;
+  }
+
+  _wireOptions(redraw) {
+    for (const b of this.el.querySelectorAll('[data-opt]')) {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const k = b.dataset.opt;
+        this.app.setOption(k, !this.app.options[k]);
+        if (k === 'sound' && this.app.options.sound) { this.app.sfx.unlock(); setTimeout(() => this.app.sfx.wire(true), 50); }
+        if (k === 'vibrate' && this.app.options.vibrate) this.app.sfx.vibrate(60);
+        redraw();
+      });
+    }
+  }
+
+  // Mostra se o jogo inteiro (com o modelo das mãos) já está guardado para usar sem internet.
+  async _checkOffline() {
+    const el = this.el.querySelector('#offline');
+    if (!el) return;
+    if (!('caches' in window) || !navigator.serviceWorker || !navigator.serviceWorker.controller) {
+      if (location.hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname)) el.textContent = '💻 Rodando pelo servidor do PC.';
+      else el.textContent = '📶 Na primeira vez precisa de internet. Abra o jogo de novo para ele ficar guardado.';
+      return;
+    }
+    try {
+      const keys = await caches.keys();
+      let ok = false;
+      for (const k of keys) {
+        const c = await caches.open(k);
+        if (await c.match('https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', { ignoreVary: true })) { ok = true; break; }
+      }
+      el.innerHTML = ok ? '<span class="ok">✔ Jogo guardado: funciona sem internet.</span>' : '📶 Guardando o jogo para usar sem internet… (deixe a internet ligada mais um pouco)';
+    } catch (e) { el.textContent = ''; }
   }
 
   async _init(withCamera = true) {

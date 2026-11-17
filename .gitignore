@@ -1,1 +1,5 @@
 servidor/cache/
+# certificado HTTPS: cada PC cria o seu (servidor.py)
+servidor/cert.pem
+servidor/key.pem
+__pycache__/
