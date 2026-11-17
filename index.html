@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1118">
+  <title>Caçador de Sinal — protótipo</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <div id="fade"></div>
+  <div id="vignette"></div>
+
+  <!-- HUD do jogo -->
+  <div id="hud">
+    <div id="hud-top">
+      <span id="timer">0:00</span>
+      <span id="count"></span>
+      <span id="compass" hidden><span id="compass-arrow">▲</span> <span id="compass-text"></span></span>
+    </div>
+    <div id="crosshair"></div>
+  </div>
+  <div id="fps">— FPS</div>
+
+  <!-- Botões alternativos aos gestos (protótipo) -->
+  <div id="controls">
+    <button id="btn-recenter" title="Recentrar a direção">⟲</button>
+    <button id="btn-aim" title="Mirar teleporte (liga/desliga)">🎯 Mirar</button>
+    <button id="btn-teleport" title="Confirmar teleporte">🚀 Ir</button>
+    <button id="btn-touch" title="Tocar/abrir a caixa mais próxima">👆 Tocar</button>
+    <button id="btn-pinch" title="Segure: pinça na mira do centro">🤏 Pinça</button>
+    <button id="btn-fist" title="Segure: pegar na mira do centro">✊ Pegar</button>
+    <button id="btn-stereo" title="Tela dividida para o óculos">👓</button>
+    <button id="btn-full" title="Tela cheia">⛶</button>
+    <button id="btn-debug" title="Painel de depuração">🐞</button>
+    <button id="btn-calib" title="Recalibrar">⚙</button>
+  </div>
+
+  <!-- Depuração -->
+  <div id="debug" hidden>
+    <div id="debug-stats"></div>
+  </div>
+  <div id="preview" class="offscreen">
+    <video id="cam" playsinline muted autoplay></video>
+    <canvas id="cam2d"></canvas>
+  </div>
+
+  <!-- Calibração / tutorial / fim -->
+  <div id="overlay" hidden></div>
+  <div id="toast"></div>
+
+  <noscript>Este protótipo precisa de JavaScript.</noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
