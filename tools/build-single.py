@@ -30,4 +30,6 @@ html = html.replace('<script type="module" src="js/main.js"></script>',
 out = ROOT / 'dist' / 'index.html'
 out.parent.mkdir(exist_ok=True)
 out.write_text(html, encoding='utf-8')
+# service worker junto (faz o link sempre abrir a versão mais nova)
+(out.parent / 'sw.js').write_text((ROOT / 'sw.js').read_text(encoding='utf-8'), encoding='utf-8')
 print(f'{out} ({len(html) // 1024} KB)')

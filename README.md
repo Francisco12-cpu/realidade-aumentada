@@ -19,6 +19,8 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
    **https://francisco12-cpu.github.io/realidade-aumentada/**
 3. Abra o link no **Chrome do Infinix** e aceite as permissões de **câmera** e de **sensores de movimento**.
 
+**Sempre a versão mais nova:** o `sw.js` (service worker) faz o link normal conferir com o GitHub a cada abertura e baixar o que mudou. Não precisa de aba anônima nem de `?v=`. Ele também guarda a última versão, então o jogo abre mesmo sem internet (útil na feira). A versão aparece na tela inicial, ao lado do título.
+
 **Atalho: arquivo único.** O arquivo `dist/index.html` tem o jogo inteiro (CSS e JS embutidos). Para publicar sem mexer em pastas, envie só ele pelo site do GitHub como `index.html` na raiz da `main` (**Add file → Upload files**). Para gerar de novo depois de mudar o código: `python3 tools/build-single.py`.
 
 > Câmera e sensores só funcionam em **HTTPS**, e o GitHub Pages já usa HTTPS.
@@ -110,6 +112,7 @@ Todos os números de ajuste ficam em **`js/config.js`**, por exemplo:
 ```
 index.html          página + import map (Three.js / MediaPipe via CDN)
 css/style.css
+sw.js               service worker: link sempre na versão mais nova + funciona sem internet
 js/config.js        todos os números ajustáveis
 js/main.js          loop, estados do jogo (calibração → tutorial → partida → fim), HUD
 js/scene.js         mapa de blocos e caixas pretas
