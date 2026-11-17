@@ -503,6 +503,8 @@ class App {
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
   if (!/\/(index\.html)?$/.test(location.pathname)) return; // só na página principal
+  // servidor local por IP (certificado próprio): o navegador não aceita service worker
+  if (location.protocol === 'https:' && /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname)) return;
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker não registrado', e));
 }
 
