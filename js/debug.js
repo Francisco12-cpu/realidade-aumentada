@@ -58,7 +58,9 @@ export class DebugUI {
     this._btn('btn-touch', () => { if (!app.interaction.openNearest()) app.toast('Nenhuma caixa perto (chegue a menos de 3 m)'); });
     this._hold('btn-pinch', 'pinch');
     this._hold('btn-fist', 'fist');
-    this._btn('btn-stereo', (el) => { app.stereo = !app.stereo; el.classList.toggle('on', app.stereo); document.body.classList.toggle('stereo', app.stereo); app.resize(); });
+    this._btn('btn-stereo', () => app.setStereo(!app.stereo));
+    this._btn('btn-vradjust', () => app.calibration.showVrAdjust());
+    this._btn('btn-help', () => app.calibration.showHelp());
     this._btn('btn-full', () => {
       try {
         if (document.fullscreenElement) document.exitFullscreen();

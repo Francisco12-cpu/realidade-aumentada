@@ -44,7 +44,7 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
 | Gesto | Mão | Efeito |
 |---|---|---|
 | Mão relaxada | qualquer | nada |
-| **Pistolinha** (indicador + polegar esticados) | locomoção | mira o teleporte (parábola + marcador) |
+| **Pistolinha** (indicador + polegar esticados) | locomoção | mira o teleporte: o alvo é o ponto do chão que a mão "cobre" na sua visão |
 | **Palma aberta** logo depois da pistolinha | locomoção | teleporta |
 | **Ponta do indicador** encostando na caixa | interação | abre a caixa |
 | **Pinça** (polegar + indicador) ou **punho** sobre a bolinha | qualquer | pega o fio, arrasta e solta no anel da mesma cor |
@@ -64,7 +64,9 @@ Por padrão a **esquerda** anda e a **direita** interage. Dá para trocar na cal
 | arrastar o dedo/mouse no painel | — | arrasta os fios |
 | arrastar na tela (só sem sensor) | — | gira a visão |
 | — | WASD | anda devagar (só depuração) |
-| 👓 | — | tela dividida (estéreo) para o óculos |
+| 👓 Óculos | — | modo óculos: tela cheia, deitada, dividida, com correção da lente |
+| 🔧 Ajustar | — | ajusta o óculos (distância e altura das imagens, curvatura, ampliação, campo de visão) |
+| ❓ | — | passo a passo para montar e ajustar o óculos |
 | 🐞 | B | painel de depuração (FPS, mãos, gesto, confiança, prévia da câmera) |
 
 O **FPS** fica sempre no canto superior esquerdo. O painel 🐞 mostra também:
@@ -94,6 +96,7 @@ Todos os números de ajuste ficam em **`js/config.js`**, por exemplo:
 - `INTERACTION.TOUCH_DIST`: distância para o toque contar;
 - `HANDS.VIRTUAL_NEAR` e `HANDS.VIRTUAL_FAR`: até onde a mão virtual alcança;
 - `FILTER.*`, `FILTER_ANCHOR.*`, `FILTER_DEPTH.*` e `HANDS.FOLLOW_RATE`: suavização da mão (forma dos dedos, posição, profundidade e deslize entre detecções);
+- `TELEPORT.AIM_MODE`: `'olhar'` (olho→mão, padrão, mais estável) ou `'dedo'` (para onde o dedo aponta);
 - `TELEPORT.MODE`: `'dash'` (desliza rápido até o alvo) ou `'fade'` (pisca a tela); `TELEPORT.AIM_SMOOTH`: suavização da mira;
 - `GESTURE.STABLE_FRAMES`: quantos quadros seguidos um gesto precisa para valer;
 - `HANDS.DETECT_EVERY_N_FRAMES = 2`: detecta as mãos em quadros alternados, o que dá mais FPS se o celular sofrer.
@@ -119,9 +122,10 @@ js/debug.js         painel de depuração, botões e teclado
 ## Limitações conhecidas
 
 - **Profundidade da mão** é estimada pelo tamanho da mão na imagem. Por isso a interação com os fios usa a **posição na tela** (mais confiável), e só o toque na caixa usa a distância 3D.
-- O MediaPipe roda na thread principal. Num Android intermediário, cada detecção pode custar de 20 a 40 ms. Se o FPS cair muito, use `DETECT_EVERY_N_FRAMES = 2`.
+- O MediaPipe roda numa thread separada (Web Worker), para não travar a tela. Se o worker falhar, ele volta sozinho para a thread principal. A resolução se ajusta pelo FPS (`QUALITY.*`).
 - A posição da cabeça não é rastreada, só a rotação. Para alcançar caixas no chão, olhe para baixo e estique o braço. A mão virtual alcança até cerca de 0,85 m à frente.
-- O modo 👓 estéreo é básico: não tem correção de lente e a interface fica escondida.
+- No modo óculos, a câmera traseira precisa ficar descoberta (tampa da frente do óculos aberta), senão as mãos não são vistas.
+- No modo óculos, os botões ficam escondidos: toque na tela (por fora) para mostrá-los. As informações (tempo, caixas, sinal) aparecem num painel 3D.
 
 ## Fora do escopo agora
 

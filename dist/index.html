@@ -120,17 +120,37 @@ body.sheet-bottom #preview, body.sheet-bottom #debug { top: calc(34px + env(safe
 .chip.done { color: var(--ok); }
 
 #toast {
-  position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 8;
+  position: fixed; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 8;
   background: var(--panel); padding: 8px 16px; border-radius: 12px; opacity: 0; transition: opacity 0.2s; pointer-events: none;
   max-width: 86vw; text-align: center;
 }
 #toast.show { opacity: 1; }
 .fatal { position: fixed; inset: 20px; background: #300; padding: 20px; border-radius: 12px; z-index: 99; }
 
-/* ---------- Modo estéreo (óculos): esconde quase tudo ---------- */
-body.stereo #overlay, body.stereo #debug, body.stereo #preview, body.stereo #hud-top, body.stereo #compass { display: none !important; }
-body.stereo #controls { opacity: 0.25; }
-body.stereo #controls:active { opacity: 1; }
+/* ---------- Modo óculos ---------- */
+#btn-vradjust { display: none; }
+body.stereo #btn-vradjust { display: inline-block; }
+body.stereo #hud, body.stereo #debug, body.stereo #preview, body.stereo #toast { display: none !important; }
+body.stereo #overlay { display: none; }
+body.stereo #fps { opacity: 0.5; }
+/* botões escondidos no óculos; um toque na tela mostra */
+body.stereo #controls { transform: translateY(110%); transition: transform 0.2s; }
+body.stereo.vr-ui #controls, body.stereo.vr-adjust #controls { transform: none; }
+/* tela de ajuste: folha compacta embaixo, sem cobrir o centro das lentes */
+body.stereo.vr-adjust #overlay { display: flex; top: auto; bottom: 0; max-height: 46vh; padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+body.stereo.vr-adjust #overlay .sheet { max-height: calc(46vh - 60px); width: min(720px, 100%); font-size: 13px; padding: 8px 12px; }
+#rotate-hint {
+  display: none; position: fixed; inset: 0; z-index: 9; background: rgba(0,0,0,0.88);
+  align-items: center; justify-content: center; text-align: center; padding: 30px; font-size: 20px;
+}
+@media (orientation: portrait) { body.stereo #rotate-hint { display: flex; } }
+.slider { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; margin: 4px 0; }
+.slider input[type=range] { grid-column: 1 / 3; width: 100%; accent-color: var(--accent); }
+.slider b { font-variant-numeric: tabular-nums; }
+.sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+@media (max-width: 560px) { .sliders { grid-template-columns: 1fr; } }
+.steps { margin: 6px 0; padding-left: 20px; }
+.steps li { margin: 6px 0; }
 </style>
   <script type="importmap">
   {
@@ -165,7 +185,9 @@ body.stereo #controls:active { opacity: 1; }
     <button id="btn-touch" title="Tocar/abrir a caixa mais próxima">👆 Tocar</button>
     <button id="btn-pinch" title="Segure: pinça na mira do centro">🤏 Pinça</button>
     <button id="btn-fist" title="Segure: pegar na mira do centro">✊ Pegar</button>
-    <button id="btn-stereo" title="Tela dividida para o óculos">👓</button>
+    <button id="btn-stereo" title="Modo óculos (tela dividida)">👓 Óculos</button>
+    <button id="btn-vradjust" title="Ajustar o óculos">🔧 Ajustar</button>
+    <button id="btn-help" title="Ajuda">❓</button>
     <button id="btn-full" title="Tela cheia">⛶</button>
     <button id="btn-debug" title="Painel de depuração">🐞</button>
     <button id="btn-calib" title="Recalibrar">⚙</button>
@@ -183,6 +205,7 @@ body.stereo #controls:active { opacity: 1; }
   <!-- Calibração / tutorial / fim -->
   <div id="overlay" hidden></div>
   <div id="toast"></div>
+  <div id="rotate-hint">📱↔ Vire o celular deitado para usar o óculos</div>
 
   <noscript>Este protótipo precisa de JavaScript.</noscript>
   <script type="module">
@@ -198,7 +221,6 @@ const CONFIG = {
   // ---- Jogador / câmera ----
   EYE_HEIGHT: 1.6,          // altura dos olhos (m)
   CAMERA_FOV: 70,           // FOV vertical da câmera 3D (graus)
-  STEREO_IPD: 0.064,        // distância entre olhos no modo estéreo (m)
 
   // ---- Partida ----
   GAME_TIME_S: 360,         // duração da partida (6 min)
@@ -209,19 +231,17 @@ const CONFIG = {
     MIN_DIST: 0.6,          // saltos menores que isso são ignorados
     COOLDOWN_S: 0.9,        // espera mínima entre saltos
     CONFIRM_WINDOW_S: 0.9,  // tempo para abrir a palma depois da pistolinha
-    SPEED: 6.5,             // velocidade inicial da parábola (m/s)
-    UP_BIAS: 0.35,          // inclina a mira para cima (ajuda a alcançar longe)
-    GRAVITY: 9.8,
-    STEP_DT: 0.025,         // passo de simulação da parábola (s)
-    MAX_STEPS: 90,
     PLAYER_RADIUS: 0.3,     // não pousar a menos disso de um bloco
     FADE_MS: 160,
     MODE: 'dash',           // 'dash' = desliza rápido até o alvo · 'fade' = pisca a tela
     DASH_MS_BASE: 120,      // duração do deslize = base + por metro
     DASH_MS_PER_M: 45,      //   (4 m ≈ 0,3 s)
     DASH_BOB: 0.035,        // balanço vertical do "passo" (m)
-    AIM_SMOOTH: 14,         // suavização da mira (maior = responde mais rápido, treme mais)
-    AIM_WRIST_BLEND: 0.4,   // 0 = só o dedo indicador; 1 = só pulso→ponta
+    AIM_MODE: 'olhar',      // 'olhar' = alvo na direção olho→mão (estável) · 'dedo' = para onde o dedo aponta
+    AIM_SMOOTH: 12,         // suavização da direção da mira (maior = responde mais rápido, treme mais)
+    TARGET_SMOOTH: 10,      // suavização do marcador no chão
+    AIM_GRACE_MS: 350,      // a mira continua esse tempo se a pistolinha "piscar"
+    AIM_WRIST_BLEND: 0.4,   // (modo 'dedo') 0 = só o dedo indicador; 1 = só pulso→ponta
   },
 
   // ---- Mãos (MediaPipe) ----
@@ -229,7 +249,10 @@ const CONFIG = {
     NUM_HANDS: 2,
     VIDEO_W: 640,
     VIDEO_H: 480,
-    DETECT_EVERY_N_FRAMES: 1,   // 2 = detecta em quadros alternados (mais FPS)
+    USE_WORKER: true,           // detecção numa thread separada (muito mais FPS)
+    WORKER_MAX_SIDE: 480,       // reduz a imagem enviada ao worker (px do lado maior)
+    MAX_DETECT_HZ: 30,          // detecções por segundo, no máximo
+    DETECT_EVERY_N_FRAMES: 1,   // (modo normal) 2 = detecta em quadros alternados
     MIN_DETECTION_CONF: 0.5,
     MIN_PRESENCE_CONF: 0.5,
     MIN_TRACKING_CONF: 0.5,
@@ -297,6 +320,15 @@ const CONFIG = {
   DETECTOR: {
     NEAR: 1.5,   // verde quando mais perto que isso
     FAR: 15,     // vermelho a partir disso
+  },
+
+  // ---- Qualidade / FPS ----
+  QUALITY: {
+    PIXEL_RATIO: 1.0,       // resolução máxima (1 = um pixel por pixel CSS; celular fica bem mais leve)
+    MIN_PIXEL_RATIO: 0.55,  // nunca abaixo disso
+    AUTO: true,             // baixa a resolução se o FPS cair, sobe se sobrar
+    LOW_FPS: 40,
+    HIGH_FPS: 56,
   },
 
   STORAGE_KEY: 'cacador-sinal-calib-v1',
@@ -682,6 +714,38 @@ class OrientationController {
 const MP_VERSION = '0.10.14';
 const WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const BUNDLE_CJS = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.cjs`;
+
+// Worker (thread separada): a detecção das mãos não trava mais o desenho da tela.
+// Criado a partir de um Blob para funcionar também na versão em arquivo único.
+const WORKER_SRC = `
+let lm = null;
+function opts(m, delegate) {
+  return { baseOptions: { modelAssetPath: m.modelUrl, delegate }, runningMode: 'VIDEO', numHands: m.numHands,
+    minHandDetectionConfidence: m.c1, minHandPresenceConfidence: m.c2, minTrackingConfidence: m.c3 };
+}
+self.onmessage = async (e) => {
+  const m = e.data;
+  if (m.type === 'init') {
+    try {
+      self.exports = {};
+      importScripts(m.bundleUrl);
+      const v = self.exports;
+      const fs = await v.FilesetResolver.forVisionTasks(m.wasmUrl);
+      let delegate = 'GPU';
+      try { lm = await v.HandLandmarker.createFromOptions(fs, opts(m, 'GPU')); }
+      catch (err) { delegate = 'CPU'; lm = await v.HandLandmarker.createFromOptions(fs, opts(m, 'CPU')); }
+      postMessage({ type: 'ready', delegate });
+    } catch (err) { postMessage({ type: 'error', message: String((err && err.message) || err) }); }
+  } else if (m.type === 'frame') {
+    let res = null;
+    const t0 = performance.now();
+    try { res = lm.detectForVideo(m.bitmap, m.ts); } catch (err) { /* quadro perdido */ }
+    try { m.bitmap.close(); } catch (err) { /* */ }
+    postMessage({ type: 'result', ms: performance.now() - t0, res: res && {
+      landmarks: res.landmarks, worldLandmarks: res.worldLandmarks, handedness: res.handedness || res.handednesses } });
+  }
+};`;
 
 const BONES = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -761,6 +825,44 @@ class HandTracker {
   }
 
   async loadModel(onStatus = () => {}) {
+    if (H.USE_WORKER && typeof Worker !== 'undefined' && typeof createImageBitmap === 'function') {
+      try { await this._initWorker(onStatus); return; } catch (e) {
+        console.warn('Worker falhou, usando a thread principal', e);
+        onStatus('Modo rápido indisponível, usando o modo normal…');
+        if (this.worker) { this.worker.terminate(); this.worker = null; }
+      }
+    }
+    await this._initMainThread(onStatus);
+  }
+
+  _initWorker(onStatus) {
+    onStatus('Carregando modelo das mãos (modo rápido)…');
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' }));
+      const w = new Worker(url);
+      this.worker = w;
+      const timer = setTimeout(() => reject(new Error('tempo esgotado')), 45000);
+      w.onerror = (e) => { clearTimeout(timer); reject(new Error(e.message || 'erro no worker')); };
+      w.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'ready') {
+          clearTimeout(timer);
+          this.delegate = `${m.delegate} worker`;
+          this.landmarker = 'worker';
+          w.onmessage = (ev) => this._onWorkerMessage(ev.data);
+          resolve();
+        } else if (m.type === 'error') { clearTimeout(timer); reject(new Error(m.message)); }
+      };
+      w.postMessage({ type: 'init', bundleUrl: BUNDLE_CJS, wasmUrl: WASM_URL, modelUrl: MODEL_URL, numHands: H.NUM_HANDS,
+        c1: H.MIN_DETECTION_CONF, c2: H.MIN_PRESENCE_CONF, c3: H.MIN_TRACKING_CONF });
+    });
+  }
+
+  _onWorkerMessage(m) {
+    if (m.type === 'result') { this._busy = false; if (m.res) this._workerResult = m; }
+  }
+
+  async _initMainThread(onStatus) {
     onStatus('Baixando MediaPipe…');
     const vision = await import('@mediapipe/tasks-vision');
     const fileset = await vision.FilesetResolver.forVisionTasks(WASM_URL);
@@ -791,8 +893,34 @@ class HandTracker {
     let fresh = this._pendingFresh || false;
     this._pendingFresh = false;
     const v = this.video;
-    if (this.landmarker && v.readyState >= 2 && v.currentTime !== this.lastVideoTime &&
-        this.frame % H.DETECT_EVERY_N_FRAMES === 0) {
+    const minGap = 1000 / H.MAX_DETECT_HZ;
+    if (this.worker && this.landmarker) {
+      // ---- modo rápido: manda o quadro para o worker e segue desenhando ----
+      if (this._busy && nowMs - this._lastSend > 4000) this._busy = false; // quadro perdido
+      if (!this._busy && v.readyState >= 2 && v.currentTime !== this.lastVideoTime && nowMs - (this._lastSend || 0) >= minGap) {
+        this._busy = true;
+        this._lastSend = nowMs;
+        this.lastVideoTime = v.currentTime;
+        const ts = Math.max(nowMs, this.lastTs + 1);
+        this.lastTs = ts;
+        const vw = v.videoWidth, vh = v.videoHeight;
+        const sc = Math.min(1, H.WORKER_MAX_SIDE / Math.max(vw, vh));
+        createImageBitmap(v, { resizeWidth: Math.round(vw * sc), resizeHeight: Math.round(vh * sc), resizeQuality: 'low' })
+          .then((bmp) => this.worker.postMessage({ type: 'frame', bitmap: bmp, ts }, [bmp]))
+          .catch(() => { this._busy = false; });
+      }
+      if (this._workerResult) {
+        const m = this._workerResult;
+        this._workerResult = null;
+        this.detectMs = this.detectMs * 0.85 + m.ms * 0.15;
+        this._process(m.res, nowMs, camera);
+        this.lastResult = m.res;
+        fresh = true;
+        this._countDetection(nowMs);
+      }
+    } else if (this.landmarker && v.readyState >= 2 && v.currentTime !== this.lastVideoTime &&
+        this.frame % H.DETECT_EVERY_N_FRAMES === 0 && nowMs - (this._lastSend || 0) >= minGap) {
+      this._lastSend = nowMs;
       this.lastVideoTime = v.currentTime;
       const ts = Math.max(nowMs, this.lastTs + 1);
       this.lastTs = ts;
@@ -802,12 +930,7 @@ class HandTracker {
       const ms = performance.now() - t0;
       this.detectMs = this.detectMs * 0.85 + ms * 0.15;
       if (res) { this._process(res, nowMs, camera); this.lastResult = res; fresh = true; }
-      this._detCount++;
-      if (nowMs - this._detT0 > 1000) {
-        this.detectFps = (this._detCount * 1000) / (nowMs - this._detT0);
-        this._detCount = 0;
-        this._detT0 = nowMs;
-      }
+      this._countDetection(nowMs);
     }
 
     // A detecção chega a 15–30/s e a tela roda a ~60: os pontos exibidos
@@ -825,6 +948,15 @@ class HandTracker {
       h.snap = false;
     }
     return fresh;
+  }
+
+  _countDetection(nowMs) {
+    this._detCount++;
+    if (nowMs - this._detT0 > 1000) {
+      this.detectFps = (this._detCount * 1000) / (nowMs - this._detT0);
+      this._detCount = 0;
+      this._detT0 = nowMs;
+    }
   }
 
   // Injeta um resultado "falso" (usado pelos testes automáticos).
@@ -1189,15 +1321,20 @@ function thresholdsFromPoses(poses, base) {
 }
 
 // ===== js/teleport.js =====
-// Locomoção por teleporte: pistolinha = mirar (parábola + marcador),
-// palma aberta logo depois = ir. Com limites de distância e espera
+// Locomoção por teleporte: pistolinha = mirar (curva + marcador),
+// palma aberta logo depois = ir.
+//
+// Mira (modo 'olhar', padrão): o alvo é o ponto do chão na direção
+// OLHO -> MÃO. Basta "cobrir" com a mão o lugar para onde quer ir. Isso usa
+// a posição da mão na tela (estável), e não a direção do dedo (que treme). Com limites de distância e espera
 // entre saltos, para parecer "andar" e não "voar".
 //
 // Movimento: no modo 'dash' o jogador desliza rápido até o alvo (com as
 // bordas da tela escurecendo para não enjoar); no modo 'fade' a tela pisca.
 
 const T = CONFIG.TELEPORT;
-const N_DOTS = 36;
+const N_DOTS = 30;
+const ARC_N = 32;
 
 const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
@@ -1209,7 +1346,7 @@ class Teleport {
     this.hooks = hooks;
 
     // pontos da parábola (simulação) — desenhados como bolinhas que "correm"
-    this.arc = Array.from({ length: T.MAX_STEPS + 2 }, () => new THREE.Vector3());
+    this.arc = Array.from({ length: ARC_N }, () => new THREE.Vector3());
     this.arcLen = [];
     this.arcN = 0;
     this.dotMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
@@ -1256,8 +1393,10 @@ class Teleport {
     this._lastT = performance.now();
     this._o = new THREE.Vector3();
     this._d = new THREE.Vector3();
-    this._so = new THREE.Vector3(); // origem suavizada
-    this._sd = new THREE.Vector3(); // direção suavizada
+    this._sd = new THREE.Vector3(); // direção da mira suavizada
+    this._st = new THREE.Vector3(); // alvo suavizado
+    this._vis = new THREE.Vector3(); // de onde a curva sai (ponta do dedo)
+    this.lastGunTime = -1e9;
     this._v = new THREE.Vector3();
     this._p = new THREE.Vector3();
     this._n = new THREE.Vector3();
@@ -1271,49 +1410,46 @@ class Teleport {
   cooldownLeft(nowMs) { return Math.max(0, T.COOLDOWN_S - (nowMs - this.lastJump) / 1000); }
   get moving() { return !!this.dash; }
 
-  // Simula a parábola a partir de origin/dir (mundo). Preenche o arco e o alvo.
-  compute(origin, dir, nowMs) {
-    const d = this._v.copy(dir).normalize();
-    d.y += T.UP_BIAS;
-    d.normalize();
-    const vel = d.multiplyScalar(T.SPEED);
-    const p = this._p.copy(origin);
-    let n = 0;
-    const push = (q) => { this.arc[n++].copy(q); };
-    push(p);
-    let landed = false;
-    this.valid = false;
-    this.reason = 'sem chão';
-    for (let i = 0; i < T.MAX_STEPS; i++) {
-      const next = this._n.copy(p).addScaledVector(vel, T.STEP_DT);
-      vel.y -= T.GRAVITY * T.STEP_DT;
-      const hit = this.world.segmentHit(p, next);
-      if (hit && (next.y > 0 || hit.point.y > 0.001)) {
-        push(hit.point);
-        this.target.copy(hit.point);
-        this.reason = 'bloco no caminho';
-        landed = true;
-        break;
-      }
-      if (next.y <= 0) {
-        const k = p.y / Math.max(1e-6, p.y - next.y);
-        next.lerpVectors(p, next, k);
-        next.y = 0;
-        push(next);
-        this.target.copy(next);
-        this._validateGround(nowMs);
-        landed = true;
-        break;
-      }
-      push(next);
-      p.copy(next);
+  // Alvo = onde o raio (origin, dir) encontra o chão, limitado ao alcance.
+  // Depois desenha uma curva da mão até o alvo.
+  aimFromRay(origin, dir, visOrigin, nowMs, smoothK) {
+    const pos = this.rig.position;
+    let hx = dir.x, hz = dir.z;
+    const hl = Math.hypot(hx, hz);
+    if (hl < 1e-4) { // olhando reto para baixo: usa a direção da cabeça
+      this.camera.getWorldDirection(this._v);
+      hx = this._v.x; hz = this._v.z;
     }
-    if (!landed) this.target.copy(p);
-    this.arcN = n;
-    // comprimento acumulado (para espaçar as bolinhas por igual)
-    this.arcLen.length = n;
+    const hn = Math.hypot(hx, hz) || 1;
+    hx /= hn; hz /= hn;
+    // distância horizontal até o chão (raio para cima ou reto = alcance máximo)
+    let dist = dir.y < -1e-3 ? (origin.y * hl) / -dir.y : Infinity;
+    dist = Math.min(dist, T.MAX_DIST);
+    this._p.set(pos.x + hx * dist, 0, pos.z + hz * dist);
+    if (smoothK >= 1) this._st.copy(this._p); else this._st.lerp(this._p, smoothK);
+    this.target.copy(this._st);
+    this.target.y = 0;
+    this.valid = false;
+    this._validateGround(nowMs);
+    this._buildArc(visOrigin, this.target);
+  }
+
+  _buildArc(a, b) {
+    const d = Math.hypot(b.x - a.x, b.z - a.z);
+    // ponto de controle acima do meio do caminho
+    this._n.set((a.x + b.x) / 2, Math.max(a.y, b.y) + 0.15 + 0.12 * d, (a.z + b.z) / 2);
+    for (let i = 0; i < ARC_N; i++) {
+      const t = i / (ARC_N - 1), u = 1 - t;
+      this.arc[i].set(
+        u * u * a.x + 2 * u * t * this._n.x + t * t * b.x,
+        u * u * a.y + 2 * u * t * this._n.y + t * t * b.y,
+        u * u * a.z + 2 * u * t * this._n.z + t * t * b.z,
+      );
+    }
+    this.arcN = ARC_N;
+    this.arcLen.length = ARC_N;
     this.arcLen[0] = 0;
-    for (let i = 1; i < n; i++) this.arcLen[i] = this.arcLen[i - 1] + this.arc[i].distanceTo(this.arc[i - 1]);
+    for (let i = 1; i < ARC_N; i++) this.arcLen[i] = this.arcLen[i - 1] + this.arc[i].distanceTo(this.arc[i - 1]);
   }
 
   _validateGround(nowMs) {
@@ -1324,6 +1460,15 @@ class Teleport {
       this.target.x = pos.x + (dx / dist) * T.MAX_DIST;
       this.target.z = pos.z + (dz / dist) * T.MAX_DIST;
       dist = T.MAX_DIST;
+    }
+    // alvo dentro de um bloco: recua pelo caminho até o primeiro ponto livre
+    if (!this.world.isFree(this.target.x, this.target.z, T.PLAYER_RADIUS) && dist > 0) {
+      const ux = (this.target.x - pos.x) / dist, uz = (this.target.z - pos.z) / dist;
+      let d = dist;
+      while (d > T.MIN_DIST && !this.world.isFree(pos.x + ux * d, pos.z + uz * d, T.PLAYER_RADIUS)) d -= 0.1;
+      this.target.x = pos.x + ux * d;
+      this.target.z = pos.z + uz * d;
+      dist = d;
     }
     if (dist < T.MIN_DIST) { this.reason = 'perto demais'; return; }
     if (!this.world.isFree(this.target.x, this.target.z, T.PLAYER_RADIUS)) { this.reason = 'dentro de bloco'; return; }
@@ -1345,32 +1490,44 @@ class Teleport {
     this._lastT = nowMs;
     this._animateDash(nowMs);
 
+    // pistolinha liga a mira; ela continua por um instante se o gesto
+    // "piscar" (ex.: virar 'normal' por 1–2 quadros), evitando que suma
+    const g = locoHand && locoHand.visible ? locoHand.gesture : 'none';
+    if (g === 'gun') this.lastGunTime = nowMs;
+    const handAim = locoHand && locoHand.visible && g !== 'open' && nowMs - this.lastGunTime < T.AIM_GRACE_MS;
+
     let aiming = false;
     if (this.dash) {
       aiming = false;
     } else if (manualAim) {
       this.camera.getWorldPosition(this._o);
       this.camera.getWorldDirection(this._d);
-      this._o.y -= 0.35;
-      this._o.addScaledVector(this._d, 0.2);
+      this._vis.copy(this._o).addScaledVector(this._d, 0.3);
+      this._vis.y -= 0.3;
       aiming = true;
-    } else if (locoHand && locoHand.visible && locoHand.gesture === 'gun') {
+    } else if (handAim) {
       const P = locoHand.worldPts;
-      this._o.copy(P[8]);
-      // direção = dedo indicador (base→ponta) misturado com pulso→ponta: treme menos
-      this._a.subVectors(P[8], P[5]).normalize();
-      this._b.subVectors(P[8], P[0]).normalize();
-      this._d.copy(this._a).multiplyScalar(1 - T.AIM_WRIST_BLEND).addScaledVector(this._b, T.AIM_WRIST_BLEND);
+      this._vis.copy(P[8]);
+      if (T.AIM_MODE === 'dedo') {
+        this._o.copy(P[8]);
+        this._a.subVectors(P[8], P[5]).normalize();
+        this._b.subVectors(P[8], P[0]).normalize();
+        this._d.copy(this._a).multiplyScalar(1 - T.AIM_WRIST_BLEND).addScaledVector(this._b, T.AIM_WRIST_BLEND);
+      } else {
+        // olho -> nós dos dedos (pontos mais estáveis da mão na pistolinha)
+        this.camera.getWorldPosition(this._o);
+        this._a.copy(P[5]).add(P[9]).multiplyScalar(0.5);
+        this._d.subVectors(this._a, this._o);
+      }
       aiming = this._d.lengthSq() > 1e-8;
     }
 
     if (aiming) {
       this._d.normalize();
-      if (!this._wasAiming) { this._so.copy(this._o); this._sd.copy(this._d); }
-      const k = 1 - Math.exp(-dt * T.AIM_SMOOTH);
-      this._so.lerp(this._o, k);
-      this._sd.lerp(this._d, k).normalize();
-      this.compute(this._so, this._sd, nowMs);
+      const first = !this._wasAiming;
+      if (first) this._sd.copy(this._d);
+      this._sd.lerp(this._d, 1 - Math.exp(-dt * T.AIM_SMOOTH)).normalize();
+      this.aimFromRay(this._o, this._sd, this._vis, nowMs, first ? 1 : 1 - Math.exp(-dt * T.TARGET_SMOOTH));
       if (this.valid) { this.lastAimTime = nowMs; this.lastValid.copy(this.target); }
     }
     this._wasAiming = aiming;
@@ -1403,7 +1560,6 @@ class Teleport {
 
     // Confirmação por gesto: palma aberta logo depois da pistolinha
     if (locoHand) {
-      const g = locoHand.gesture;
       if (g === 'open' && this._lastGesture !== 'open' && recent) this.tryJump(nowMs);
       this._lastGesture = g;
     }
@@ -1816,6 +1972,225 @@ class Interaction {
   }
 }
 
+// ===== js/vr.js =====
+// Modo óculos (VR de celular): tela dividida com correção da curvatura da
+// lente, ajustes salvos no aparelho e um painel 3D com as informações do
+// jogo (no óculos não dá para ver o HUD da tela).
+
+const VR_KEY = 'cacador-sinal-vr-v1';
+
+function defaultVrSettings() {
+  return {
+    fov: 90,          // campo de visão vertical de cada olho (graus)
+    ipd: 0.064,       // distância entre os olhos no mundo 3D (m)
+    lensOffset: 0,    // afasta (+) ou aproxima (−) o centro das imagens (fração da metade da tela)
+    lensY: 0,         // sobe (+) ou desce (−) as imagens
+    k1: 0.28,         // curvatura da lente
+    k2: 0.12,
+    zoom: 0.82,       // tamanho da imagem dentro da lente
+    distortion: true, // corrigir curvatura
+  };
+}
+
+function loadVrSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(VR_KEY) || 'null');
+    return { ...defaultVrSettings(), ...(s || {}) };
+  } catch (e) { return defaultVrSettings(); }
+}
+
+function saveVrSettings(s) {
+  try { localStorage.setItem(VR_KEY, JSON.stringify(s)); } catch (e) { /* ignore */ }
+}
+
+// Pré-distorção "barril" para compensar a lente (que distorce em almofada).
+const DISTORT_FRAG = `
+uniform sampler2D tex;
+uniform vec2 center;
+uniform float k1, k2, zoom, aspect, enabled;
+varying vec2 vUv;
+void main() {
+  vec2 p = vUv - center;
+  p.x *= aspect;
+  float r2 = dot(p, p);
+  float f = enabled > 0.5 ? (1.0 + k1 * r2 + k2 * r2 * r2) : 1.0;
+  vec2 q = p * f * zoom;
+  q.x /= aspect;
+  vec2 uv = q + vec2(0.5);
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  gl_FragColor = texture2D(tex, uv);
+}`;
+
+class VRView {
+  constructor(renderer, settings) {
+    this.renderer = renderer;
+    this.settings = settings;
+    this.stereo = new THREE.StereoCamera();
+    this.rt = new THREE.WebGLRenderTarget(16, 16, { depthBuffer: true });
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: {
+        tex: { value: this.rt.texture }, center: { value: new THREE.Vector2(0.5, 0.5) },
+        k1: { value: 0 }, k2: { value: 0 }, zoom: { value: 1 }, aspect: { value: 1 }, enabled: { value: 1 },
+      },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: DISTORT_FRAG,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.quadScene = new THREE.Scene();
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat);
+    quad.frustumCulled = false;
+    this.quadScene.add(quad);
+    this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this._size = new THREE.Vector2();
+  }
+
+  // Ajusta a câmera para um olho (metade da tela).
+  applyCamera(camera, w, h) {
+    camera.fov = this.settings.fov;
+    camera.aspect = w / 2 / h;
+    camera.updateProjectionMatrix();
+  }
+
+  render(scene, camera) {
+    const r = this.renderer;
+    const s = this.settings;
+    r.getDrawingBufferSize(this._size);
+    const W = this._size.x, Hh = this._size.y;
+    const ew = Math.floor(W / 2);
+    if (this.rt.width !== ew || this.rt.height !== Hh) this.rt.setSize(ew, Hh);
+
+    this.stereo.eyeSep = s.ipd;
+    camera.updateMatrixWorld();
+    this.stereo.update(camera);
+    const u = this.mat.uniforms;
+    u.k1.value = s.k1; u.k2.value = s.k2; u.zoom.value = s.zoom;
+    u.aspect.value = ew / Hh; u.enabled.value = s.distortion ? 1 : 0;
+
+    const pr = r.getPixelRatio();
+    const eyes = [[this.stereo.cameraL, 0, +1], [this.stereo.cameraR, ew, -1]];
+    for (const [cam, x, dir] of eyes) {
+      r.setRenderTarget(this.rt);
+      r.setScissorTest(false);
+      r.clear();
+      r.render(scene, cam);
+      r.setRenderTarget(null);
+      // centro da lente: dir=+1 (olho esquerdo) desloca para a direita com lensOffset>0
+      u.center.value.set(0.5 - dir * s.lensOffset * 0.5, 0.5 - s.lensY * 0.5);
+      r.setScissorTest(true);
+      r.setScissor(x / pr, 0, ew / pr, Hh / pr);
+      r.setViewport(x / pr, 0, ew / pr, Hh / pr);
+      r.render(this.quadScene, this.quadCam);
+    }
+    r.setScissorTest(false);
+  }
+
+  dispose() { this.rt.dispose(); }
+}
+
+// ---------------------------------------------------------------------
+// Painel 3D (aparece só no modo óculos): tempo, caixas, sinal e mensagens.
+// ---------------------------------------------------------------------
+class HUD3D {
+  constructor(camera) {
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = 512;
+    this.canvas.height = 160;
+    this.ctx = this.canvas.getContext('2d');
+    this.tex = new THREE.CanvasTexture(this.canvas);
+    this.tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthTest: false, depthWrite: false });
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.1375), mat);
+    this.mesh.position.set(0, 0.13, -0.6);
+    this.mesh.renderOrder = 50;
+    this.mesh.visible = false;
+    camera.add(this.mesh);
+    this._key = '';
+    this.message = '';
+    this.messageUntil = 0;
+  }
+
+  show(on) { this.mesh.visible = on; }
+
+  toast(msg) { this.message = msg; this.messageUntil = performance.now() + 2500; }
+
+  // info: { timer, count, dist, arrowAngle, up }
+  update(info) {
+    if (!this.mesh.visible) return;
+    const now = performance.now();
+    const msg = now < this.messageUntil ? this.message : '';
+    const key = `${info.timer}|${info.count}|${info.dist}|${Math.round((info.arrowAngle || 0) * 20)}|${info.up}|${msg}`;
+    if (key === this._key) return;
+    this._key = key;
+    const c = this.ctx, W = this.canvas.width, H = this.canvas.height;
+    c.clearRect(0, 0, W, H);
+    c.fillStyle = 'rgba(8,14,20,0.72)';
+    roundRect(c, 4, 4, W - 8, 74, 30);
+    c.fill();
+    c.fillStyle = '#ffffff';
+    c.font = 'bold 40px system-ui, sans-serif';
+    c.textBaseline = 'middle';
+    c.textAlign = 'left';
+    c.fillText(info.timer || '', 26, 42);
+    c.textAlign = 'center';
+    c.fillText(info.count || '', W * 0.47, 42);
+    if (info.dist) {
+      c.save();
+      c.translate(W - 160, 42);
+      c.rotate(info.arrowAngle || 0);
+      c.fillStyle = '#00e5ff';
+      c.beginPath(); c.moveTo(0, -20); c.lineTo(14, 14); c.lineTo(0, 6); c.lineTo(-14, 14); c.closePath(); c.fill();
+      c.restore();
+      c.textAlign = 'left';
+      c.fillStyle = '#ffffff';
+      c.font = 'bold 32px system-ui, sans-serif';
+      c.fillText(info.dist + (info.up ? ' ↑' : ''), W - 128, 42);
+    }
+    if (msg) {
+      c.font = '28px system-ui, sans-serif';
+      c.fillStyle = 'rgba(8,14,20,0.72)';
+      const tw = Math.min(W - 8, c.measureText(msg).width + 40);
+      roundRect(c, (W - tw) / 2, 90, tw, 56, 24);
+      c.fill();
+      c.fillStyle = '#ffffff';
+      c.textAlign = 'center';
+      c.fillText(msg, W / 2, 118, W - 30);
+    }
+    this.tex.needsUpdate = true;
+  }
+}
+
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+// Alvo de teste (cruz + quadriculado) para ajustar o óculos.
+function makeTestPattern() {
+  const g = new THREE.Group();
+  const mat = new THREE.LineBasicMaterial({ color: 0x00e5ff, depthTest: false });
+  const pts = [];
+  const N = 8, S = 0.15;
+  for (let i = -N; i <= N; i++) {
+    pts.push(new THREE.Vector3(i * S, -N * S, 0), new THREE.Vector3(i * S, N * S, 0));
+    pts.push(new THREE.Vector3(-N * S, i * S, 0), new THREE.Vector3(N * S, i * S, 0));
+  }
+  const grid = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), mat);
+  grid.renderOrder = 60;
+  const cross = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.08, 32), new THREE.MeshBasicMaterial({ color: 0xff3355, depthTest: false }));
+  cross.renderOrder = 61;
+  g.add(grid, cross);
+  g.position.set(0, 0.45, -2); // um pouco acima do centro: o painel de ajuste fica embaixo
+  g.visible = false;
+  return g;
+}
+
+
 // ===== js/calibration.js =====
 // Calibração + tutorial (tela inicial).
 // Protótipo de teste: os textos são longos de propósito.
@@ -1967,6 +2342,7 @@ class CalibrationFlow {
       btns.push({ label: 'Começar', cls: 'primary', onClick: () => this._startFresh() });
     }
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
+    btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show('Caçador de Sinal — teste', html, btns);
   }
 
@@ -2167,6 +2543,85 @@ class CalibrationFlow {
   }
 
   // ------------------------------------------------------------------
+  // Ajuda do óculos
+  // ------------------------------------------------------------------
+  showHelp(back) {
+    const app = this.app;
+    if (app.stereo) app.setStereo(false);
+    const prevState = app.state;
+    const close = back || (() => { if (prevState === 'tutorial') app._refreshTutorial(); else this.hide(); });
+    this._show('❓ Como usar no óculos', `
+      <ol class="steps">
+        <li><b>Abra a tampa da frente do óculos</b> (ou tire). A câmera traseira precisa <b>enxergar suas mãos</b>. Com a tampa fechada as mãos não funcionam, aí só os botões.</li>
+        <li>Faça a <b>calibração e o tutorial fora do óculos</b> primeiro, segurando o celular na frente dos olhos.</li>
+        <li>Toque em <b>👓 Óculos</b>. A tela fica cheia, deitada e dividida em duas imagens.</li>
+        <li>Encaixe o celular com a <b>linha do meio</b> (entre as duas imagens) bem no <b>centro do óculos</b>, na altura do nariz.</li>
+        <li>Mexa nos <b>dois controles de cima do óculos</b> (os da sua foto):
+          um aproxima/afasta as lentes — mexa até as <b>duas imagens virarem uma só</b>;
+          o outro muda o foco — mexa até ficar <b>nítido</b>.</li>
+        <li>Se ainda aparecer dobrado, torto ou com bordas curvas, use <b>🔧 Ajustar</b>: aparece uma grade com um anel vermelho para você acertar no jogo.</li>
+        <li>Já no óculos, olhe para frente e toque na tela por fora → <b>⟲</b> (recentrar).</li>
+      </ol>
+      <p class="small">Dicas: brilho da tela no máximo. Se o celular esquentar e o FPS cair, o jogo baixa a resolução sozinho. Para sair do modo óculos, toque na tela e use <b>👓 Óculos</b> de novo.</p>`, [
+      { label: '👓 Entrar no modo óculos', cls: 'primary', onClick: () => { close(); app.setStereo(true); } },
+      { label: '🔧 Ajustar óculos', onClick: () => this.showVrAdjust() },
+      { label: 'Fechar', onClick: close },
+    ]);
+  }
+
+  // ------------------------------------------------------------------
+  // Ajuste do óculos (lentes, curvatura, campo de visão)
+  // ------------------------------------------------------------------
+  showVrAdjust() {
+    const app = this.app, v = app.vrSettings;
+    if (!app.stereo) app.setStereo(true);
+    document.body.classList.add('vr-adjust');
+    app.testPattern.visible = true;
+    const prevState = app.state;
+    const sliders = [
+      { key: 'lensOffset', name: 'Distância entre as imagens', min: -0.3, max: 0.3, step: 0.005, fmt: (x) => `${(x * 100).toFixed(0)}` },
+      { key: 'lensY', name: 'Altura das imagens', min: -0.3, max: 0.3, step: 0.005, fmt: (x) => `${(x * 100).toFixed(0)}` },
+      { key: 'k1', name: 'Curvatura da lente', min: 0, max: 0.8, step: 0.01, fmt: (x) => x.toFixed(2) },
+      { key: 'zoom', name: 'Ampliação', min: 0.55, max: 1.2, step: 0.01, invert: true, fmt: (x) => `${(1 / x).toFixed(2)}×` },
+      { key: 'fov', name: 'Campo de visão', min: 60, max: 115, step: 1, fmt: (x) => `${x}°` },
+      { key: 'ipd', name: 'Profundidade 3D (olhos)', min: 0.03, max: 0.09, step: 0.001, fmt: (x) => `${(x * 1000).toFixed(0)} mm` },
+    ];
+    const html = `
+      <p class="small">Olhe pelo óculos: acerte até o <b>anel vermelho</b> virar um só e as <b>linhas da grade</b> ficarem retas. Ajuste um pouco, tire o celular, olhe de novo.</p>
+      <div class="sliders">${sliders.map((sl) => {
+        const val = sl.invert ? sl.max + sl.min - v[sl.key] : v[sl.key];
+        return `<label class="slider"><span>${sl.name}</span><b id="sv-${sl.key}">${sl.fmt(v[sl.key])}</b>
+          <input type="range" data-key="${sl.key}" min="${sl.min}" max="${sl.max}" step="${sl.step}" value="${val}"></label>`;
+      }).join('')}</div>
+      <label class="small"><input type="checkbox" id="sv-distortion" ${v.distortion ? 'checked' : ''}> Corrigir curvatura da lente</label>`;
+    const done = () => {
+      saveVrSettings(v);
+      document.body.classList.remove('vr-adjust');
+      app.testPattern.visible = false;
+      if (prevState === 'tutorial') app._refreshTutorial(); else this.hide();
+      app.toast('Ajustes do óculos salvos');
+    };
+    this._show('🔧 Ajustar óculos', html, [
+      { label: '✔ Pronto', cls: 'primary', onClick: done },
+      { label: 'Testar sem o painel', onClick: () => { saveVrSettings(v); document.body.classList.remove('vr-adjust'); app.showVrUi(6000); } },
+      { label: 'Padrão', onClick: () => { Object.assign(v, defaultVrSettings()); saveVrSettings(v); this.showVrAdjust(); } },
+    ]);
+    this.el.querySelectorAll('input[type=range]').forEach((inp) => {
+      inp.addEventListener('input', () => {
+        const sl = sliders.find((x) => x.key === inp.dataset.key);
+        let x = parseFloat(inp.value);
+        if (sl.invert) x = sl.max + sl.min - x;
+        v[sl.key] = x;
+        if (sl.key === 'k1') v.k2 = x * 0.45;
+        this.el.querySelector(`#sv-${sl.key}`).textContent = sl.fmt(x);
+        if (sl.key === 'fov') app.resize();
+        saveVrSettings(v);
+      });
+    });
+    this.el.querySelector('#sv-distortion').addEventListener('change', (e) => { v.distortion = e.target.checked; saveVrSettings(v); });
+  }
+
+  // ------------------------------------------------------------------
   // Tutorial
   // ------------------------------------------------------------------
   showTutorial(progress) {
@@ -2246,7 +2701,9 @@ class DebugUI {
     this._btn('btn-touch', () => { if (!app.interaction.openNearest()) app.toast('Nenhuma caixa perto (chegue a menos de 3 m)'); });
     this._hold('btn-pinch', 'pinch');
     this._hold('btn-fist', 'fist');
-    this._btn('btn-stereo', (el) => { app.stereo = !app.stereo; el.classList.toggle('on', app.stereo); document.body.classList.toggle('stereo', app.stereo); app.resize(); });
+    this._btn('btn-stereo', () => app.setStereo(!app.stereo));
+    this._btn('btn-vradjust', () => app.calibration.showVrAdjust());
+    this._btn('btn-help', () => app.calibration.showHelp());
     this._btn('btn-full', () => {
       try {
         if (document.fullscreenElement) document.exitFullscreen();
@@ -2362,15 +2819,21 @@ class App {
     const canvas = document.getElementById('gl');
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    // resolução de render: começa em QUALITY.PIXEL_RATIO e se ajusta sozinha pelo FPS
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, CONFIG.QUALITY.PIXEL_RATIO);
+    this.renderer.setPixelRatio(this.pixelRatio);
+    this._q = { t0: performance.now(), frames: 0, low: 0, high: 0 };
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 80);
     this.camera.position.y = CONFIG.EYE_HEIGHT;
     this.rig = new THREE.Group();
     this.rig.add(this.camera);
     this.scene.add(this.rig);
-    this.stereoCam = new THREE.StereoCamera();
-    this.stereoCam.eyeSep = CONFIG.STEREO_IPD;
+    this.vrSettings = loadVrSettings();
+    this.vr = new VRView(this.renderer, this.vrSettings);
+    this.hud3d = new HUD3D(this.camera);
+    this.testPattern = makeTestPattern();
+    this.camera.add(this.testPattern);
 
     this.world = buildWorld(this.scene);
     this.rig.position.copy(this.world.spawn);
@@ -2400,6 +2863,7 @@ class App {
     this._v = new THREE.Vector3();
     this._wireCanvasPointers();
     window.addEventListener('resize', () => this.resize());
+    if (screen.orientation) screen.orientation.addEventListener('change', () => { if (this.stereo) setTimeout(() => this.orientation.recenter(), 600); });
     this.resize();
 
     this._last = performance.now();
@@ -2523,7 +2987,57 @@ class App {
 
   setDebug(on) { this.debug.setEnabled(on); }
 
+  // ---------------------------------------------------------------
+  // Modo óculos
+  // ---------------------------------------------------------------
+  async setStereo(on) {
+    this.stereo = on;
+    document.body.classList.toggle('stereo', on);
+    document.getElementById('btn-stereo').classList.toggle('on', on);
+    this.hud3d.show(on);
+    if (on) {
+      try {
+        if (!document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+        if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+      } catch (e) { /* nem todo navegador deixa travar: o aviso "vire o celular" ajuda */ }
+      this.showVrUi(4000);
+      setTimeout(() => this.orientation.recenter(), 900);
+      this.hud3d.toast('Modo óculos — toque na tela para opções');
+    } else {
+      try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* */ }
+      document.body.classList.remove('vr-ui', 'vr-adjust');
+      this.testPattern.visible = false;
+    }
+    this.resize();
+  }
+
+  // No óculos os botões ficam escondidos; um toque na tela mostra por alguns segundos.
+  showVrUi(ms = 5000) {
+    document.body.classList.add('vr-ui');
+    clearTimeout(this._vrUiT);
+    this._vrUiT = setTimeout(() => document.body.classList.remove('vr-ui'), ms);
+  }
+
+  // Ajusta a resolução pelo FPS (mais FPS em celular fraco).
+  _adaptQuality(now) {
+    const q = this._q;
+    q.frames++;
+    const el = now - q.t0;
+    if (el < 1000) return;
+    const fps = (q.frames * 1000) / el;
+    q.frames = 0; q.t0 = now;
+    const Q = CONFIG.QUALITY;
+    if (!Q.AUTO) return;
+    const max = Math.min(window.devicePixelRatio || 1, Q.PIXEL_RATIO);
+    if (fps < Q.LOW_FPS) { q.low++; q.high = 0; } else if (fps > Q.HIGH_FPS) { q.high++; q.low = 0; } else { q.low = 0; q.high = 0; }
+    let pr = this.pixelRatio;
+    if (q.low >= 2 && pr > Q.MIN_PIXEL_RATIO) { pr = Math.max(Q.MIN_PIXEL_RATIO, pr - 0.15); q.low = 0; }
+    if (q.high >= 6 && pr < max) { pr = Math.min(max, pr + 0.1); q.high = 0; }
+    if (pr !== this.pixelRatio) { this.pixelRatio = pr; this.renderer.setPixelRatio(pr); this.resize(); }
+  }
+
   toast(msg) {
+    this.hud3d.toast(msg);
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.classList.add('show');
@@ -2534,14 +3048,15 @@ class App {
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = this.stereo ? w / 2 / h : w / h;
-    this.camera.updateProjectionMatrix();
+    if (this.stereo) this.vr.applyCamera(this.camera, w, h);
+    else { this.camera.fov = CONFIG.CAMERA_FOV; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
   }
 
   // Mouse/toque na tela: arrasta fios do painel; sem sensor, gira a visão.
   _wireCanvasPointers() {
     const c = this.canvas;
     c.addEventListener('pointerdown', (e) => {
+      if (this.stereo && !document.body.classList.contains('vr-adjust')) { this.showVrUi(); return; }
       c.setPointerCapture(e.pointerId);
       this.mouse.set(e.pointerId, { id: `m${e.pointerId}`, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, down: true, lx: e.clientX, ly: e.clientY });
     });
@@ -2607,6 +3122,7 @@ class App {
     // 6) render
     this._render();
     this.debug.frame(now, dtMs);
+    this._adaptQuality(now);
   }
 
   _collectPointers() {
@@ -2641,15 +3157,16 @@ class App {
   _updateHud(active) {
     const hud = document.getElementById('hud');
     hud.classList.toggle('active', active);
-    if (!active) return;
+    if (!active) { if (this.stereo) this.hud3d.update({ timer: this.state === 'ended' ? 'fim' : '' }); return; }
+    const info = {};
     const tl = document.getElementById('timer');
     if (this.state === 'playing') {
-      tl.textContent = fmtTime(this.timeLeft);
+      tl.textContent = info.timer = fmtTime(this.timeLeft);
       tl.classList.toggle('urgent', this.timeLeft < 30);
       const all = this._gameTargets();
-      document.getElementById('count').textContent = `📡 ${all.filter((t) => t.state === 'fixed').length}/${all.length}`;
+      document.getElementById('count').textContent = info.count = `📡 ${all.filter((t) => t.state === 'fixed').length}/${all.length}`;
     } else {
-      tl.textContent = 'tutorial';
+      tl.textContent = info.timer = 'tutorial';
       document.getElementById('count').textContent = '';
     }
     // bússola do detector (ajuda quando a mão de interação não está visível)
@@ -2662,7 +3179,9 @@ class App {
       document.getElementById('compass-arrow').style.transform = `rotate(${ang}rad)`;
       const up = local.y > 0.6 && near.dist < 5 ? ' ↑ olhe para cima' : '';
       document.getElementById('compass-text').textContent = `${near.dist.toFixed(1)} m${up}`;
+      info.dist = `${near.dist.toFixed(1)} m`; info.arrowAngle = ang; info.up = !!up;
     }
+    if (this.stereo) this.hud3d.update(info);
     const input = this.debug.input;
     document.getElementById('crosshair').classList.toggle('on', input.pinch || input.fist || input.aim);
   }
@@ -2670,15 +3189,7 @@ class App {
   _render() {
     const r = this.renderer;
     if (!this.stereo) { r.setScissorTest(false); r.render(this.scene, this.camera); return; }
-    const size = r.getSize(new THREE.Vector2());
-    this.camera.updateMatrixWorld();
-    this.stereoCam.update(this.camera);
-    r.setScissorTest(true);
-    r.setScissor(0, 0, size.x / 2, size.y); r.setViewport(0, 0, size.x / 2, size.y);
-    r.render(this.scene, this.stereoCam.cameraL);
-    r.setScissor(size.x / 2, 0, size.x / 2, size.y); r.setViewport(size.x / 2, 0, size.x / 2, size.y);
-    r.render(this.scene, this.stereoCam.cameraR);
-    r.setScissorTest(false);
+    this.vr.render(this.scene, this.camera);
   }
 }
 

@@ -1,5 +1,9 @@
-// Locomoção por teleporte: pistolinha = mirar (parábola + marcador),
-// palma aberta logo depois = ir. Com limites de distância e espera
+// Locomoção por teleporte: pistolinha = mirar (curva + marcador),
+// palma aberta logo depois = ir.
+//
+// Mira (modo 'olhar', padrão): o alvo é o ponto do chão na direção
+// OLHO -> MÃO. Basta "cobrir" com a mão o lugar para onde quer ir. Isso usa
+// a posição da mão na tela (estável), e não a direção do dedo (que treme). Com limites de distância e espera
 // entre saltos, para parecer "andar" e não "voar".
 //
 // Movimento: no modo 'dash' o jogador desliza rápido até o alvo (com as
@@ -8,7 +12,8 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 
 const T = CONFIG.TELEPORT;
-const N_DOTS = 36;
+const N_DOTS = 30;
+const ARC_N = 32;
 
 const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
@@ -20,7 +25,7 @@ export class Teleport {
     this.hooks = hooks;
 
     // pontos da parábola (simulação) — desenhados como bolinhas que "correm"
-    this.arc = Array.from({ length: T.MAX_STEPS + 2 }, () => new THREE.Vector3());
+    this.arc = Array.from({ length: ARC_N }, () => new THREE.Vector3());
     this.arcLen = [];
     this.arcN = 0;
     this.dotMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
@@ -67,8 +72,10 @@ export class Teleport {
     this._lastT = performance.now();
     this._o = new THREE.Vector3();
     this._d = new THREE.Vector3();
-    this._so = new THREE.Vector3(); // origem suavizada
-    this._sd = new THREE.Vector3(); // direção suavizada
+    this._sd = new THREE.Vector3(); // direção da mira suavizada
+    this._st = new THREE.Vector3(); // alvo suavizado
+    this._vis = new THREE.Vector3(); // de onde a curva sai (ponta do dedo)
+    this.lastGunTime = -1e9;
     this._v = new THREE.Vector3();
     this._p = new THREE.Vector3();
     this._n = new THREE.Vector3();
@@ -82,49 +89,46 @@ export class Teleport {
   cooldownLeft(nowMs) { return Math.max(0, T.COOLDOWN_S - (nowMs - this.lastJump) / 1000); }
   get moving() { return !!this.dash; }
 
-  // Simula a parábola a partir de origin/dir (mundo). Preenche o arco e o alvo.
-  compute(origin, dir, nowMs) {
-    const d = this._v.copy(dir).normalize();
-    d.y += T.UP_BIAS;
-    d.normalize();
-    const vel = d.multiplyScalar(T.SPEED);
-    const p = this._p.copy(origin);
-    let n = 0;
-    const push = (q) => { this.arc[n++].copy(q); };
-    push(p);
-    let landed = false;
-    this.valid = false;
-    this.reason = 'sem chão';
-    for (let i = 0; i < T.MAX_STEPS; i++) {
-      const next = this._n.copy(p).addScaledVector(vel, T.STEP_DT);
-      vel.y -= T.GRAVITY * T.STEP_DT;
-      const hit = this.world.segmentHit(p, next);
-      if (hit && (next.y > 0 || hit.point.y > 0.001)) {
-        push(hit.point);
-        this.target.copy(hit.point);
-        this.reason = 'bloco no caminho';
-        landed = true;
-        break;
-      }
-      if (next.y <= 0) {
-        const k = p.y / Math.max(1e-6, p.y - next.y);
-        next.lerpVectors(p, next, k);
-        next.y = 0;
-        push(next);
-        this.target.copy(next);
-        this._validateGround(nowMs);
-        landed = true;
-        break;
-      }
-      push(next);
-      p.copy(next);
+  // Alvo = onde o raio (origin, dir) encontra o chão, limitado ao alcance.
+  // Depois desenha uma curva da mão até o alvo.
+  aimFromRay(origin, dir, visOrigin, nowMs, smoothK) {
+    const pos = this.rig.position;
+    let hx = dir.x, hz = dir.z;
+    const hl = Math.hypot(hx, hz);
+    if (hl < 1e-4) { // olhando reto para baixo: usa a direção da cabeça
+      this.camera.getWorldDirection(this._v);
+      hx = this._v.x; hz = this._v.z;
     }
-    if (!landed) this.target.copy(p);
-    this.arcN = n;
-    // comprimento acumulado (para espaçar as bolinhas por igual)
-    this.arcLen.length = n;
+    const hn = Math.hypot(hx, hz) || 1;
+    hx /= hn; hz /= hn;
+    // distância horizontal até o chão (raio para cima ou reto = alcance máximo)
+    let dist = dir.y < -1e-3 ? (origin.y * hl) / -dir.y : Infinity;
+    dist = Math.min(dist, T.MAX_DIST);
+    this._p.set(pos.x + hx * dist, 0, pos.z + hz * dist);
+    if (smoothK >= 1) this._st.copy(this._p); else this._st.lerp(this._p, smoothK);
+    this.target.copy(this._st);
+    this.target.y = 0;
+    this.valid = false;
+    this._validateGround(nowMs);
+    this._buildArc(visOrigin, this.target);
+  }
+
+  _buildArc(a, b) {
+    const d = Math.hypot(b.x - a.x, b.z - a.z);
+    // ponto de controle acima do meio do caminho
+    this._n.set((a.x + b.x) / 2, Math.max(a.y, b.y) + 0.15 + 0.12 * d, (a.z + b.z) / 2);
+    for (let i = 0; i < ARC_N; i++) {
+      const t = i / (ARC_N - 1), u = 1 - t;
+      this.arc[i].set(
+        u * u * a.x + 2 * u * t * this._n.x + t * t * b.x,
+        u * u * a.y + 2 * u * t * this._n.y + t * t * b.y,
+        u * u * a.z + 2 * u * t * this._n.z + t * t * b.z,
+      );
+    }
+    this.arcN = ARC_N;
+    this.arcLen.length = ARC_N;
     this.arcLen[0] = 0;
-    for (let i = 1; i < n; i++) this.arcLen[i] = this.arcLen[i - 1] + this.arc[i].distanceTo(this.arc[i - 1]);
+    for (let i = 1; i < ARC_N; i++) this.arcLen[i] = this.arcLen[i - 1] + this.arc[i].distanceTo(this.arc[i - 1]);
   }
 
   _validateGround(nowMs) {
@@ -135,6 +139,15 @@ export class Teleport {
       this.target.x = pos.x + (dx / dist) * T.MAX_DIST;
       this.target.z = pos.z + (dz / dist) * T.MAX_DIST;
       dist = T.MAX_DIST;
+    }
+    // alvo dentro de um bloco: recua pelo caminho até o primeiro ponto livre
+    if (!this.world.isFree(this.target.x, this.target.z, T.PLAYER_RADIUS) && dist > 0) {
+      const ux = (this.target.x - pos.x) / dist, uz = (this.target.z - pos.z) / dist;
+      let d = dist;
+      while (d > T.MIN_DIST && !this.world.isFree(pos.x + ux * d, pos.z + uz * d, T.PLAYER_RADIUS)) d -= 0.1;
+      this.target.x = pos.x + ux * d;
+      this.target.z = pos.z + uz * d;
+      dist = d;
     }
     if (dist < T.MIN_DIST) { this.reason = 'perto demais'; return; }
     if (!this.world.isFree(this.target.x, this.target.z, T.PLAYER_RADIUS)) { this.reason = 'dentro de bloco'; return; }
@@ -156,32 +169,44 @@ export class Teleport {
     this._lastT = nowMs;
     this._animateDash(nowMs);
 
+    // pistolinha liga a mira; ela continua por um instante se o gesto
+    // "piscar" (ex.: virar 'normal' por 1–2 quadros), evitando que suma
+    const g = locoHand && locoHand.visible ? locoHand.gesture : 'none';
+    if (g === 'gun') this.lastGunTime = nowMs;
+    const handAim = locoHand && locoHand.visible && g !== 'open' && nowMs - this.lastGunTime < T.AIM_GRACE_MS;
+
     let aiming = false;
     if (this.dash) {
       aiming = false;
     } else if (manualAim) {
       this.camera.getWorldPosition(this._o);
       this.camera.getWorldDirection(this._d);
-      this._o.y -= 0.35;
-      this._o.addScaledVector(this._d, 0.2);
+      this._vis.copy(this._o).addScaledVector(this._d, 0.3);
+      this._vis.y -= 0.3;
       aiming = true;
-    } else if (locoHand && locoHand.visible && locoHand.gesture === 'gun') {
+    } else if (handAim) {
       const P = locoHand.worldPts;
-      this._o.copy(P[8]);
-      // direção = dedo indicador (base→ponta) misturado com pulso→ponta: treme menos
-      this._a.subVectors(P[8], P[5]).normalize();
-      this._b.subVectors(P[8], P[0]).normalize();
-      this._d.copy(this._a).multiplyScalar(1 - T.AIM_WRIST_BLEND).addScaledVector(this._b, T.AIM_WRIST_BLEND);
+      this._vis.copy(P[8]);
+      if (T.AIM_MODE === 'dedo') {
+        this._o.copy(P[8]);
+        this._a.subVectors(P[8], P[5]).normalize();
+        this._b.subVectors(P[8], P[0]).normalize();
+        this._d.copy(this._a).multiplyScalar(1 - T.AIM_WRIST_BLEND).addScaledVector(this._b, T.AIM_WRIST_BLEND);
+      } else {
+        // olho -> nós dos dedos (pontos mais estáveis da mão na pistolinha)
+        this.camera.getWorldPosition(this._o);
+        this._a.copy(P[5]).add(P[9]).multiplyScalar(0.5);
+        this._d.subVectors(this._a, this._o);
+      }
       aiming = this._d.lengthSq() > 1e-8;
     }
 
     if (aiming) {
       this._d.normalize();
-      if (!this._wasAiming) { this._so.copy(this._o); this._sd.copy(this._d); }
-      const k = 1 - Math.exp(-dt * T.AIM_SMOOTH);
-      this._so.lerp(this._o, k);
-      this._sd.lerp(this._d, k).normalize();
-      this.compute(this._so, this._sd, nowMs);
+      const first = !this._wasAiming;
+      if (first) this._sd.copy(this._d);
+      this._sd.lerp(this._d, 1 - Math.exp(-dt * T.AIM_SMOOTH)).normalize();
+      this.aimFromRay(this._o, this._sd, this._vis, nowMs, first ? 1 : 1 - Math.exp(-dt * T.TARGET_SMOOTH));
       if (this.valid) { this.lastAimTime = nowMs; this.lastValid.copy(this.target); }
     }
     this._wasAiming = aiming;
@@ -214,7 +239,6 @@ export class Teleport {
 
     // Confirmação por gesto: palma aberta logo depois da pistolinha
     if (locoHand) {
-      const g = locoHand.gesture;
       if (g === 'open' && this._lastGesture !== 'open' && recent) this.tryJump(nowMs);
       this._lastGesture = g;
     }

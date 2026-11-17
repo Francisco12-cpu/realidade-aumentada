@@ -10,6 +10,7 @@ import { Teleport } from './teleport.js';
 import { Interaction } from './interaction.js';
 import { CalibrationFlow, defaultCalib, loadCalib } from './calibration.js';
 import { DebugUI } from './debug.js';
+import { VRView, HUD3D, loadVrSettings, makeTestPattern } from './vr.js';
 
 class App {
   constructor() {
@@ -22,15 +23,21 @@ class App {
     const canvas = document.getElementById('gl');
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    // resolução de render: começa em QUALITY.PIXEL_RATIO e se ajusta sozinha pelo FPS
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, CONFIG.QUALITY.PIXEL_RATIO);
+    this.renderer.setPixelRatio(this.pixelRatio);
+    this._q = { t0: performance.now(), frames: 0, low: 0, high: 0 };
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 80);
     this.camera.position.y = CONFIG.EYE_HEIGHT;
     this.rig = new THREE.Group();
     this.rig.add(this.camera);
     this.scene.add(this.rig);
-    this.stereoCam = new THREE.StereoCamera();
-    this.stereoCam.eyeSep = CONFIG.STEREO_IPD;
+    this.vrSettings = loadVrSettings();
+    this.vr = new VRView(this.renderer, this.vrSettings);
+    this.hud3d = new HUD3D(this.camera);
+    this.testPattern = makeTestPattern();
+    this.camera.add(this.testPattern);
 
     this.world = buildWorld(this.scene);
     this.rig.position.copy(this.world.spawn);
@@ -60,6 +67,7 @@ class App {
     this._v = new THREE.Vector3();
     this._wireCanvasPointers();
     window.addEventListener('resize', () => this.resize());
+    if (screen.orientation) screen.orientation.addEventListener('change', () => { if (this.stereo) setTimeout(() => this.orientation.recenter(), 600); });
     this.resize();
 
     this._last = performance.now();
@@ -183,7 +191,57 @@ class App {
 
   setDebug(on) { this.debug.setEnabled(on); }
 
+  // ---------------------------------------------------------------
+  // Modo óculos
+  // ---------------------------------------------------------------
+  async setStereo(on) {
+    this.stereo = on;
+    document.body.classList.toggle('stereo', on);
+    document.getElementById('btn-stereo').classList.toggle('on', on);
+    this.hud3d.show(on);
+    if (on) {
+      try {
+        if (!document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+        if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+      } catch (e) { /* nem todo navegador deixa travar: o aviso "vire o celular" ajuda */ }
+      this.showVrUi(4000);
+      setTimeout(() => this.orientation.recenter(), 900);
+      this.hud3d.toast('Modo óculos — toque na tela para opções');
+    } else {
+      try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* */ }
+      document.body.classList.remove('vr-ui', 'vr-adjust');
+      this.testPattern.visible = false;
+    }
+    this.resize();
+  }
+
+  // No óculos os botões ficam escondidos; um toque na tela mostra por alguns segundos.
+  showVrUi(ms = 5000) {
+    document.body.classList.add('vr-ui');
+    clearTimeout(this._vrUiT);
+    this._vrUiT = setTimeout(() => document.body.classList.remove('vr-ui'), ms);
+  }
+
+  // Ajusta a resolução pelo FPS (mais FPS em celular fraco).
+  _adaptQuality(now) {
+    const q = this._q;
+    q.frames++;
+    const el = now - q.t0;
+    if (el < 1000) return;
+    const fps = (q.frames * 1000) / el;
+    q.frames = 0; q.t0 = now;
+    const Q = CONFIG.QUALITY;
+    if (!Q.AUTO) return;
+    const max = Math.min(window.devicePixelRatio || 1, Q.PIXEL_RATIO);
+    if (fps < Q.LOW_FPS) { q.low++; q.high = 0; } else if (fps > Q.HIGH_FPS) { q.high++; q.low = 0; } else { q.low = 0; q.high = 0; }
+    let pr = this.pixelRatio;
+    if (q.low >= 2 && pr > Q.MIN_PIXEL_RATIO) { pr = Math.max(Q.MIN_PIXEL_RATIO, pr - 0.15); q.low = 0; }
+    if (q.high >= 6 && pr < max) { pr = Math.min(max, pr + 0.1); q.high = 0; }
+    if (pr !== this.pixelRatio) { this.pixelRatio = pr; this.renderer.setPixelRatio(pr); this.resize(); }
+  }
+
   toast(msg) {
+    this.hud3d.toast(msg);
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.classList.add('show');
@@ -194,14 +252,15 @@ class App {
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = this.stereo ? w / 2 / h : w / h;
-    this.camera.updateProjectionMatrix();
+    if (this.stereo) this.vr.applyCamera(this.camera, w, h);
+    else { this.camera.fov = CONFIG.CAMERA_FOV; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
   }
 
   // Mouse/toque na tela: arrasta fios do painel; sem sensor, gira a visão.
   _wireCanvasPointers() {
     const c = this.canvas;
     c.addEventListener('pointerdown', (e) => {
+      if (this.stereo && !document.body.classList.contains('vr-adjust')) { this.showVrUi(); return; }
       c.setPointerCapture(e.pointerId);
       this.mouse.set(e.pointerId, { id: `m${e.pointerId}`, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, down: true, lx: e.clientX, ly: e.clientY });
     });
@@ -267,6 +326,7 @@ class App {
     // 6) render
     this._render();
     this.debug.frame(now, dtMs);
+    this._adaptQuality(now);
   }
 
   _collectPointers() {
@@ -301,15 +361,16 @@ class App {
   _updateHud(active) {
     const hud = document.getElementById('hud');
     hud.classList.toggle('active', active);
-    if (!active) return;
+    if (!active) { if (this.stereo) this.hud3d.update({ timer: this.state === 'ended' ? 'fim' : '' }); return; }
+    const info = {};
     const tl = document.getElementById('timer');
     if (this.state === 'playing') {
-      tl.textContent = fmtTime(this.timeLeft);
+      tl.textContent = info.timer = fmtTime(this.timeLeft);
       tl.classList.toggle('urgent', this.timeLeft < 30);
       const all = this._gameTargets();
-      document.getElementById('count').textContent = `📡 ${all.filter((t) => t.state === 'fixed').length}/${all.length}`;
+      document.getElementById('count').textContent = info.count = `📡 ${all.filter((t) => t.state === 'fixed').length}/${all.length}`;
     } else {
-      tl.textContent = 'tutorial';
+      tl.textContent = info.timer = 'tutorial';
       document.getElementById('count').textContent = '';
     }
     // bússola do detector (ajuda quando a mão de interação não está visível)
@@ -322,7 +383,9 @@ class App {
       document.getElementById('compass-arrow').style.transform = `rotate(${ang}rad)`;
       const up = local.y > 0.6 && near.dist < 5 ? ' ↑ olhe para cima' : '';
       document.getElementById('compass-text').textContent = `${near.dist.toFixed(1)} m${up}`;
+      info.dist = `${near.dist.toFixed(1)} m`; info.arrowAngle = ang; info.up = !!up;
     }
+    if (this.stereo) this.hud3d.update(info);
     const input = this.debug.input;
     document.getElementById('crosshair').classList.toggle('on', input.pinch || input.fist || input.aim);
   }
@@ -330,15 +393,7 @@ class App {
   _render() {
     const r = this.renderer;
     if (!this.stereo) { r.setScissorTest(false); r.render(this.scene, this.camera); return; }
-    const size = r.getSize(new THREE.Vector2());
-    this.camera.updateMatrixWorld();
-    this.stereoCam.update(this.camera);
-    r.setScissorTest(true);
-    r.setScissor(0, 0, size.x / 2, size.y); r.setViewport(0, 0, size.x / 2, size.y);
-    r.render(this.scene, this.stereoCam.cameraL);
-    r.setScissor(size.x / 2, 0, size.x / 2, size.y); r.setViewport(size.x / 2, 0, size.x / 2, size.y);
-    r.render(this.scene, this.stereoCam.cameraR);
-    r.setScissorTest(false);
+    this.vr.render(this.scene, this.camera);
   }
 }
 
