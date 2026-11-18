@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v16, 18/11/2026)
+# Escola Zumbi: estado do projeto (v17, 18/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -50,6 +50,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v17 | #15 | Conserto: na v16 a câmera ligava sozinha ao abrir, e o Chrome do Android pausava o vídeo escondido (a mão nunca aparecia). Agora só o detector carrega ao abrir; a câmera liga no toque, e um vigia dá play de novo se o vídeo parar |
 | v16 | #14 | Atirar fechando a mão (✊); mão virtual no mesmo ângulo e distância da mão de verdade (`HANDS.MAP_MODE: 'real'`), menos tremida e some menos; óculos vai direto para o modo próprio quando o VR do Chrome não existe (tela cheia volta a funcionar); câmera liga sozinha ao abrir se já foi liberada |
 | v14+v15 | #14 | Jogar no óculos com um toque (contagem, mão aberta para começar ou jogar de novo, recentrar com as duas mãos, perfil copiar/colar, `?auto`). Mais FPS: escola em blocos de 24 m, detalhes longe somem, imagem das mãos menor se o FPS cair |
 

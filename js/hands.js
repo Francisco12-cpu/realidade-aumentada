@@ -195,6 +195,11 @@ export class HandTracker {
     this._pendingFresh = false;
     const v = this.video;
     const minGap = 1000 / H.MAX_DETECT_HZ;
+    // vigia: se o navegador pausou o vídeo da câmera, dá play de novo
+    if (this.stream && v.paused && nowMs - (this._replayT || 0) > 1000) {
+      this._replayT = nowMs;
+      v.play().catch(() => {});
+    }
     if (this.worker && this.landmarker) {
       // ---- modo rápido: manda o quadro para o worker e segue desenhando ----
       if (this._busy && nowMs - this._lastSend > 4000) this._busy = false; // quadro perdido
