@@ -69,6 +69,8 @@ export class Gun {
     return f.straight[0] > thr.ext[0] - k && f.straight[1] < thr.ext[1] + k * 0.5 && f.straight[0] - f.straight[1] > 0.12;
   }
 
+  isGunHand(h, thr) { return this._shape(h, thr); }
+
   // Cor da mão: vermelho = pronta · cinza = recarregando · null = normal
   tintFor(side, now) {
     if (side !== this.side || this.state === 'off') return null;
