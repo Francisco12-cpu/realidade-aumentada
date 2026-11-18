@@ -150,6 +150,13 @@ class App {
   // Permissões / dispositivos
   // ---------------------------------------------------------------
   async initDevices(onStatus, withCamera = true) {
+    // ainda dentro do toque (antes de qualquer await): liga a câmera / dá play
+    let camP = null;
+    if (withCamera) {
+      if (this.hands.stream) this.hands.video.play().catch(() => {});
+      else camP = this.hands.startCamera();
+      if (camP) camP.catch(() => {});
+    }
     if (!this.sensorsReady) {
       onStatus('Pedindo acesso aos sensores de movimento…');
       const perm = await this.orientation.requestPermission();
@@ -165,7 +172,8 @@ class App {
     if (!withCamera || this.hands.landmarker) { this.devicesReady = true; return true; }
     try {
       onStatus('Pedindo acesso à câmera traseira…');
-      if (!this.hands.stream) await this.hands.startCamera();
+      if (camP) await camP;
+      else if (!this.hands.stream) await this.hands.startCamera();
     } catch (e) {
       this.lastError = `Câmera: ${e.message || e.name}`;
       onStatus(`<span class="bad">${this.lastError}</span>`);
@@ -183,17 +191,15 @@ class App {
     return true;
   }
 
-  // v16: com calibração salva e a câmera já liberada antes, liga câmera e
-  // mãos logo ao abrir. Assim o toque em "Jogar no óculos" só entra no óculos.
+  // Com calibração salva, carrega o detector de mãos logo ao abrir (é o que
+  // mais demora). A CÂMERA só liga no toque: no Android, um vídeo que começa
+  // sem toque e fica escondido é pausado pelo Chrome, e aí a mão nunca
+  // aparece (bug da v16).
   async _preloadDevices() {
     try {
-      if (!loadCalib() || !navigator.permissions) return;
-      const p = await navigator.permissions.query({ name: 'camera' });
-      if (p.state !== 'granted' || this.hands.stream) return;
-      await this.hands.startCamera();
+      if (!loadCalib() || this.hands.landmarker) return;
       await this.hands.loadModel(() => {});
-      if (this.state === 'boot') this.toast('📷 Câmera e mãos prontas');
-    } catch (e) { /* sem problema: liga no toque */ }
+    } catch (e) { /* sem problema: carrega no toque */ }
   }
 
   // Mantém a tela acesa. O Chrome solta a trava quando a aba sai da frente,
@@ -726,6 +732,8 @@ class App {
   _wireCanvasPointers() {
     const c = this.canvas;
     c.addEventListener('pointerdown', (e) => {
+      // vídeo da câmera parado (o navegador pausou): o toque religa
+      if (this.hands.stream && this.hands.video.paused) this.hands.video.play().catch(() => {});
       if (this.stereo && !document.body.classList.contains('vr-adjust')) {
         // sem tela cheia (o navegador recusou): o toque na tela tenta de novo
         if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
