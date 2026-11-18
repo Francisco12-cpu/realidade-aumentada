@@ -55,10 +55,9 @@ export class DebugUI {
       this.input.aim = false;
       document.getElementById('btn-aim').classList.remove('on');
     });
-    this._btn('btn-touch', () => { if (!app.interaction.openNearest()) app.toast('Nenhuma caixa perto (chegue a menos de 3 m)'); });
+    this._btn('btn-shoot', () => { this.input.fire = true; });
+    this._btn('btn-skip', () => app.startGame());
     this._hold('btn-run', 'run');
-    this._hold('btn-pinch', 'pinch');
-    this._hold('btn-fist', 'fist');
     this._btn('btn-stereo', () => app.toggleVR());
     this._btn('btn-vradjust', () => app.calibration.showVrAdjust());
     this._btn('btn-help', () => app.calibration.showHelp());
@@ -81,7 +80,7 @@ export class DebugUI {
       if (e.repeat) return;
       const k = e.key.toLowerCase();
       if (k === 'q') this.input.keyAim = true;
-      if (k === 'e') app.interaction.openNearest();
+      if (k === 'e' || k === ' ') { e.preventDefault(); this.input.fire = true; }
       if (k === 'f') this.input.pinch = true;
       if (k === 'g') this.input.fist = true;
       if (k === 'r') app.recenter();

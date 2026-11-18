@@ -1,5 +1,5 @@
 // Placar e ranking do dia, guardados só neste celular (localStorage).
-// Pontos = 100 por caixa consertada + 2 por segundo que sobrou (só se consertou tudo).
+// Pontos = 100 por zumbi eliminado + 2 por segundo que sobrou (só se eliminou todos).
 import { CONFIG } from './config.js';
 
 const KEY = 'cacador-sinal-ranking-v1';
@@ -69,5 +69,5 @@ export function rankingTable(feira, highlightId = null) {
   const rows = top.map((r, i) => `<tr class="${r.id === highlightId ? 'me' : ''}">
       <td>${['🥇', '🥈', '🥉'][i] || i + 1}</td><td>${esc(r.name)}</td><td>${r.points}</td>
       <td>${r.fixed}/${r.total}</td><td>${fmt(r.used)}</td></tr>`).join('');
-  return `<table class="rank"><thead><tr><th></th><th>Nome</th><th>Pontos</th><th>Caixas</th><th>Tempo</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table class="rank"><thead><tr><th></th><th>Nome</th><th>Pontos</th><th>🧟</th><th>Tempo</th></tr></thead><tbody>${rows}</tbody></table>`;
 }

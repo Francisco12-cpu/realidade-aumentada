@@ -170,3 +170,24 @@ table.rank { width: 100%; border-collapse: collapse; font-size: 14px; font-varia
 table.rank th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; }
 table.rank td { padding: 5px 6px; border-top: 1px solid rgba(255,255,255,0.08); }
 table.rank tr.me td { background: rgba(0, 229, 255, 0.18); font-weight: 600; }
+
+/* ---- Dica dos gestos (cantinho da tela) ---- */
+#coach {
+  position: fixed; left: 10px; bottom: 74px; z-index: 6; max-width: min(300px, 62vw);
+  background: rgba(14, 8, 8, 0.72); color: #fff; border-radius: 14px; padding: 8px 10px;
+  font-size: 13px; line-height: 1.3; pointer-events: none; box-shadow: 0 2px 10px rgba(0,0,0,.35);
+}
+#coach .title { font-weight: 700; color: #ffd36b; margin-bottom: 4px; }
+#coach .row { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 8px; }
+#coach .row .ic { font-size: 18px; width: 30px; text-align: center; }
+#coach .row.cur { background: rgba(255, 60, 60, 0.35); font-weight: 700; }
+#coach .row.act { background: rgba(80, 220, 120, 0.3); }
+#coach .row.done { color: #8fe3a8; }
+#coach .row .ok { margin-left: auto; }
+#coach .gun { display: block; margin-top: 4px; font-weight: 700; }
+#coach .gun.ready { color: #ff4a4a; }
+#coach .gun.reload { color: #b0b4ba; }
+#coach .note { margin-top: 6px; font-size: 12px; color: #e8e8e8; }
+body.stereo #coach, body.xr #coach { display: none; }
+#btn-skip { display: none; position: fixed; right: 10px; bottom: 74px; z-index: 6; }
+body.tutorial:not(.stereo):not(.xr) #btn-skip { display: block; }

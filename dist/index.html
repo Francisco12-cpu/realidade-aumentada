@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#0b1118">
-  <title>Caçador de Sinal — protótipo</title>
+  <title>Escola Zumbi — protótipo</title>
   <style>
 :root {
   --bg: #0b1118;
@@ -178,6 +178,27 @@ table.rank { width: 100%; border-collapse: collapse; font-size: 14px; font-varia
 table.rank th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; }
 table.rank td { padding: 5px 6px; border-top: 1px solid rgba(255,255,255,0.08); }
 table.rank tr.me td { background: rgba(0, 229, 255, 0.18); font-weight: 600; }
+
+/* ---- Dica dos gestos (cantinho da tela) ---- */
+#coach {
+  position: fixed; left: 10px; bottom: 74px; z-index: 6; max-width: min(300px, 62vw);
+  background: rgba(14, 8, 8, 0.72); color: #fff; border-radius: 14px; padding: 8px 10px;
+  font-size: 13px; line-height: 1.3; pointer-events: none; box-shadow: 0 2px 10px rgba(0,0,0,.35);
+}
+#coach .title { font-weight: 700; color: #ffd36b; margin-bottom: 4px; }
+#coach .row { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 8px; }
+#coach .row .ic { font-size: 18px; width: 30px; text-align: center; }
+#coach .row.cur { background: rgba(255, 60, 60, 0.35); font-weight: 700; }
+#coach .row.act { background: rgba(80, 220, 120, 0.3); }
+#coach .row.done { color: #8fe3a8; }
+#coach .row .ok { margin-left: auto; }
+#coach .gun { display: block; margin-top: 4px; font-weight: 700; }
+#coach .gun.ready { color: #ff4a4a; }
+#coach .gun.reload { color: #b0b4ba; }
+#coach .note { margin-top: 6px; font-size: 12px; color: #e8e8e8; }
+body.stereo #coach, body.xr #coach { display: none; }
+#btn-skip { display: none; position: fixed; right: 10px; bottom: 74px; z-index: 6; }
+body.tutorial:not(.stereo):not(.xr) #btn-skip { display: block; }
 </style>
   <script type="importmap">
   {
@@ -210,9 +231,7 @@ table.rank tr.me td { background: rgba(0, 229, 255, 0.18); font-weight: 600; }
     <button id="btn-run" title="Segure para andar para onde está olhando">🏃 Andar</button>
     <button id="btn-aim" title="Mirar teleporte (liga/desliga)">🎯 Mirar</button>
     <button id="btn-teleport" title="Confirmar teleporte">🚀 Ir</button>
-    <button id="btn-touch" title="Tocar/abrir a caixa mais próxima">👆 Tocar</button>
-    <button id="btn-pinch" title="Segure: pinça na mira do centro">🤏 Pinça</button>
-    <button id="btn-fist" title="Segure: pegar na mira do centro">✊ Pegar</button>
+    <button id="btn-shoot" title="Atirar no centro da tela (tecla espaço)">🔫 Atirar</button>
     <button id="btn-stereo" title="Modo óculos (tela dividida)">👓 Óculos</button>
     <button id="btn-vradjust" title="Ajustar o óculos">🔧 Ajustar</button>
     <button id="btn-sound" title="Som liga/desliga">🔊</button>
@@ -235,6 +254,9 @@ table.rank tr.me td { background: rgba(0, 229, 255, 0.18); font-weight: 600; }
   <div id="overlay" hidden></div>
   <div id="toast"></div>
   <div id="hand-hint"></div>
+  <!-- dica dos gestos no cantinho -->
+  <div id="coach" hidden></div>
+  <button id="btn-skip">Pular tutorial ⏭</button>
   <div id="rotate-hint">📱↔ Vire o celular deitado para usar o óculos</div>
 
   <noscript>Este protótipo precisa de JavaScript.</noscript>
@@ -253,10 +275,10 @@ const CONFIG = {
   CAMERA_FOV: 70,           // FOV vertical da câmera 3D (graus)
 
   // ---- Partida ----
-  GAME_TIME_S: 360,         // duração da partida (6 min)
+  GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v10',
+  VERSION: 'v11',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -393,11 +415,52 @@ const CONFIG = {
   },
 
   // ---- Mapa: escola de verdade (modelo 3D original) ----
+  // ---- Arma de mão (pistolinha) ----
+  GUN: {
+    RELOAD_MS: 650,         // depois do tiro a mão fica cinza por pelo menos isso
+    THUMB_UP_K: 1.0,        // polegar "levantado" = thumbOut acima de limiar × isto (engatilha)
+    THUMB_DOWN_K: 0.85,     // polegar "abaixado" = abaixo de limiar × isto (atira)
+    COCK_FRAMES: 2,         // detecções seguidas com o polegar em pé para engatilhar
+    GRACE_MS: 300,          // a arma continua na mão se a pistolinha "piscar"
+    RANGE: 35,              // alcance do tiro (m)
+  },
+
+  // ---- Zumbis ----
+  ZOMBIES: {
+    COUNT: 12,              // zumbis na partida
+    FEIRA_COUNT: 8,         // no modo feira
+    HP: 2,                  // tiros no corpo para matar (cabeça mata na hora)
+    SPEED_MIN: 0.55,        // m/s (o jogador anda a 2 m/s)
+    SPEED_MAX: 1.0,
+    WANDER_SPEED: 0.25,
+    RADIUS: 0.22,
+    SIGHT: 13,              // vê o jogador até essa distância (se não tiver parede)
+    HEAR: 5,                // percebe o jogador por perto mesmo sem ver
+    SHOT_ALERT: 20,         // tiro acorda os zumbis até essa distância
+    ATTACK_DIST: 0.95,
+    ATTACK_S: 1.3,          // tempo entre ataques
+    ASSIST_DEG: 4,          // ajuda de mira (graus)
+    MIN_DIST_START: 12,     // nenhum zumbi nasce perto do início
+    SPREAD: 12,             // distância entre zumbis ao espalhar
+    FLOW_RADIUS: 45,        // raio do caminho calculado em volta do jogador (m)
+    FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
+    AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
+    GROAN_DIST: 9,
+    CORPSE_S: 3,            // corpo fica no chão esse tempo antes de sumir
+    DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
+  },
+
+  // ---- Jogador ----
+  PLAYER: {
+    HP: 5,                  // vidas (cada mordida tira 1)
+    WALK_GRACE_MS: 350,     // continua andando esse tempo se a palma "piscar"
+  },
+
   MAP: {
     USE_SCHOOL: true,       // false = volta para o mapa de blocos
     // procura o modelo nesses endereços (o 2º é para o arquivo único em dist/)
     URLS: ['models/escola.glb', '../models/escola.glb'],
-    SPAWN: [38.5, 0, -60.25], // onde o jogador começa: no corredor coberto do portão (muro oeste)
+    SPAWN: [31.6, 0, -60.25], // onde o jogador começa: no corredor coberto do portão (muro oeste)
     SPAWN_YAW: -Math.PI / 2, // olhando para dentro da escola (leste, +x)
     CELL: 0.25,             // tamanho da célula da grade de colisão (m)
     CHAO_MAX: 1.3,          // superfícies horizontais até essa altura contam como chão
@@ -608,12 +671,44 @@ class Sfx {
     this._tone(1500 - 700 * k, 0.05, { type: 'sine', gain: 0.22 - 0.1 * k });
   }
 
+  // ---------------- zumbis ----------------
+  shot() {
+    this._noise(0.16, { gain: 0.55, freq: 1400 });
+    this._noise(0.32, { gain: 0.28, freq: 300, at: 0.01 });
+    this._tone(140, 0.14, { type: 'square', gain: 0.25, slide: -90 });
+    this.vibrate(30);
+  }
+
+  cock() { this._tone(1900, 0.03, { type: 'square', gain: 0.12 }); this._tone(1200, 0.03, { type: 'square', gain: 0.1, at: 0.05 }); }
+
+  zombieHit(kill) {
+    this._noise(0.1, { gain: 0.35, freq: 600 });
+    if (kill) {
+      this._tone(220, 0.5, { type: 'sawtooth', gain: 0.2, slide: -150, at: 0.05 });
+      this._tone(160, 0.6, { type: 'sawtooth', gain: 0.12, slide: -100, at: 0.12 });
+    } else this._tone(300, 0.18, { type: 'sawtooth', gain: 0.16, slide: -120 });
+  }
+
+  // gemido: mais alto quanto mais perto
+  groan(dist) {
+    const k = Math.max(0.15, 1 - dist / 10);
+    const f = 85 + Math.random() * 40;
+    this._tone(f, 0.9, { type: 'sawtooth', gain: 0.16 * k, slide: -25 });
+    this._tone(f * 1.5, 0.7, { type: 'triangle', gain: 0.08 * k, slide: -30, at: 0.08 });
+  }
+
+  hurt() {
+    this._noise(0.25, { gain: 0.45, freq: 250 });
+    this._tone(110, 0.3, { type: 'square', gain: 0.22, slide: -40 });
+    this.vibrate([120, 40, 120]);
+  }
+
   resetDetector() { this.nextBeep = 0; }
 }
 
 // ===== js/ranking.js =====
 // Placar e ranking do dia, guardados só neste celular (localStorage).
-// Pontos = 100 por caixa consertada + 2 por segundo que sobrou (só se consertou tudo).
+// Pontos = 100 por zumbi eliminado + 2 por segundo que sobrou (só se eliminou todos).
 
 const KEY = 'cacador-sinal-ranking-v1';
 
@@ -682,7 +777,7 @@ function rankingTable(feira, highlightId = null) {
   const rows = top.map((r, i) => `<tr class="${r.id === highlightId ? 'me' : ''}">
       <td>${['🥇', '🥈', '🥉'][i] || i + 1}</td><td>${esc(r.name)}</td><td>${r.points}</td>
       <td>${r.fixed}/${r.total}</td><td>${fmt(r.used)}</td></tr>`).join('');
-  return `<table class="rank"><thead><tr><th></th><th>Nome</th><th>Pontos</th><th>Caixas</th><th>Tempo</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table class="rank"><thead><tr><th></th><th>Nome</th><th>Pontos</th><th>🧟</th><th>Tempo</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ===== js/handhint.js =====
@@ -1600,6 +1695,670 @@ function makeShadowTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+// ===== js/zombies.js =====
+// Zumbis: bonecos feitos no código (sem arquivos), espalhados pela escola.
+//  - parados balançando até verem/ouvirem o jogador (ou ouvirem um tiro);
+//  - depois perseguem pelo caminho a pé (busca em largura na grade da escola);
+//  - de perto, atacam (o jogador perde vida);
+//  - tiro na cabeça mata na hora; no corpo precisa de ZOMBIES.HP tiros.
+
+const Z = CONFIG.ZOMBIES;
+const STEP = CONFIG.MAP.DEGRAU;
+const SKINS = [0x7d9a6a, 0x8aa36f, 0x6f8c62, 0x9aa27a, 0x7c8f74];
+const SHIRTS = [0x3b4f7a, 0x7a2f2f, 0xd8d8d0, 0x4c6b3c, 0x5a4a6e, 0x8a7a5a, 0x2f2f2f];
+const PANTS = [0x2c3445, 0x3a3a3a, 0x4a3b2a, 0x1f2a3a];
+
+const box = (w, h, d, y = 0) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(0, y, 0); return g; };
+const GEO = {
+  leg: box(0.17, 0.9, 0.19, -0.45),
+  torso: box(0.5, 0.62, 0.28, 0.31),
+  head: box(0.27, 0.3, 0.27, 0.15),
+  arm: box(0.13, 0.62, 0.13, -0.31),
+  eye: box(0.06, 0.035, 0.02),
+  mouth: box(0.12, 0.04, 0.02),
+};
+const EYE = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
+const DARK = new THREE.MeshBasicMaterial({ color: 0x1a0d0d });
+const BLOOD = new THREE.MeshBasicMaterial({ color: 0x7a0a0a });
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+
+function makeZombie() {
+  const skin = new THREE.MeshLambertMaterial({ color: pick(SKINS) });
+  const shirt = new THREE.MeshLambertMaterial({ color: pick(SHIRTS) });
+  const pants = new THREE.MeshLambertMaterial({ color: pick(PANTS) });
+  const root = new THREE.Group();
+  const body = new THREE.Group(); // tudo que inclina/cai
+  root.add(body);
+  const hips = new THREE.Group(); hips.position.y = 0.92; body.add(hips);
+  const legL = new THREE.Mesh(GEO.leg, pants); legL.position.x = -0.12;
+  const legR = new THREE.Mesh(GEO.leg, pants); legR.position.x = 0.12;
+  hips.add(legL, legR);
+  const torso = new THREE.Mesh(GEO.torso, shirt); torso.rotation.x = 0.18; hips.add(torso);
+  const neck = new THREE.Group(); neck.position.set(0, 0.6, 0.06); torso.add(neck);
+  const head = new THREE.Mesh(GEO.head, skin); neck.add(head);
+  const eL = new THREE.Mesh(GEO.eye, EYE); eL.position.set(-0.065, 0.19, 0.14);
+  const eR = new THREE.Mesh(GEO.eye, EYE); eR.position.set(0.065, 0.19, 0.14);
+  const mouth = new THREE.Mesh(GEO.mouth, DARK); mouth.position.set(0, 0.07, 0.14);
+  head.add(eL, eR, mouth);
+  const stain = new THREE.Mesh(box(0.16, 0.14, 0.02), BLOOD); stain.position.set(0.1, 0.35, 0.145); torso.add(stain);
+  const armL = new THREE.Group(); armL.position.set(-0.32, 0.55, 0); torso.add(armL);
+  const armR = new THREE.Group(); armR.position.set(0.32, 0.55, 0); torso.add(armR);
+  armL.add(new THREE.Mesh(GEO.arm, skin)); armR.add(new THREE.Mesh(GEO.arm, skin));
+  const s = 0.92 + Math.random() * 0.16;
+  root.scale.setScalar(s);
+  return { root, body, hips, legL, legR, torso, neck, head, armL, armR, mats: [skin, shirt, pants], scale: s };
+}
+
+class Horde {
+  constructor(scene, world, hooks = {}) {
+    this.scene = scene;
+    this.world = world;
+    this.hooks = hooks;
+    this.list = [];
+    this.flow = null;
+    this._flowT = 0;
+    this._groanT = 0;
+    this._v = new THREE.Vector3();
+    this._a = new THREE.Vector3();
+    this._b = new THREE.Vector3();
+  }
+
+  get alive() { return this.list.filter((z) => !z.dead).length; }
+  get killed() { return this.list.filter((z) => z.dead && !z.dummy).length; }
+  get total() { return this.list.filter((z) => !z.dummy).length; }
+
+  clear() {
+    for (const z of this.list) {
+      this.scene.remove(z.m.root);
+      for (const m of z.m.mats) m.dispose();
+    }
+    this.list = [];
+    this.flow = null;
+    this._flowAt = null;
+  }
+
+  _add(x, y, z, opts = {}) {
+    const m = makeZombie();
+    m.root.position.set(x, y, z);
+    m.root.rotation.y = opts.yaw ?? Math.random() * Math.PI * 2;
+    this.scene.add(m.root);
+    const zb = {
+      m, hp: opts.hp ?? Z.HP, dead: false, deadT: 0, dummy: !!opts.dummy,
+      alert: false, speed: Z.SPEED_MIN + Math.random() * (Z.SPEED_MAX - Z.SPEED_MIN),
+      phase: Math.random() * 10, attackT: 0, hitT: 0, losT: Math.random() * 0.3, los: false,
+      wander: 0, wanderYaw: Math.random() * 6.28, moving: 0,
+    };
+    this.list.push(zb);
+    return zb;
+  }
+
+  // Espalha `count` zumbis em lugares alcançáveis a pé, longe do início.
+  spawnHorde(count, start) {
+    const pts = this._spots(count, start);
+    for (const p of pts) this._add(p.x, p.y, p.z);
+    return pts.length;
+  }
+
+  // Zumbi de treino (tutorial): parado, 1 tiro, não ataca.
+  spawnDummy(pos, yawToPlayer) {
+    return this._add(pos.x, pos.y, pos.z, { dummy: true, hp: 1, yaw: yawToPlayer });
+  }
+
+  _spots(count, start) {
+    const w = this.world;
+    const cand = [];
+    if (w.grid) {
+      const g = w.grid;
+      if (!w._reach) w._reach = g.reachable(start.x, start.z, 0.3);
+      const seen = w._reach;
+      for (let k = 0; k < seen.length; k += 3) {
+        if (!seen[k]) continue;
+        const i = k % g.W, j = (k / g.W) | 0;
+        const x = g.x0 + (i + 0.5) * g.cell, z = g.z0 + (j + 0.5) * g.cell;
+        if (Math.hypot(x - start.x, z - start.z) < Z.MIN_DIST_START) continue;
+        const A = Z.AREA;
+        if (A && (x < A[0] || x > A[1] || z < A[2] || z > A[3])) continue;
+        if (!g.isFree(x, z, 0.35, g.floor[k])) continue;
+        cand.push({ x, y: g.floor[k], z });
+      }
+    } else {
+      const B = w.bounds || 19;
+      for (let n = 0; n < 4000; n++) {
+        const x = (Math.random() * 2 - 1) * B, z = (Math.random() * 2 - 1) * B;
+        if (Math.hypot(x - start.x, z - start.z) < 8 || !w.isFree(x, z, 0.4)) continue;
+        cand.push({ x, y: 0, z });
+      }
+    }
+    // embaralha e aceita pontos afastados entre si (diminui a distância se faltar)
+    for (let i = cand.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cand[i], cand[j]] = [cand[j], cand[i]]; }
+    const out = [];
+    for (let d = Z.SPREAD; d >= 2 && out.length < count; d *= 0.7) {
+      for (const p of cand) {
+        if (out.length >= count) break;
+        if (out.every((q) => Math.hypot(q.x - p.x, q.z - p.z) >= d)) out.push(p);
+      }
+    }
+    return out;
+  }
+
+  // Tiro: todos perto escutam e vêm.
+  alertAll(pos, radius) {
+    for (const z of this.list) if (!z.dead && !z.dummy && z.m.root.position.distanceTo(pos) < radius) z.alert = true;
+  }
+
+  // Raio (o, d) contra os zumbis vivos. Retorna { zombie, part, dist, point } ou null.
+  // Ajuda de mira: aceita até ASSIST_DEG de erro do centro do corpo.
+  rayHit(o, d, range) {
+    let best = null;
+    const test = (z, cy, r, part) => {
+      const c = this._a.copy(z.m.root.position); c.y += cy * z.m.scale;
+      const oc = this._b.subVectors(c, o);
+      const t = oc.dot(d);
+      if (t < 0 || t > range) return;
+      const d2 = oc.lengthSq() - t * t;
+      if (d2 > r * r) return;
+      const dist = t - Math.sqrt(r * r - d2);
+      if (!best || dist < best.dist) best = { zombie: z, part, dist };
+    };
+    for (const z of this.list) {
+      if (z.dead) continue;
+      test(z, 1.72, 0.2, 'head');
+      test(z, 1.2, 0.33, 'body');
+      test(z, 0.5, 0.26, 'body');
+    }
+    if (!best) {
+      // ajuda de mira
+      const cos = Math.cos(THREE.MathUtils.degToRad(Z.ASSIST_DEG));
+      for (const z of this.list) {
+        if (z.dead) continue;
+        const c = this._a.copy(z.m.root.position); c.y += 1.15 * z.m.scale;
+        const oc = this._b.subVectors(c, o);
+        const L = oc.length();
+        if (L > range || L < 0.1) continue;
+        if (oc.dot(d) / L < cos) continue;
+        if (!best || L < best.dist) best = { zombie: z, part: 'body', dist: L - 0.3 };
+      }
+    }
+    if (best) best.point = new THREE.Vector3().copy(o).addScaledVector(d, best.dist);
+    return best;
+  }
+
+  // dano: retorna true se matou
+  damage(z, part) {
+    if (z.dead) return false;
+    z.hp -= part === 'head' ? 99 : 1;
+    z.hitT = 0.18;
+    z.alert = true;
+    if (z.hp <= 0) {
+      z.dead = true;
+      z.deadT = 0;
+      z.fallDir = Math.random() < 0.5 ? 1 : -1;
+      return true;
+    }
+    return false;
+  }
+
+  // Mapa de distâncias até o jogador (janela em volta dele): os zumbis descem
+  // por ele, então contornam paredes e passam pelas portas.
+  _buildFlow(p) {
+    const g = this.world.grid;
+    if (!g) { this.flow = null; return; }
+    // células onde o corpo do zumbi cabe (folga das paredes); calculado uma vez
+    if (!g._zok) {
+      g._zok = new Uint8Array(g.W * g.H);
+      for (let k = 0; k < g._zok.length; k++) {
+        if (g.floor[k] === -Infinity) continue;
+        const x = g.x0 + ((k % g.W) + 0.5) * g.cell, z = g.z0 + (((k / g.W) | 0) + 0.5) * g.cell;
+        g._zok[k] = g.isFree(x, z, Z.RADIUS, g.floor[k]) ? 1 : 0;
+      }
+    }
+    const R = Math.round(Z.FLOW_RADIUS / g.cell), S = 2 * R + 1;
+    const ci = Math.floor((p.x - g.x0) / g.cell), cj = Math.floor((p.z - g.z0) / g.cell);
+    const dist = this.flow && this.flow.S === S ? this.flow.dist : new Int16Array(S * S);
+    const fy = this.flow && this.flow.S === S ? this.flow.fy : new Float32Array(S * S);
+    const q = this.flow && this.flow.S === S ? this.flow.q : new Int32Array(S * S);
+    dist.fill(-1);
+    const k0 = g.key(p.x, p.z);
+    if (k0 < 0) { this.flow = null; return; }
+    let h = 0, t = 0;
+    const L0 = R * S + R;
+    dist[L0] = 0; fy[L0] = g.floor[k0] === -Infinity ? p.y : g.floor[k0]; q[t++] = L0;
+    while (h < t) {
+      const l = q[h++];
+      const li = l % S, lj = (l / S) | 0;
+      for (let n = 0; n < 4; n++) {
+        const ni = li + (n === 0 ? 1 : n === 1 ? -1 : 0), nj = lj + (n === 2 ? 1 : n === 3 ? -1 : 0);
+        if (ni < 0 || nj < 0 || ni >= S || nj >= S) continue;
+        const nl = nj * S + ni;
+        if (dist[nl] >= 0) continue;
+        const gi = ci - R + ni, gj = cj - R + nj;
+        if (gi < 0 || gj < 0 || gi >= g.W || gj >= g.H) continue;
+        const gk = gj * g.W + gi;
+        if (!g._zok[gk] || Math.abs(g.floor[gk] - fy[l]) > STEP) continue;
+        dist[nl] = dist[l] + 1; fy[nl] = g.floor[gk]; q[t++] = nl;
+      }
+    }
+    this.flow = { S, R, ci, cj, dist, fy, q };
+  }
+
+  // direção (dx, dz) para descer o mapa de distâncias, ou null
+  _flowDir(x, z) {
+    const F = this.flow, g = this.world.grid;
+    if (!F) return null;
+    const li = Math.floor((x - g.x0) / g.cell) - F.ci + F.R, lj = Math.floor((z - g.z0) / g.cell) - F.cj + F.R;
+    if (li < 1 || lj < 1 || li >= F.S - 1 || lj >= F.S - 1) return null;
+    let here = F.dist[lj * F.S + li];
+    // célula do zumbi fora do mapa (encostado na parede): procura vizinho válido
+    if (here < 0) here = 32767;
+    let bd = here, bx = 0, bz = 0;
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        if (!di && !dj) continue;
+        const v = F.dist[(lj + dj) * F.S + li + di];
+        if (v < 0) continue;
+        const c = v + (di && dj ? 0.4 : 0);
+        if (c < bd) { bd = c; bx = di; bz = dj; }
+      }
+    }
+    if (!bx && !bz) return null;
+    const l = Math.hypot(bx, bz);
+    return { x: bx / l, z: bz / l };
+  }
+
+  _free(x, z, y) {
+    const w = this.world;
+    return w.grid ? w.grid.isFree(x, z, Z.RADIUS, y) : w.isFree(x, z, Z.RADIUS);
+  }
+
+  _los(zp, player) {
+    this._a.set(zp.x, zp.y + 1.4, zp.z);
+    this._b.set(player.x, player.y + 1.4, player.z);
+    return !this.world.segmentHit(this._a, this._b);
+  }
+
+  update(dt, player) {
+    let chasing = 0;
+    for (const z of this.list) if (!z.dead && z.alert) chasing++;
+    this._flowT -= dt;
+    // recalcula o caminho só se o jogador saiu do lugar (ou de tempos em tempos)
+    if (chasing && this._flowT <= 0) {
+      const moved = !this._flowAt || Math.hypot(player.x - this._flowAt.x, player.z - this._flowAt.z) > 0.5;
+      if (moved || this._flowT < -3) { this._buildFlow(player); this._flowAt = { x: player.x, z: player.z }; this._flowT = Z.FLOW_EVERY_S; }
+    }
+
+    let nearest = Infinity;
+    for (const z of this.list) {
+      const r = z.m.root, p = r.position;
+      if (z.dead) { this._animDeath(z, dt); continue; }
+      const dx = player.x - p.x, dz = player.z - p.z;
+      const dist = Math.hypot(dx, dz);
+      if (!z.dummy) nearest = Math.min(nearest, dist);
+      // percepção (linha de visão de vez em quando: é cara)
+      z.losT -= dt;
+      if (z.losT <= 0) { z.losT = 0.3; z.los = dist < Z.SIGHT && this._los(p, player); }
+      if (!z.dummy && !z.alert && (dist < Z.HEAR || z.los)) { z.alert = true; this.hooks.onAlert && this.hooks.onAlert(z, dist); }
+
+      let mx = 0, mz = 0, sp = 0;
+      if (z.dummy) {
+        // treino: só se vira para o jogador
+      } else if (z.alert) {
+        if (dist > Z.ATTACK_DIST * 0.85) {
+          let dir = null;
+          if (!(z.los && dist < 8)) dir = this._flowDir(p.x, p.z);
+          if (dir) { mx = dir.x; mz = dir.z; sp = z.speed; } else if (z.los || !this.world.grid) { mx = dx / dist; mz = dz / dist; sp = z.speed; } else {
+            // longe demais para o caminho calculado: vaga devagar em vez de travar na parede
+            z.wander -= dt;
+            if (z.wander <= 0) { z.wander = 2 + Math.random() * 3; z.wanderYaw = Math.atan2(dx, dz) + (Math.random() - 0.5) * 2; }
+            mx = Math.sin(z.wanderYaw); mz = Math.cos(z.wanderYaw); sp = Z.WANDER_SPEED * 2;
+          }
+        }
+        // ataque
+        z.attackT -= dt;
+        if (dist < Z.ATTACK_DIST && Math.abs(player.y - p.y) < 1 && z.attackT <= 0) {
+          z.attackT = Z.ATTACK_S;
+          z.swing = 0.35;
+          this.hooks.onHit && this.hooks.onHit(z);
+        }
+      } else {
+        // vagando devagar
+        z.wander -= dt;
+        if (z.wander <= 0) { z.wander = 2 + Math.random() * 4; z.wanderYaw = Math.random() * 6.28; z.wanderGo = Math.random() < 0.5; }
+        if (z.wanderGo) { mx = Math.sin(z.wanderYaw); mz = Math.cos(z.wanderYaw); sp = Z.WANDER_SPEED; }
+      }
+      // separação entre zumbis
+      for (const o of this.list) {
+        if (o === z || o.dead) continue;
+        const ox = p.x - o.m.root.position.x, oz = p.z - o.m.root.position.z;
+        const d = Math.hypot(ox, oz);
+        if (d > 0.01 && d < 0.65) { mx += (ox / d) * 0.6; mz += (oz / d) * 0.6; }
+      }
+      const ml = Math.hypot(mx, mz);
+      let moved = 0;
+      if (sp > 0 && ml > 1e-3) {
+        const step = (sp * dt) / ml;
+        const nx = p.x + mx * step, nz = p.z + mz * step;
+        const ox = p.x, oz = p.z;
+        if (this._free(nx, nz, p.y)) { p.x = nx; p.z = nz; } else if (this._free(nx, p.z, p.y)) p.x = nx; else if (this._free(p.x, nz, p.y)) p.z = nz;
+        else z.wander = 0;
+        moved = Math.hypot(p.x - ox, p.z - oz) / dt;
+        const f = this.world.floorAt(p.x, p.z);
+        if (f != null) p.y += (f - p.y) * Math.min(1, dt * 10);
+      }
+      z.moving += (moved - z.moving) * Math.min(1, dt * 6);
+      // vira para onde anda (ou para o jogador quando perto/parado)
+      const face = z.alert || z.dummy || moved < 0.05 ? Math.atan2(dx, dz) : Math.atan2(mx, mz);
+      if (z.alert || z.dummy || moved > 0.05) {
+        let da = face - r.rotation.y;
+        da = Math.atan2(Math.sin(da), Math.cos(da));
+        r.rotation.y += da * Math.min(1, dt * 5);
+      }
+      this._animWalk(z, dt);
+    }
+    // gemidos
+    this._groanT -= dt;
+    if (nearest < Z.GROAN_DIST && this._groanT <= 0) {
+      this._groanT = 1.2 + Math.random() * 2.2;
+      this.hooks.onGroan && this.hooks.onGroan(nearest);
+    }
+    this.nearest = nearest;
+  }
+
+  _animWalk(z, dt) {
+    const m = z.m;
+    const k = Math.min(1, z.moving / 0.6);
+    z.phase += dt * (2.5 + z.moving * 5);
+    const s = Math.sin(z.phase);
+    m.legL.rotation.x = s * 0.55 * k;
+    m.legR.rotation.x = -s * 0.55 * k;
+    m.hips.position.y = 0.92 + Math.abs(Math.cos(z.phase)) * 0.04 * k;
+    m.body.rotation.z = Math.sin(z.phase * 0.5) * 0.06 + 0.04;
+    m.neck.rotation.z = Math.sin(z.phase * 0.7 + 1) * 0.25;
+    m.neck.rotation.x = 0.15 + Math.sin(z.phase * 0.3) * 0.1;
+    // braços esticados para frente (o clássico), com ataque
+    let sw = 0;
+    if (z.swing > 0) { z.swing -= dt; sw = Math.sin((1 - z.swing / 0.35) * Math.PI) * 0.9; }
+    m.armL.rotation.x = -1.35 + Math.sin(z.phase + 0.5) * 0.15 + sw;
+    m.armR.rotation.x = -1.4 + Math.sin(z.phase + 2.1) * 0.15 + sw;
+    // pisca branco ao levar tiro
+    if (z.hitT > 0) z.hitT -= dt;
+    const fl = z.hitT > 0;
+    for (const mat of m.mats) mat.emissive.setHex(fl ? 0x993333 : 0x000000);
+  }
+
+  _animDeath(z, dt) {
+    const m = z.m;
+    z.deadT += dt;
+    const t = Math.min(1, z.deadT / 0.6);
+    m.body.rotation.x = -t * t * 1.5 * z.fallDir;
+    m.body.position.y = Math.sin(t * Math.PI) * 0.1;
+    for (const mat of m.mats) mat.emissive.setHex(0x000000);
+    if (z.deadT > Z.CORPSE_S) {
+      m.root.position.y -= dt * 0.4; // afunda no chão e some
+      if (z.deadT > Z.CORPSE_S + 1.5) m.root.visible = false;
+    }
+  }
+}
+
+// ===== js/gun.js =====
+// Arma de mão: pistolinha = mira · abaixar o polegar = BANG.
+//
+//  👉 pistolinha (indicador esticado, polegar para cima): a arma está engatilhada
+//     e a mão fica VERMELHA (pronta para atirar).
+//  👍⬇ abaixar o polegar (como o cão de um revólver): atira.
+//  Depois do tiro a mão fica CINZA enquanto recarrega; levante o polegar de
+//  novo para engatilhar. Quando a mão volta a ficar vermelha, pode atirar.
+//
+// A mira vai do OLHO até os nós dos dedos (pontos estáveis da mão): basta
+// "cobrir" o zumbi com a mão. Há uma pequena ajuda de mira (ângulo).
+
+const G = CONFIG.GUN;
+
+class Gun {
+  constructor(scene, camera, world, hooks = {}) {
+    this.camera = camera;
+    this.world = world;
+    this.hooks = hooks;
+    this.state = 'off';      // off · cocking · ready · reload
+    this.side = null;        // mão que está segurando a arma
+    this.lastShot = -1e9;
+    this.shots = 0;
+    this.aiming = false;
+    this._upFrames = 0;
+    this._lostAt = -1e9;
+    this._o = new THREE.Vector3();
+    this._d = new THREE.Vector3();
+    this._sd = new THREE.Vector3();
+    this._tip = new THREE.Vector3();
+    this._k = new THREE.Vector3();
+
+    // laser fino saindo do dedo + ponto vermelho onde a mira bate
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+    this.laserMat = new THREE.LineBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0.7, depthWrite: false });
+    this.laser = new THREE.Line(lg, this.laserMat);
+    this.laser.frustumCulled = false;
+    this.laser.visible = false;
+    scene.add(this.laser);
+    this.dotMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a, depthTest: false, transparent: true });
+    this.dot = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), this.dotMat);
+    this.dot.renderOrder = 30;
+    this.dot.visible = false;
+    scene.add(this.dot);
+    // clarão do tiro (na ponta do dedo) e risco da bala
+    this.flash = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, depthWrite: false }));
+    this.flash.visible = false;
+    scene.add(this.flash);
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+    this.tracer = new THREE.Line(tg, new THREE.LineBasicMaterial({ color: 0xfff1a8, transparent: true, depthWrite: false }));
+    this.tracer.frustumCulled = false;
+    this.tracer.visible = false;
+    scene.add(this.tracer);
+    this._fxUntil = 0;
+  }
+
+  get ready() { return this.state === 'ready'; }
+  reloadLeft(now) { return Math.max(0, G.RELOAD_MS - (now - this.lastShot)); }
+
+  // Pistolinha pelo formato da mão (independe do polegar, que é o gatilho).
+  _shape(h, thr) {
+    const f = h.features;
+    if (!h.visible || !f) return false;
+    return f.straight[0] > thr.ext[0] - 0.04 && f.straight[1] < thr.ext[1] && f.straight[2] < thr.ext[2] + 0.04;
+  }
+
+  // Cor da mão: vermelho = pronta · cinza = recarregando · null = normal
+  tintFor(side, now) {
+    if (side !== this.side || this.state === 'off') return null;
+    return this.state === 'ready' ? 0xd4202a : 0x8a8f96;
+  }
+
+  // hands: lista de mãos · fresh: houve detecção nova neste quadro
+  // manualFire: botão/tecla de tiro · targets(): lista de alvos para a mira
+  update(now, hands, thr, fresh, manualFire, findHit) {
+    // escolhe a mão da arma: a que está em pistolinha (prefere a mesma de antes)
+    let hand = null;
+    for (const h of hands) if (this._shape(h, thr) && (!hand || h.side === this.side)) hand = h;
+    if (hand) { this.side = hand.side; this._lostAt = now; } else if (now - this._lostAt > G.GRACE_MS) { this.side = null; }
+    const cur = this.side ? hands.find((h) => h.side === this.side && h.visible) : null;
+
+    if (!this.side || !cur) {
+      this.state = 'off';
+      this._upFrames = 0;
+    } else if (fresh && cur.features) {
+      const t = cur.features.thumbOut;
+      const up = t > thr.thumbOut * G.THUMB_UP_K;
+      const down = t < thr.thumbOut * G.THUMB_DOWN_K;
+      const reloaded = now - this.lastShot >= G.RELOAD_MS;
+      if (this.state === 'off') this.state = up ? 'cocking' : 'reload';
+      if (up) this._upFrames++; else this._upFrames = 0;
+      if (this.state === 'ready' && down && hand) this._fire(now, cur, findHit);
+      else if ((this.state === 'cocking' || this.state === 'reload') && reloaded && this._upFrames >= G.COCK_FRAMES) {
+        this.state = 'ready';
+        this.hooks.onReady && this.hooks.onReady();
+      }
+    }
+
+    // mira
+    this.aiming = !!(cur && this.state !== 'off');
+    if (this.aiming) {
+      const P = cur.worldPts;
+      this.camera.getWorldPosition(this._o);
+      this._k.copy(P[5]).add(P[9]).multiplyScalar(0.5);
+      this._d.subVectors(this._k, this._o).normalize();
+      this._sd.lerp(this._d, 0.5).normalize();
+      if (this._sd.lengthSq() < 0.5) this._sd.copy(this._d);
+      this._tip.copy(P[8]);
+    } else if (manualFire !== undefined) {
+      // sem mão: mira no centro da visão (botão 🔫 / tecla espaço)
+      this.camera.getWorldPosition(this._o);
+      this.camera.getWorldDirection(this._sd);
+      this._tip.copy(this._o).addScaledVector(this._sd, 0.4);
+      this._tip.y -= 0.15;
+    }
+    if (manualFire && now - this.lastShot >= G.RELOAD_MS) this._fire(now, null, findHit);
+
+    // laser e ponto
+    const show = this.aiming;
+    this.laser.visible = show;
+    this.dot.visible = show;
+    if (show) {
+      const hit = findHit(this._o, this._sd, false);
+      const dist = hit ? hit.dist : G.RANGE;
+      const end = this._k.copy(this._o).addScaledVector(this._sd, dist);
+      const col = this.state === 'ready' ? 0xff2a2a : 0x9aa0a6;
+      this.laserMat.color.setHex(col);
+      this.dotMat.color.setHex(hit && hit.zombie ? 0xffee00 : col);
+      const a = this.laser.geometry.attributes.position;
+      a.setXYZ(0, this._tip.x, this._tip.y, this._tip.z);
+      a.setXYZ(1, end.x, end.y, end.z);
+      a.needsUpdate = true;
+      this.dot.position.copy(end);
+      this.dot.scale.setScalar(0.012 * Math.max(1, dist) + 0.01);
+    }
+    // efeitos do tiro somem rápido
+    const fx = now < this._fxUntil;
+    this.flash.visible = fx && now < this._fxUntil - 60;
+    this.tracer.visible = fx;
+    if (fx) this.tracer.material.opacity = (this._fxUntil - now) / 110;
+  }
+
+  _fire(now, hand, findHit) {
+    this.lastShot = now;
+    this.state = 'reload';
+    this._upFrames = 0;
+    this.shots++;
+    const hit = findHit(this._o, this._sd, true);
+    const dist = hit ? hit.dist : G.RANGE;
+    const end = new THREE.Vector3().copy(this._o).addScaledVector(this._sd, dist);
+    this.flash.position.copy(this._tip);
+    this.flash.scale.setScalar(0.035);
+    const a = this.tracer.geometry.attributes.position;
+    a.setXYZ(0, this._tip.x, this._tip.y, this._tip.z);
+    a.setXYZ(1, end.x, end.y, end.z);
+    a.needsUpdate = true;
+    this._fxUntil = now + 110;
+    this.hooks.onShot && this.hooks.onShot(hit, end);
+  }
+
+  hide() {
+    this.laser.visible = this.dot.visible = this.flash.visible = this.tracer.visible = false;
+    this.state = 'off';
+    this.side = null;
+  }
+}
+
+// ===== js/coach.js =====
+// Dica no cantinho da tela: mostra os gestos o tempo todo, sem atrapalhar.
+//   ✋ mão aberta = andar · 👉 pistolinha = mirar · 👍⬇ abaixar o polegar = atirar
+// No tutorial, marca o passo atual; na partida, acende o gesto que está sendo feito.
+// Aparece no canto (HTML) e, no óculos, num painel pequeno preso à visão (3D).
+
+const COACH_STEPS = [
+  { id: 'walk', icon: '✋', text: 'Mão aberta = andar' },
+  { id: 'aim', icon: '👉', text: 'Pistolinha = mirar' },
+  { id: 'shoot', icon: '👍⬇', text: 'Abaixe o polegar = BANG' },
+];
+
+class Coach {
+  constructor(camera) {
+    this.el = document.getElementById('coach');
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = 512;
+    this.canvas.height = 300;
+    this.ctx = this.canvas.getContext('2d');
+    this.tex = new THREE.CanvasTexture(this.canvas);
+    this.tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthTest: false, depthWrite: false });
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.0996), mat);
+    this.mesh.position.set(-0.13, -0.085, -0.6);
+    this.mesh.renderOrder = 51;
+    this.mesh.visible = false;
+    camera.add(this.mesh);
+    this._key = '';
+    this.visible = false;
+  }
+
+  // st: { show, stereo, title, cur, done:{walk,aim,shoot}, active:{walk,aim,shoot}, gun:'off'|'ready'|'reload', note }
+  update(st) {
+    this.visible = !!st.show;
+    this.el.hidden = !st.show;
+    this.mesh.visible = !!(st.show && st.stereo);
+    if (!st.show) return;
+    const key = JSON.stringify(st);
+    if (key === this._key) return;
+    this._key = key;
+    // HTML (tela normal)
+    const rows = COACH_STEPS.map((s) => {
+      const cls = [st.done[s.id] ? 'done' : '', st.cur === s.id ? 'cur' : '', st.active[s.id] ? 'act' : ''].join(' ');
+      return `<div class="row ${cls}"><span class="ic">${s.icon}</span><span>${s.text}</span>${st.done[s.id] ? '<span class="ok">✔</span>' : ''}</div>`;
+    }).join('');
+    const gun = st.gun === 'ready' ? '<span class="gun ready">● arma pronta</span>' : st.gun === 'reload' ? '<span class="gun reload">● recarregando… levante o polegar</span>' : '';
+    this.el.innerHTML = `${st.title ? `<div class="title">${st.title}</div>` : ''}${rows}${gun}${st.note ? `<div class="note">${st.note}</div>` : ''}`;
+    if (st.stereo) this._draw(st);
+  }
+
+  _draw(st) {
+    const c = this.ctx, W = this.canvas.width, H = this.canvas.height;
+    c.clearRect(0, 0, W, H);
+    c.fillStyle = 'rgba(10,6,6,0.66)';
+    rr(c, 4, 4, W - 8, H - 8, 26); c.fill();
+    c.textBaseline = 'middle';
+    let y = 36;
+    if (st.title) {
+      c.fillStyle = '#ffd36b'; c.font = 'bold 30px system-ui, sans-serif'; c.textAlign = 'left';
+      c.fillText(st.title, 22, y, W - 44); y += 46;
+    }
+    for (const s of COACH_STEPS) {
+      const on = st.active[s.id], cur = st.cur === s.id;
+      if (cur || on) { c.fillStyle = cur ? 'rgba(255,60,60,0.35)' : 'rgba(80,220,120,0.3)'; rr(c, 12, y - 26, W - 24, 52, 14); c.fill(); }
+      c.font = '34px system-ui, sans-serif'; c.textAlign = 'left';
+      c.fillStyle = '#fff';
+      c.fillText(s.icon, 22, y);
+      c.font = `${cur ? 'bold ' : ''}30px system-ui, sans-serif`;
+      c.fillStyle = st.done[s.id] ? '#8fe3a8' : '#ffffff';
+      c.fillText(s.text + (st.done[s.id] ? ' ✔' : ''), 98, y, W - 120);
+      y += 58;
+    }
+    if (st.gun === 'ready' || st.gun === 'reload') {
+      c.font = 'bold 28px system-ui, sans-serif';
+      c.fillStyle = st.gun === 'ready' ? '#ff4040' : '#b0b4ba';
+      c.fillText(st.gun === 'ready' ? '● pronta' : '● recarregando', 22, Math.min(y, H - 26));
+    }
+    this.tex.needsUpdate = true;
+  }
+}
+
+function rr(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
 // ===== js/orientation.js =====
 // Rotação do celular -> rotação da câmera 3D.
 // Usa RelativeOrientationSensor (Chrome Android, menor latência) e cai para
@@ -2147,7 +2906,10 @@ class HandView {
 
     const accent = hand.side === 'left' ? 0x3d8bff : 0xff7a1a; // azul = esquerda, laranja = direita
     const glove = new THREE.MeshLambertMaterial({ color: 0x2b3440 });
-    this.joints = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshLambertMaterial({ color: 0x3a4654 }), 21);
+    this.glove = glove;
+    this.jointMat = new THREE.MeshLambertMaterial({ color: 0x3a4654 });
+    this.tint = null; // cor da mão inteira (arma: vermelho = pronta, cinza = recarregando)
+    this.joints = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), this.jointMat, 21);
     // cilindro com Y de 0 a 1, um pouco mais fino no topo (ponta do dedo)
     const cyl = new THREE.CylinderGeometry(0.88, 1, 1, 10, 1, true);
     cyl.translate(0, 0.5, 0);
@@ -2169,7 +2931,8 @@ class HandView {
     for (let i = 1; i < this.palmIdx.length; i++) idx.push(0, i, i + 1);
     idx.push(0, this.palmIdx.length, 1);
     pg.setIndex(idx);
-    this.palm = new THREE.Mesh(pg, new THREE.MeshLambertMaterial({ color: 0x2b3440, side: THREE.DoubleSide }));
+    this.palmMat = new THREE.MeshLambertMaterial({ color: 0x2b3440, side: THREE.DoubleSide });
+    this.palm = new THREE.Mesh(pg, this.palmMat);
     this.palm.frustumCulled = false;
     this.group.add(this.palm);
 
@@ -2207,7 +2970,16 @@ class HandView {
     this.joints.instanceMatrix.needsUpdate = true;
     this.bones.instanceMatrix.needsUpdate = true;
     this.tips.instanceMatrix.needsUpdate = true;
-    this.tipMat.color.setHex(GESTURE_COLORS[h.gesture] || GESTURE_COLORS.neutral);
+    this.tipMat.color.setHex(this.tint ?? (GESTURE_COLORS[h.gesture] || GESTURE_COLORS.neutral));
+    if (this.tint !== this._tint) {
+      this._tint = this.tint;
+      const t = this.tint;
+      this.glove.color.setHex(t ?? 0x2b3440);
+      this.palmMat.color.setHex(t ?? 0x2b3440);
+      this.jointMat.color.setHex(t != null ? new THREE.Color(t).multiplyScalar(1.2).getHex() : 0x3a4654);
+      this.glove.emissive.setHex(t != null ? new THREE.Color(t).multiplyScalar(0.35).getHex() : 0);
+      this.palmMat.emissive.copy(this.glove.emissive);
+    }
 
     // palma
     _mid.set(0, 0, 0);
@@ -3294,7 +4066,7 @@ class VRView {
 }
 
 // ---------------------------------------------------------------------
-// Painel 3D (aparece só no modo óculos): tempo, caixas, sinal e mensagens.
+// Painel 3D (aparece só no modo óculos): tempo, zumbis, vidas, bússola e mensagens.
 // ---------------------------------------------------------------------
 class HUD3D {
   constructor(camera) {
@@ -3532,8 +4304,8 @@ class CalibrationFlow {
   welcome() {
     const saved = loadCalib();
     const html = `
-      <p><b>Protótipo de teste</b> das mecânicas do jogo <i>Caçador de Sinal</i>.</p>
-      <p>A rede está falhando! Ache as <b>caixas pretas</b> (pontos de sinal), toque nelas com a mão e conecte os fios antes do tempo acabar.</p>
+      <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
+      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>✋ mão aberta = andar</b>, <b>👉 pistolinha = mirar</b> e <b>abaixar o polegar = atirar</b>.</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Existe uma calibração salva neste aparelho.</p>' : ''}
@@ -3552,7 +4324,7 @@ class CalibrationFlow {
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
     btns.push({ label: '🏆 Ranking do dia', onClick: () => this.showRanking(() => this.welcome()) });
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
-    this._show(`Caçador de Sinal — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
+    this._show(`🧟 Escola Zumbi — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
     this._wireOptions(() => this.welcome());
     this._checkOffline();
   }
@@ -3561,9 +4333,9 @@ class CalibrationFlow {
   nextPlayer() {
     const feira = this.app.options.feira;
     const html = `
-      <p><b>Próximo jogador!</b> Ache as caixas pretas, toque nelas com a ponta do dedo e ligue os fios da mesma cor.</p>
-      <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.FEIRA.TARGETS.length} caixas</b>.` : ''}
-      Siga o <b>bipe</b>: quanto mais rápido, mais perto. Perto da caixa ela solta <b>faíscas</b>.</p>
+      <p><b>Próximo jogador!</b> Elimine os zumbis da escola. <b>✋ Mão aberta</b> anda, <b>👉 pistolinha</b> mira e <b>abaixar o polegar</b> atira.</p>
+      <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis</b>.` : ''}
+      A mão fica <b>vermelha</b> quando a arma está pronta e <b>cinza</b> enquanto recarrega. A setinha no alto mostra o zumbi mais perto.</p>
       ${this._optionsHtml()}
       <p class="small" id="map-status">${this.app.mapText}</p>
       <p class="small" id="offline"></p>`;
@@ -3590,7 +4362,7 @@ class CalibrationFlow {
     let armed = false;
     this._show(`🏆 Ranking de hoje${feira ? ' (modo feira)' : ''}`, `
       <div id="rank-table">${rankingTable(feira)}</div>
-      <p class="small">Pontos: 100 por caixa consertada + 2 por segundo que sobrou (quando conserta todas). Fica guardado só neste celular.</p>`, [
+      <p class="small">Pontos: 100 por zumbi eliminado + 2 por segundo que sobrou (quando elimina todos). Fica guardado só neste celular.</p>`, [
       { label: '← Voltar', cls: 'primary', onClick: back },
       { label: '🗑 Apagar ranking de hoje', onClick: (btn) => {
         if (!armed) { armed = true; btn.textContent = 'Toque de novo para apagar'; setTimeout(() => { armed = false; btn.textContent = '🗑 Apagar ranking de hoje'; }, 3000); return; }
@@ -3610,7 +4382,7 @@ class CalibrationFlow {
       ${opt('vibrate', '📳 Vibração', '📴 Sem vibração')}
       ${opt('vignette', '🌑 Escurecer bordas ao andar', '⚪ Bordas normais ao andar')}
     </div>
-    <p class="small">Modo feira: partida de ${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min, ${CONFIG.FEIRA.TARGETS.length} caixas, tutorial curto e volta sozinho para o próximo jogador.</p>`;
+    <p class="small">Modo feira: partida de ${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min, ${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis, tutorial curto e volta sozinho para o próximo jogador.</p>`;
   }
 
   _wireOptions(redraw) {
@@ -3723,7 +4495,7 @@ class CalibrationFlow {
     const calib = this.app.calib;
     const set = (side) => { calib.locomotion = side; this.stepPose(0); };
     this._show('3. Mão de locomoção', `
-      <p>Uma mão serve para <b>andar</b> (teleporte com pistolinha + palma aberta) e a outra para <b>interagir</b> (tocar caixas, detector de sinal, pinça nos fios).</p>
+      <p>No jogo, qualquer mão pode <b>andar</b> (palma aberta) ou <b>atirar</b> (pistolinha + abaixar o polegar). A escolha aqui só define a mão principal da calibração.</p>
       <p>Qual mão você quer usar para <b>andar</b>?</p>
       <p class="small">Teste com o celular na mão: use a mão livre para tudo — dá para trocar depois recalibrando.</p>`, [
       { label: 'Esquerda anda (padrão)', cls: calib.locomotion === 'left' ? 'primary' : '', onClick: () => set('left') },
@@ -4006,10 +4778,9 @@ class DebugUI {
       this.input.aim = false;
       document.getElementById('btn-aim').classList.remove('on');
     });
-    this._btn('btn-touch', () => { if (!app.interaction.openNearest()) app.toast('Nenhuma caixa perto (chegue a menos de 3 m)'); });
+    this._btn('btn-shoot', () => { this.input.fire = true; });
+    this._btn('btn-skip', () => app.startGame());
     this._hold('btn-run', 'run');
-    this._hold('btn-pinch', 'pinch');
-    this._hold('btn-fist', 'fist');
     this._btn('btn-stereo', () => app.toggleVR());
     this._btn('btn-vradjust', () => app.calibration.showVrAdjust());
     this._btn('btn-help', () => app.calibration.showHelp());
@@ -4032,7 +4803,7 @@ class DebugUI {
       if (e.repeat) return;
       const k = e.key.toLowerCase();
       if (k === 'q') this.input.keyAim = true;
-      if (k === 'e') app.interaction.openNearest();
+      if (k === 'e' || k === ' ') { e.preventDefault(); this.input.fire = true; }
       if (k === 'f') this.input.pinch = true;
       if (k === 'g') this.input.fist = true;
       if (k === 'r') app.recenter();
@@ -4116,7 +4887,7 @@ class DebugUI {
 }
 
 // ===== js/main.js =====
-// Caçador de Sinal — protótipo. Loop principal e estados do jogo.
+// Escola Zumbi (antigo Caçador de Sinal) — protótipo. Loop principal e estados do jogo.
 // Estados: boot -> calibration -> tutorial -> playing -> ended
 
 class App {
@@ -4145,7 +4916,8 @@ class App {
     this.rig.add(this.eye);
     this.eye.add(this.camera);
     this.scene.add(this.rig);
-    this.locoMode = CONFIG.LOCOMOTION;
+    // a pistolinha agora é a arma: o teleporte (que usava a pistolinha) vira 'palma'
+    this.locoMode = CONFIG.LOCOMOTION === 'teleporte' ? 'palma' : CONFIG.LOCOMOTION;
     document.body.classList.add(`mode-${this.locoMode}`);
     this.xrSupported = false;
     this.xrActive = false;
@@ -4162,8 +4934,12 @@ class App {
     this.vignette = makeVignette();
     this.camera.add(this.vignette);
     this.vignetteK = 0;
+    this.hurtFx = makeHurt();
+    this.camera.add(this.hurtFx);
+    this.hurtK = 0;
 
     this.world = buildWorld(this.scene);
+    this._clearTargets();
     this.rig.position.copy(this.world.spawn);
     this.floorY = this.rig.position.y;
     // a escola de verdade carrega em segundo plano; até lá vale o mapa de blocos
@@ -4174,13 +4950,13 @@ class App {
     this.hands = new HandTracker(this.calib);
     this.handViews = [new HandView(this.camera, this.hands.left), new HandView(this.camera, this.hands.right)];
 
-    this.tutorial = { teleport: false, touch: false, wire: false };
+    this.tutorial = { walk: false, aim: false, shoot: false };
     this.teleport = new Teleport(this.scene, this.rig, this.camera, this.world, {
-      onTeleport: () => { if (this.state === 'tutorial' && !this.tutorial.teleport) { this.tutorial.teleport = true; this._refreshTutorial(); } },
+      onTeleport: () => {},
       onFail: (msg) => this.toast(`Teleporte: ${msg}`),
     });
     this.runner = new Runner(this.rig, this.eye, this.camera, this.world, {
-      onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.teleport && d > 2) { this.tutorial.teleport = true; this._refreshTutorial(); } },
+      onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.walk && d > 2) { this.tutorial.walk = true; this.sfx.wire(true); } },
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
       onOpen: (t) => {
@@ -4194,6 +4970,19 @@ class App {
       wireCount: (t) => this._wireCount(t),
       onFixed: () => this._onFixed(),
     });
+    this.gun = new Gun(this.scene, this.camera, this.world, {
+      onShot: (hit) => this._onShot(hit),
+      onReady: () => { this.sfx.cock(); if (this.state === 'tutorial' && !this.tutorial.aim) { this.tutorial.aim = true; this.sfx.wire(true); } },
+    });
+    this.horde = new Horde(this.scene, this.world, {
+      onHit: () => this._onBite(),
+      onGroan: (d) => this.sfx.groan(d),
+    });
+    this.coach = new Coach(this.camera);
+    this.hp = CONFIG.PLAYER.HP;
+    this.lastPalm = -1e9;
+    this._fx = [];
+    this._hv = new THREE.Vector3();
     this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
@@ -4277,6 +5066,7 @@ class App {
     try {
       await loadSchool(this.world, this.scene, (msg, f) => setText(`🏫 ${msg}… ${Math.round(f * 100)}%`));
       this.rig.rotation.y = CONFIG.MAP.SPAWN_YAW;
+      this._clearTargets();
       if (this.state === 'boot' || this.state === 'calibration') { this.rig.position.copy(this.world.spawn); this.floorY = this.world.spawn.y; }
       this.applyOptions();
       setText('<span class="ok">🏫 Escola carregada.</span>');
@@ -4290,7 +5080,7 @@ class App {
   // Se a escola ainda está carregando, mostra o progresso e chama again() no fim.
   _waitMap(again) {
     if (this.mapDone) return false;
-    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (17 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
+    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (10 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
     this.mapPromise.then(again);
     return true;
   }
@@ -4326,6 +5116,11 @@ class App {
     this.runner.distance = 0;
     this.teleport.lastJump = -1e9;
     this.teleport.jumps = 0;
+    this.gun.hide();
+    this.horde.clear();
+    this.hp = CONFIG.PLAYER.HP;
+    this.hurtK = 0;
+    this._tutDoneAt = 0;
     this.rig.position.copy(this.world.spawn);
     this.floorY = this.world.spawn.y;
     this.recenter();
@@ -4333,35 +5128,134 @@ class App {
 
   startTutorial() {
     if (this._waitMap(() => this.startTutorial())) return;
+    this.calibration.hide();
     this.state = 'tutorial';
     this._resetWorld();
-    this.interaction.mode = 'tutorial';
-    this.tutorial = { teleport: false, touch: false, wire: false };
-    if (this.options.feira) {
-      // modo feira: começa do lado do pedestal, sem o passo de andar
-      if (this.world.tutorialSpawn) { this.rig.position.copy(this.world.tutorialSpawn); this.floorY = this.rig.position.y; } else this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
-      this.tutorial.teleport = true;
+    this.tutorial = { walk: false, aim: false, shoot: false };
+    // zumbi de treino na frente do início (parado, 1 tiro)
+    const yaw = this.rig.rotation.y;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const S = this.world.spawn;
+    let pos = null;
+    for (let d = CONFIG.ZOMBIES.DUMMY_DIST; d > 2 && !pos; d -= 0.5) {
+      for (const off of [0, 0.6, -0.6, 1.2, -1.2]) {
+        const x = S.x + fx * d - fz * off, z = S.z + fz * d + fx * off;
+        const y = this.world.floorAt(x, z);
+        if (y != null && this.world.isFree(x, z, 0.35, y)) { pos = new THREE.Vector3(x, y, z); break; }
+      }
     }
-    this._refreshTutorial();
+    if (!pos) pos = new THREE.Vector3(S.x + fx * 4, S.y, S.z + fz * 4);
+    this.horde.spawnDummy(pos, Math.atan2(S.x - pos.x, S.z - pos.z));
     document.body.classList.remove('playing');
+    document.body.classList.add('tutorial');
+    this.toast('Tutorial: siga a dica no canto da tela');
   }
 
-  _refreshTutorial() { if (this.state === 'tutorial') this.calibration.showTutorial(this.tutorial); }
+  _refreshTutorial() {}
+
+  // Tira as caixas do jogo antigo (o jogo agora é de zumbis).
+  _clearTargets() {
+    for (const t of this.world.targets) this.scene.remove(t.group);
+    this.world.targets = [];
+    this.world._reach = null;
+  }
+
+  // Passos do tutorial: todos feitos -> a partida começa sozinha em 3 s.
+  _tutorialStep(now) {
+    const t = this.tutorial;
+    if (t.walk && t.aim && t.shoot && !this._tutDoneAt) {
+      this._tutDoneAt = now;
+      this.sfx.fixed();
+      this.toast('Tutorial completo! A partida começa em 3 s…');
+    }
+    if (this._tutDoneAt && now - this._tutDoneAt > 3000) this.startGame();
+  }
 
   startGame() {
     if (this._waitMap(() => this.startGame())) return;
     this.calibration.hide();
     this.state = 'playing';
     this._resetWorld();
-    // cada partida sorteia onde fica a caixa de cada lugar
-    if (CONFIG.INTERACTION.RANDOM_SPOTS) { placeTargets(this.world, this.scene, true); this.applyOptions(); }
-    this.interaction.mode = 'game';
+    const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
+    this.horde.spawnHorde(n, this.world.spawn);
     this.timeLeft = this.gameTime();
     this._alarmDone = false;
     this._lastTick = 0;
+    this._loseReason = '';
     this.gameStart = performance.now();
+    document.body.classList.remove('tutorial');
     document.body.classList.add('playing');
-    this.toast('Valendo! Siga o detector de sinal.');
+    this.toast(`🧟 ${this.horde.total} zumbis na escola. Elimine todos!`);
+  }
+
+  // Raio da mira: zumbi mais perto ou parede (o que vier primeiro).
+  _findHit(o, d) {
+    const R = CONFIG.GUN.RANGE;
+    const zh = this.horde.rayHit(o, d, R);
+    const end = this._hv.copy(o).addScaledVector(d, zh ? zh.dist : R);
+    const wall = this.world.segmentHit(o, end);
+    if (wall && wall.point) {
+      const wd = wall.point.distanceTo(o);
+      if (!zh || wd < zh.dist - 0.05) return { dist: wd, point: wall.point, wall: true };
+    }
+    return zh;
+  }
+
+  _onShot(hit) {
+    this.sfx.shot();
+    if (this.state === 'tutorial') this.tutorial.aim = true; // atirou (mão ou botão): já sabe mirar
+    this.horde.alertAll(this.rig.position, CONFIG.ZOMBIES.SHOT_ALERT);
+    if (!hit) return;
+    if (hit.zombie) {
+      const z = hit.zombie;
+      const kill = this.horde.damage(z, hit.part);
+      this.sfx.zombieHit(kill);
+      this._puff(hit.point, 0x8a0d0d, kill ? 0.35 : 0.22);
+      if (!kill) return;
+      if (z.dummy) {
+        if (this.state === 'tutorial') { this.tutorial.shoot = true; this.toast(hit.part === 'head' ? '💥 Na cabeça! Isso aí!' : '🧟 Acertou!'); }
+        return;
+      }
+      const left = this.horde.alive;
+      this.toast(`${hit.part === 'head' ? '💥 Na cabeça!' : '🧟 Abatido!'} Faltam ${left}`);
+      if (this.state === 'playing' && left === 0) this.endGame(true);
+    } else {
+      this._puff(hit.point, 0xbdb6a6, 0.15);
+    }
+  }
+
+  // Mordida de zumbi
+  _onBite() {
+    if (this.state !== 'playing') return;
+    this.hp--;
+    this.hurtK = 1;
+    this.sfx.hurt();
+    this.toast(this.hp > 0 ? `🩸 Mordida! ${'❤'.repeat(this.hp)}` : '🩸 Os zumbis te pegaram!');
+    if (this.hp <= 0) { this._loseReason = 'bitten'; this.endGame(false); }
+  }
+
+  // nuvenzinha (sangue ou poeira) onde o tiro bateu
+  _puff(p, color, size) {
+    if (!this._puffGeo) this._puffGeo = new THREE.SphereGeometry(1, 8, 6);
+    const m = new THREE.Mesh(this._puffGeo, new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }));
+    m.position.copy(p);
+    m.scale.setScalar(size * 0.3);
+    this.scene.add(m);
+    this._fx.push({ m, t: 0, size });
+  }
+
+  _updateFx(dt) {
+    for (let i = this._fx.length - 1; i >= 0; i--) {
+      const f = this._fx[i];
+      f.t += dt;
+      const k = f.t / 0.35;
+      f.m.scale.setScalar(f.size * (0.3 + k));
+      f.m.material.opacity = Math.max(0, 1 - k);
+      if (k >= 1) { this.scene.remove(f.m); f.m.material.dispose(); this._fx.splice(i, 1); }
+    }
+    this.hurtK = Math.max(0, this.hurtK - dt * 1.6);
+    this.hurtFx.visible = this.hurtK > 0.01;
+    this.hurtFx.material.opacity = this.hurtK * 0.55;
   }
 
   _gameTargets() { return this.world.targets.filter((t) => !t.tutorial && !t.off); }
@@ -4392,18 +5286,19 @@ class App {
     if (this.state !== 'playing') return;
     this.state = 'ended';
     this.teleport.cancel();
-    this.interaction.closePanel();
+    this.gun.hide();
     document.body.classList.remove('playing');
-    const all = this._gameTargets();
-    const fixed = all.filter((t) => t.state === 'fixed').length;
+    const all = { length: this.horde.total };
+    const fixed = this.horde.killed;
     const used = Math.min((performance.now() - this.gameStart) / 1000, this.gameTime());
     setTimeout(() => (win ? this.sfx.win() : this.sfx.lose()), 350);
     const c = this.calibration;
     const feira = this.options.feira;
     const { rec, place } = addResult({ fixed, total: all.length, used, timeLeft: this.timeLeft, win, feira });
-    c._show(win ? '🎉 Rede restaurada!' : '⏰ O tempo acabou', `
-      <p>${win ? 'Você consertou todos os pontos de sinal.' : 'A rede caiu antes de você consertar tudo.'}</p>
-      <p class="score"><b>${rec.points}</b> pontos · caixas <b>${fixed}/${all.length}</b> · tempo <b>${fmtTime(used)}</b>
+    const bitten = this._loseReason === 'bitten';
+    c._show(win ? '🎉 Escola salva!' : bitten ? '🧟 Os zumbis te pegaram' : '⏰ O tempo acabou', `
+      <p>${win ? 'Você eliminou todos os zumbis da escola.' : bitten ? 'Você levou mordidas demais. Fique de olho nos lados!' : 'Ainda sobraram zumbis na escola.'}</p>
+      <p class="score"><b>${rec.points}</b> pontos · zumbis <b>${fixed}/${all.length}</b> · tempo <b>${fmtTime(used)}</b>
       ${place ? `<br>${place === 1 ? '🏆 <b>Melhor do dia!</b>' : `Você ficou em <b>${place}º</b> hoje.`}` : ''}</p>
       <div class="name-row"><input id="rank-name" maxlength="${CONFIG.RANKING.NAME_MAX}" placeholder="Seu nome" autocomplete="off" enterkeyhint="done"><button id="rank-save">Salvar nome</button></div>
       <div id="rank-table">${rankingTable(feira, rec.id)}</div>
@@ -4443,7 +5338,7 @@ class App {
   // Tela entre um visitante e outro: zera a partida e guarda a calibração.
   nextPlayer() {
     clearInterval(this._autoT);
-    document.body.classList.remove('playing');
+    document.body.classList.remove('playing', 'tutorial');
     if (this.xrActive) this.renderer.xr.getSession().end();
     this.state = 'next';
     this._resetWorld();
@@ -4598,7 +5493,13 @@ class App {
       p.lx = e.clientX; p.ly = e.clientY; p.x = e.clientX; p.y = e.clientY;
       if (!this.interaction.grabs.has(p.id) && !this.orientation.hasData) this.orientation.addManual(dx, dy);
     });
-    const up = (e) => { const p = this.mouse.get(e.pointerId); if (p) p.down = false; };
+    const up = (e) => {
+      const p = this.mouse.get(e.pointerId);
+      if (!p) return;
+      p.down = false;
+      // toque rápido na tela (sem arrastar) = atirar no centro
+      if ((this.state === 'playing' || this.state === 'tutorial') && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 12) this.debug.input.fire = true;
+    };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
   }
@@ -4631,8 +5532,6 @@ class App {
     for (const h of this.hands.hands) {
       if (fresh || !h.visible) updateHandGesture(h, this.calib.thresholds, now);
     }
-    for (const v of this.handViews) v.update();
-
     const active = this.state === 'tutorial' || this.state === 'playing';
     const loco = this.hands.get(this.locoSide());
     const inter = this.hands.get(this.interSide());
@@ -4643,11 +5542,12 @@ class App {
       this.runner.manualSource = 'botão';
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
-      if (this.locoMode === 'palma' && this.hands.hands.some((h) => h.visible && h.gesture === 'open')) { manual = 1; this.runner.manualSource = 'palma aberta'; }
+      // mão aberta (a que não está com a arma) = anda; continua um instante se a palma "piscar"
+      if (this.hands.hands.some((h) => h.visible && h.gesture === 'open' && h.side !== this.gun.side)) this.lastPalm = now;
+      if (this.locoMode === 'palma' && now - this.lastPalm < CONFIG.PLAYER.WALK_GRACE_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.useSwing = this.locoMode === 'correr';
       this.runner.maxSpeed = this.locoMode === 'correr' ? CONFIG.RUN.MAX_SPEED : CONFIG.RUN.WALK_SPEED;
-      const busy = this.interaction.grabs.size > 0; // arrastando fio: não anda
-      this.runner.update(now, dt, this.hands.hands, manual, busy);
+      this.runner.update(now, dt, this.hands.hands, manual, false);
       this.teleport.hide();
     } else if (active) {
       this.teleport.update(now, loco, input.aim || input.keyAim);
@@ -4656,17 +5556,19 @@ class App {
       if (this.runner.speed) this.runner.stop();
     }
 
-    // 4) interação: tocar, painel, detector
+    // 4) arma e zumbis
     if (active) {
-      if (inter.visible && inter.present) this.interaction.checkTouch(inter.worldPts[8]);
-      this.interaction.updatePanel(this._collectPointers(), window.innerWidth, window.innerHeight, now);
-      this.interaction.updateDetector(inter);
+      const fire = !!input.fire;
+      input.fire = false;
+      this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
+      this.horde.update(dt, this.rig.position);
+      this._collectPointers();
+      if (this.state === 'tutorial') this._tutorialStep(now);
     } else {
-      this.interaction.detector.group.visible = false;
+      this.gun.hide();
     }
-    animateTargets(this.world.targets, dt, now / 1000, this.rig.position, (t) => active && this.interaction.eligible(t));
-    // bipe do detector (quieto com o painel aberto)
-    if (active && !this.interaction.panel && this.interaction.nearest) this.sfx.detector(this.interaction.nearest.dist, now / 1000);
+    for (const v of this.handViews) { v.tint = this.gun.tintFor(v.hand.side, now); v.update(); }
+    this._updateFx(dt);
 
     // 5) tempo
     if (this.state === 'playing') {
@@ -4679,6 +5581,7 @@ class App {
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
+    this._updateCoach(active);
 
     // 6) render
     this._render();
@@ -4749,31 +5652,58 @@ class App {
     if (!active) { if (this.stereo || this.xrActive) this.hud3d.update({ timer: this.state === 'ended' ? 'fim' : '' }); return; }
     const info = {};
     const tl = document.getElementById('timer');
+    const hearts = '❤'.repeat(Math.max(0, this.hp));
     if (this.state === 'playing') {
       tl.textContent = info.timer = fmtTime(this.timeLeft);
       tl.classList.toggle('urgent', this.timeLeft < 30);
-      const all = this._gameTargets();
-      document.getElementById('count').textContent = info.count = `📡 ${all.filter((t) => t.state === 'fixed').length}/${all.length}`;
+      document.getElementById('count').textContent = info.count = `🧟 ${this.horde.alive} ${hearts}`;
     } else {
       tl.textContent = info.timer = 'tutorial';
-      document.getElementById('count').textContent = '';
+      document.getElementById('count').textContent = info.count = '';
     }
-    // bússola do detector (ajuda quando a mão de interação não está visível)
-    const near = this.interaction.nearest;
+    // bússola: zumbi vivo mais perto
+    let near = null;
+    for (const z of this.horde.list) {
+      if (z.dead || (z.dummy && this.state === 'playing')) continue;
+      const d = z.m.root.position.distanceTo(this.rig.position);
+      if (!near || d < near.dist) near = { z, dist: d };
+    }
     const comp = document.getElementById('compass');
     if (!near) { comp.hidden = true; } else {
       comp.hidden = false;
-      const local = this.camera.worldToLocal(this._v.copy(near.target.center));
+      const zp = near.z.m.root.position;
+      const local = this.camera.worldToLocal(this._v.set(zp.x, zp.y + 1.2, zp.z));
       const ang = Math.atan2(local.x, -local.z);
       document.getElementById('compass-arrow').style.transform = `rotate(${ang}rad)`;
-      const up = local.y > 0.6 && near.dist < 5 ? ' ↑ olhe para cima' : '';
-      document.getElementById('compass-text').textContent = `${near.dist.toFixed(1)} m${up}`;
-      info.dist = `${near.dist.toFixed(1)} m`; info.arrowAngle = ang; info.up = !!up;
+      document.getElementById('compass-text').textContent = `🧟 ${near.dist.toFixed(0)} m`;
+      info.dist = `${near.dist.toFixed(0)} m`; info.arrowAngle = ang; info.up = false;
     }
     if (this.locoMode !== 'teleporte' && this.runner.speed > 0.2) info.count = `${info.count || ''} 🏃`;
     if (this.stereo || this.xrActive) this.hud3d.update(info);
     const input = this.debug.input;
     document.getElementById('crosshair').classList.toggle('on', input.pinch || input.fist || input.aim);
+  }
+
+  _updateCoach(active) {
+    const tut = this.state === 'tutorial';
+    const t = this.tutorial;
+    const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
+    const notes = {
+      walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> para a câmera. Abaixe a mão para parar.',
+      aim: 'Faça a <b>pistolinha</b>: indicador esticado, polegar para cima. A mão fica <b>vermelha</b> = pronta.',
+      shoot: 'Cubra o zumbi de treino com a mão e <b>abaixe o polegar</b>. A mão fica <b>cinza</b> até recarregar.',
+    };
+    const g = this.gun.state;
+    this.coach.update({
+      show: active,
+      stereo: this.stereo || this.xrActive,
+      title: tut ? (cur ? 'Tutorial' : 'Pronto! Começando…') : '',
+      cur,
+      done: tut ? { ...t } : {},
+      active: { walk: this.runner.speed > 0.2, aim: this.gun.aiming, shoot: performance.now() - this.gun.lastShot < 350 },
+      gun: g === 'ready' ? 'ready' : g === 'off' ? 'off' : 'reload',
+      note: tut && cur ? notes[cur] : '',
+    });
   }
 
   _render() {
@@ -4811,6 +5741,16 @@ function makeVignette() {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(D * 8, D * 8), mat);
   m.position.z = -D;
   m.renderOrder = 40; // por cima do mundo, por baixo do HUD 3D e do painel
+  m.frustumCulled = false;
+  m.visible = false;
+  return m;
+}
+
+// Tela vermelha ao levar mordida (presa à câmera: funciona no óculos também).
+function makeHurt() {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0xb00000, transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
+  m.position.z = -0.11;
+  m.renderOrder = 41;
   m.frustumCulled = false;
   m.visible = false;
   return m;

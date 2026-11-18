@@ -127,5 +127,37 @@ export class Sfx {
     this._tone(1500 - 700 * k, 0.05, { type: 'sine', gain: 0.22 - 0.1 * k });
   }
 
+  // ---------------- zumbis ----------------
+  shot() {
+    this._noise(0.16, { gain: 0.55, freq: 1400 });
+    this._noise(0.32, { gain: 0.28, freq: 300, at: 0.01 });
+    this._tone(140, 0.14, { type: 'square', gain: 0.25, slide: -90 });
+    this.vibrate(30);
+  }
+
+  cock() { this._tone(1900, 0.03, { type: 'square', gain: 0.12 }); this._tone(1200, 0.03, { type: 'square', gain: 0.1, at: 0.05 }); }
+
+  zombieHit(kill) {
+    this._noise(0.1, { gain: 0.35, freq: 600 });
+    if (kill) {
+      this._tone(220, 0.5, { type: 'sawtooth', gain: 0.2, slide: -150, at: 0.05 });
+      this._tone(160, 0.6, { type: 'sawtooth', gain: 0.12, slide: -100, at: 0.12 });
+    } else this._tone(300, 0.18, { type: 'sawtooth', gain: 0.16, slide: -120 });
+  }
+
+  // gemido: mais alto quanto mais perto
+  groan(dist) {
+    const k = Math.max(0.15, 1 - dist / 10);
+    const f = 85 + Math.random() * 40;
+    this._tone(f, 0.9, { type: 'sawtooth', gain: 0.16 * k, slide: -25 });
+    this._tone(f * 1.5, 0.7, { type: 'triangle', gain: 0.08 * k, slide: -30, at: 0.08 });
+  }
+
+  hurt() {
+    this._noise(0.25, { gain: 0.45, freq: 250 });
+    this._tone(110, 0.3, { type: 'square', gain: 0.22, slide: -40 });
+    this.vibrate([120, 40, 120]);
+  }
+
   resetDetector() { this.nextBeep = 0; }
 }
