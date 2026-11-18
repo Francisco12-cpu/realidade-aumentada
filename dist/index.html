@@ -288,7 +288,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v23',
+  VERSION: 'v24',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -350,6 +350,7 @@ const CONFIG = {
     // vem invertido, então por padrão invertemos. A calibração confirma.
     FLIP_HANDEDNESS: true,
     LOST_GRACE_MS: 500,         // segura a mão na tela por esse tempo se sumir
+    EDGE_MARGIN: 0.12,          // v24: mão sumiu a menos disso da borda da imagem = seta "saiu por aqui"
     DUP_DIST: 0.08,             // duas detecções mais perto que isso (fração da imagem) = a mesma mão
     GHOST_DIST: 0.15,           // mão "pulou" de lado: a cópia antiga perto disso some na hora
     // 'real' = mão no mesmo ângulo e distância da mão de verdade (v16) · 'tela' = imagem esticada na tela (antigo)
@@ -433,6 +434,7 @@ const CONFIG = {
     AUTO: true,             // baixa a resolução se o FPS cair, sobe se sobrar
     LOW_FPS: 45,
     HIGH_FPS: 56,
+    XR_FOVEATION: 1,        // v24: (VR do Chrome) 0 = igual na lente toda · 1 = bordas mais leves
   },
 
   // ---- Mapa: escola de verdade (modelo 3D original) ----
@@ -441,6 +443,7 @@ const CONFIG = {
     // 'punho' = fechar a mão atira (funciona de qualquer ângulo) · 'polegar' = pistolinha + abaixar o polegar (antigo)
     // v18 'auto' = mão VERMELHA faz a pistolinha e atira sozinha a cada recarga (barra)
     MODE: 'auto',
+    SHOW_MODEL: true,       // v24: pistola 3D aparece na mão da pistolinha
     // v21: 'cabeca' = mira com a cabeça (ponto no meio da visão), pistolinha atira · 'dedo' = mira pela mão (v20)
     AIM: 'cabeca',
     PISTOL_INDEX: 1.4,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
@@ -488,6 +491,7 @@ const CONFIG = {
     FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
     AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
     GROAN_DIST: 9,
+    ANIM_FAR: 25,           // v24: zumbis mais longe que isso animam com menos frequência
     CORPSE_S: 3,            // corpo fica no chão esse tempo antes de sumir
     DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
   },
@@ -561,6 +565,30 @@ const CONFIG = {
     DETAIL_DIST: 28,        // detalhes (carros, pessoas, plantas, móveis) somem além disso (m)
     FOG_NEAR: 18,
     FOG_FAR: 55,
+    FOG_COLOR: 0xc4baa8,    // v24: neblina poeirenta (combina com o céu do apocalipse)
+    VIEW_FAR: 230,          // v24: até onde a câmera enxerga (prédios e céu no horizonte)
+    CHUNK_CULL: true,       // v24: blocos da escola além da neblina não são desenhados
+  },
+
+  // ---- Cenário em volta da escola (v24) ----
+  CENARIO: {
+    ON: true,
+    MARGIN: 1,              // folga entre a escola e a calçada (m)
+    SIDEWALK_W: 3,
+    ROAD_W: 9,
+    BUILD_GAP: 3,           // da rua até a frente dos prédios
+    BUILD_ROWS: 2,          // fileiras de prédios (a de trás é mais alta)
+    CAR_EVERY: 14,          // um carro a cada ~isso de rua (m)
+    POLE_EVERY: 16,
+    FIRES: 6,               // barris pegando fogo
+    SMOKES: 5,              // colunas de fumaça ao longe
+    GROUND_SIZE: 600,
+    SKY_R: 210,
+    HAZE_NEAR: 45,          // neblina dos prédios (bem mais longe que a da escola)
+    HAZE_FAR: 260,
+    SKY_TOP: '#5f7690',
+    SKY_MID: '#a7a39a',
+    SKY_HORIZON: '#c4baa8',
   },
 
   // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----
@@ -611,7 +639,7 @@ const WIRE_NAMES = ['vermelho', 'verde', 'azul', 'amarelo'];
 // ===== js/options.js =====
 // Opções do jogador (som, vibração, vinheta, modo feira), salvas no aparelho.
 
-const DEFAULTS = { sound: true, vibrate: true, vignette: true, feira: false, tutorial: true };
+const DEFAULTS = { sound: true, vibrate: true, vignette: true, feira: false, tutorial: true, parado: false };
 
 function loadOptions() {
   let saved = {};
@@ -1271,6 +1299,383 @@ class OneEuro3 {
   }
 }
 
+// ===== js/cenario.js =====
+// Cenário em volta da escola (v24), todo feito por código (sem arquivos):
+//  céu com nuvens que acompanha o jogador · chão de terra e grama · ruas com
+//  faixa e calçadas · prédios com janelas (alguns acesos, outros quebrados) ·
+//  carros batidos, postes, árvores, barris pegando fogo e fumaça ao longe.
+// Tudo junto em poucas peças (poucos desenhos = leve no celular). Fica FORA
+// da escola, então não muda a colisão.
+
+const C = () => CONFIG.CENARIO;
+
+// gerador de números "aleatórios" fixo (o cenário é sempre o mesmo)
+function rng(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+function canvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return { c, g: c.getContext('2d') };
+}
+
+function tex(c, repeat = true) {
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
+}
+
+// pontinhos de ruído por cima de uma cor (terra, asfalto, concreto)
+function speckle(g, w, h, base, n, colors, r, size = 2) {
+  g.fillStyle = base; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < n; i++) {
+    g.fillStyle = colors[Math.floor(r() * colors.length)];
+    g.globalAlpha = 0.25 + r() * 0.5;
+    const s = size * (0.5 + r());
+    g.fillRect(r() * w, r() * h, s, s);
+  }
+  g.globalAlpha = 1;
+}
+
+// ---------------- texturas ----------------
+function groundTex() {
+  const r = rng(11), { c, g } = canvas(512, 512);
+  speckle(g, 512, 512, '#6f6a4a', 9000, ['#5d6b3a', '#7d7550', '#57513a', '#8a8060', '#4c5a33'], r, 3);
+  // manchas de terra
+  for (let i = 0; i < 26; i++) {
+    const x = r() * 512, y = r() * 512, rad = 20 + r() * 60;
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, 'rgba(120,100,70,0.55)'); gr.addColorStop(1, 'rgba(120,100,70,0)');
+    g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  return tex(c);
+}
+
+function asphaltTex() {
+  const r = rng(22), { c, g } = canvas(256, 512);
+  speckle(g, 256, 512, '#3a3b3e', 6000, ['#2c2d30', '#47484c', '#333438', '#55565a'], r, 2);
+  // rachaduras
+  g.strokeStyle = 'rgba(20,20,22,0.7)'; g.lineWidth = 1.5;
+  for (let i = 0; i < 10; i++) {
+    let x = r() * 256, y = r() * 512; g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 6; k++) { x += (r() - 0.5) * 30; y += (r() - 0.5) * 30; g.lineTo(x, y); }
+    g.stroke();
+  }
+  // faixa tracejada no meio e linhas das bordas
+  g.fillStyle = '#d8c25a';
+  for (let y = 0; y < 512; y += 128) g.fillRect(122, y + 10, 12, 70);
+  g.fillStyle = '#cfcfc8'; g.fillRect(8, 0, 6, 512); g.fillRect(242, 0, 6, 512);
+  return tex(c);
+}
+
+function concreteTex() {
+  const r = rng(33), { c, g } = canvas(256, 256);
+  speckle(g, 256, 256, '#8d8a84', 4000, ['#7c7973', '#9d9a94', '#85827c'], r, 2);
+  g.strokeStyle = 'rgba(60,58,55,0.6)'; g.lineWidth = 2;
+  for (let i = 0; i <= 256; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(256, i); g.stroke(); }
+  return tex(c);
+}
+
+// fachada: grade de janelas (escuras, algumas acesas, algumas quebradas)
+function facadeTex() {
+  const r = rng(44), { c, g } = canvas(256, 256);
+  speckle(g, 256, 256, '#bdb6aa', 3000, ['#aaa396', '#c9c2b6', '#9e978a'], r, 2);
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+    const px = 14 + x * 64, py = 12 + y * 64;
+    const k = r();
+    g.fillStyle = k < 0.12 ? '#f2c66b' : k < 0.2 ? '#151515' : '#2c3640';
+    g.fillRect(px, py, 36, 42);
+    if (k >= 0.12 && k < 0.2) { // quebrada: cacos
+      g.strokeStyle = '#6d7a86'; g.beginPath(); g.moveTo(px, py); g.lineTo(px + 20, py + 26); g.lineTo(px + 36, py + 8); g.stroke();
+    } else if (k >= 0.2) { g.fillStyle = 'rgba(160,190,210,0.25)'; g.fillRect(px + 2, py + 2, 12, 38); }
+    g.fillStyle = '#8b857a'; g.fillRect(px - 3, py + 42, 42, 5); // peitoril
+  }
+  // canto de cima à esquerda: cor lisa do telhado (UV 0..0.04)
+  g.fillStyle = '#4a4744'; g.fillRect(0, 0, 10, 10);
+  return tex(c);
+}
+
+function skyTex() {
+  const r = rng(55), W = 1024, H = 512, { c, g } = canvas(W, H);
+  const gr = g.createLinearGradient(0, 0, 0, H / 2);
+  const S = C();
+  gr.addColorStop(0, S.SKY_TOP); gr.addColorStop(0.75, S.SKY_MID); gr.addColorStop(1, S.SKY_HORIZON);
+  g.fillStyle = gr; g.fillRect(0, 0, W, H / 2);
+  g.fillStyle = S.SKY_HORIZON; g.fillRect(0, H / 2, W, H / 2);
+  // nuvens: muitas manchas suaves, mais perto do horizonte
+  for (let i = 0; i < 260; i++) {
+    const y = Math.pow(r(), 0.7) * H * 0.47, x = r() * W, rad = 18 + r() * 70 * (1 - y / H);
+    const a = 0.05 + r() * 0.12;
+    for (const off of [0, -W, W]) { // repete nas bordas (sem emenda)
+      const cg = g.createRadialGradient(x + off, y, 0, x + off, y, rad);
+      cg.addColorStop(0, `rgba(235,226,212,${a})`); cg.addColorStop(1, 'rgba(235,226,212,0)');
+      g.fillStyle = cg; g.fillRect(x + off - rad, y - rad, rad * 2, rad * 2);
+    }
+  }
+  const t = tex(c, false);
+  t.wrapS = THREE.RepeatWrapping;
+  return t;
+}
+
+function smokeTex() {
+  const { c, g } = canvas(128, 128);
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(70,66,62,0.85)'); gr.addColorStop(0.5, 'rgba(70,66,62,0.4)'); gr.addColorStop(1, 'rgba(70,66,62,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  return tex(c, false);
+}
+
+function fireTex() {
+  const { c, g } = canvas(64, 64);
+  const gr = g.createRadialGradient(32, 40, 0, 32, 36, 32);
+  gr.addColorStop(0, 'rgba(255,240,170,1)'); gr.addColorStop(0.35, 'rgba(255,150,40,0.9)'); gr.addColorStop(1, 'rgba(200,40,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return tex(c, false);
+}
+
+// ---------------- materiais ----------------
+// "Neblina de longe": os prédios usam uma neblina própria, bem mais distante
+// que a da escola, para aparecerem no horizonte (silhueta da cidade).
+function hazeMaterial(params, near, far) {
+  const m = new THREE.MeshLambertMaterial(params);
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.cenNear = { value: near };
+    sh.uniforms.cenFar = { value: far };
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <fog_pars_fragment>', THREE.ShaderChunk.fog_pars_fragment.replace(/fogNear/g, 'cenNear').replace(/fogFar/g, 'cenFar'))
+      .replace('#include <fog_fragment>', THREE.ShaderChunk.fog_fragment.replace(/fogNear/g, 'cenNear').replace(/fogFar/g, 'cenFar'));
+  };
+  m.customProgramCacheKey = () => `haze-${near}-${far}`;
+  return m;
+}
+
+// ---------------- geometria juntada ----------------
+// Junta várias caixas/cilindros (cada um com sua matriz e cor) numa peça só.
+class Merger {
+  constructor() { this.pos = []; this.nor = []; this.uv = []; this.col = []; }
+  add(geo, matrix, color, uvMode = null) {
+    const g = geo.index ? geo.toNonIndexed() : geo.clone();
+    g.applyMatrix4(matrix);
+    const p = g.attributes.position, n = g.attributes.normal, u = g.attributes.uv;
+    const c = new THREE.Color(color);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      this.pos.push(x, y, z);
+      const nx = n.getX(i), ny = n.getY(i), nz = n.getZ(i);
+      this.nor.push(nx, ny, nz);
+      if (uvMode) {
+        // fachada: janelas repetem pelo tamanho do prédio; telhado = cor lisa
+        if (Math.abs(ny) > 0.5) this.uv.push(0.02, 0.98);
+        else this.uv.push((Math.abs(nx) > 0.5 ? z : x) / uvMode.w, y / uvMode.h);
+      } else this.uv.push(u ? u.getX(i) : 0, u ? u.getY(i) : 0);
+      this.col.push(c.r, c.g, c.b);
+    }
+    g.dispose();
+  }
+  mesh(material) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.computeBoundingSphere();
+    const m = new THREE.Mesh(g, material);
+    m.matrixAutoUpdate = false;
+    return m;
+  }
+  get count() { return this.pos.length / 3; }
+}
+
+const M4 = (x, y, z, ry = 0, sx = 1, sy = 1, sz = 1, rx = 0, rz = 0) =>
+  new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+const CYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
+const CONE = new THREE.ConeGeometry(0.5, 1, 8);
+
+// ---------------- montagem ----------------
+// box: Box3 da escola · y0: altura do chão
+function buildCenario(scene, box, y0 = 0) {
+  const S = C();
+  const r = rng(77);
+  const group = new THREE.Group();
+  group.name = 'cenario';
+  const x0 = box.min.x - S.MARGIN, x1 = box.max.x + S.MARGIN;
+  const z0 = box.min.z - S.MARGIN, z1 = box.max.z + S.MARGIN;
+  const RW = S.ROAD_W, SW = S.SIDEWALK_W;
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+
+  // chão grande (terra e grama), um pouco abaixo do piso da escola
+  const gt = groundTex(); gt.repeat.set(S.GROUND_SIZE / 14, S.GROUND_SIZE / 14);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(S.GROUND_SIZE, S.GROUND_SIZE), new THREE.MeshLambertMaterial({ map: gt }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(cx, y0 - 0.08, cz);
+  group.add(ground);
+
+  // ruas em volta (anel) + calçadas
+  const at = asphaltTex();
+  const roadMat = new THREE.MeshLambertMaterial({ map: at });
+  const ct = concreteTex();
+  const walkMat = new THREE.MeshLambertMaterial({ map: ct });
+  const strip = (mat, ax, az, bx, bz, w, y, texLen) => {
+    const len = Math.hypot(bx - ax, bz - az);
+    const geo = new THREE.PlaneGeometry(w, len);
+    const uv = geo.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i), uv.getY(i) * len / texLen);
+    const m = new THREE.Mesh(geo, mat);
+    m.rotation.x = -Math.PI / 2;
+    m.rotation.z = -Math.atan2(bx - ax, bz - az) + Math.PI;
+    m.position.set((ax + bx) / 2, y, (az + bz) / 2);
+    m.updateMatrix(); m.matrixAutoUpdate = false;
+    group.add(m);
+  };
+  const ro = SW + RW / 2; // centro da rua a partir da borda da escola
+  strip(roadMat, x0 - ro, z0 - ro - RW / 2, x0 - ro, z1 + ro + RW / 2, RW, y0 - 0.05, 16);
+  strip(roadMat, x1 + ro, z0 - ro - RW / 2, x1 + ro, z1 + ro + RW / 2, RW, y0 - 0.05, 16);
+  strip(roadMat, x0 - ro + RW / 2, z0 - ro, x1 + ro - RW / 2, z0 - ro, RW, y0 - 0.049, 16);
+  strip(roadMat, x0 - ro + RW / 2, z1 + ro, x1 + ro - RW / 2, z1 + ro, RW, y0 - 0.049, 16);
+  const so = SW / 2;
+  strip(walkMat, x0 - so, z0 - SW, x0 - so, z1 + SW, SW, y0 - 0.04, 4);
+  strip(walkMat, x1 + so, z0 - SW, x1 + so, z1 + SW, SW, y0 - 0.04, 4);
+  strip(walkMat, x0, z0 - so, x1, z0 - so, SW, y0 - 0.039, 4);
+  strip(walkMat, x0, z1 + so, x1, z1 + so, SW, y0 - 0.039, 4);
+
+  // prédios: anel depois da rua (do outro lado), alturas variadas
+  const ft = facadeTex();
+  const bMat = hazeMaterial({ map: ft, vertexColors: true }, S.HAZE_NEAR, S.HAZE_FAR);
+  const bm = new Merger();
+  const inner = SW + RW + S.BUILD_GAP; // do muro da escola até a frente dos prédios
+  const wallColors = [0xd8cfc0, 0xc9b9a3, 0xb8c0c4, 0xd6c3a5, 0xa9a49c, 0xc7a891, 0xe0d8cc];
+  const row = (ax, az, bx, bz, nx, nz) => {
+    // ao longo do segmento a->b; (nx, nz) = para fora (longe da escola)
+    const len = Math.hypot(bx - ax, bz - az), dx = (bx - ax) / len, dz = (bz - az) / len;
+    for (let rowK = 0; rowK < S.BUILD_ROWS; rowK++) {
+      let t = -10 + r() * 6;
+      const back = rowK * 22;
+      while (t < len + 10) {
+        const w = 8 + r() * 12, d = 9 + r() * 8;
+        const h = (rowK ? 14 : 6) + r() * (rowK ? 30 : 18);
+        const off = inner + back + d / 2 + r() * 3;
+        const px = ax + dx * (t + w / 2) + nx * off, pz = az + dz * (t + w / 2) + nz * off;
+        const ry = Math.atan2(dx, dz) + Math.PI / 2;
+        bm.add(BOX, M4(px, y0 + h / 2, pz, ry, w, h, d), wallColors[Math.floor(r() * wallColors.length)], { w: 4, h: 3.2 });
+        t += w + 1.5 + r() * 4;
+      }
+    }
+  };
+  row(x0, z0, x1, z0, 0, -1);
+  row(x1, z1, x0, z1, 0, 1);
+  row(x0, z1, x0, z0, -1, 0);
+  row(x1, z0, x1, z1, 1, 0);
+  const buildings = bm.mesh(bMat);
+  group.add(buildings);
+
+  // ruas: carros batidos/abandonados, postes, árvores na calçada
+  const pm = new Merger();
+  const carColors = [0x8b1e1e, 0x1f3f73, 0xd9d6cf, 0x2b2b2b, 0x6b6f2a, 0x3d5c4a, 0x9a6a2a, 0x3a3a3a];
+  const car = (x, z, ry, tilt, burnt) => {
+    const col = burnt ? 0x1c1a18 : carColors[Math.floor(r() * carColors.length)];
+    const base = new THREE.Matrix4().compose(new THREE.Vector3(x, y0, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, ry, tilt * 0.6)), new THREE.Vector3(1, 1, 1));
+    const part = (m) => new THREE.Matrix4().multiplyMatrices(base, m);
+    pm.add(BOX, part(M4(0, 0.55, 0, 0, 1.8, 0.6, 4.2)), col);
+    pm.add(BOX, part(M4(0, 1.05, -0.2, 0, 1.6, 0.5, 2.2)), burnt ? 0x111111 : 0x2a3540);
+    for (const [wx, wz] of [[-0.85, 1.3], [0.85, 1.3], [-0.85, -1.3], [0.85, -1.3]]) pm.add(CYL, part(M4(wx, 0.33, wz, 0, 0.66, 0.25, 0.66, 0, Math.PI / 2)), 0x151515);
+  };
+  const roadPts = [];
+  const edges = [
+    [x0 - ro, z0 - ro, x0 - ro, z1 + ro], [x1 + ro, z0 - ro, x1 + ro, z1 + ro],
+    [x0 - ro, z0 - ro, x1 + ro, z0 - ro], [x0 - ro, z1 + ro, x1 + ro, z1 + ro],
+  ];
+  for (const [ax, az, bx, bz] of edges) {
+    const len = Math.hypot(bx - ax, bz - az), dx = (bx - ax) / len, dz = (bz - az) / len;
+    const ry = Math.atan2(dx, dz);
+    for (let t = 6 + r() * 10; t < len - 6; t += S.CAR_EVERY * (0.6 + r() * 0.9)) {
+      const side = (r() < 0.5 ? -1 : 1) * RW * 0.22;
+      const x = ax + dx * t - dz * side, z = az + dz * t + dx * side;
+      const crashed = r() < 0.45;
+      car(x, z, ry + (crashed ? (r() - 0.5) * 1.6 : (r() < 0.5 ? 0 : Math.PI)), crashed && r() < 0.3 ? 0.25 : 0, r() < 0.2);
+      roadPts.push([x, z]);
+    }
+    // postes e árvores na calçada do outro lado da rua (perto dos prédios)
+    const nx = (bz - az) / len, nz = -(bx - ax) / len; // um dos lados
+    for (let t = 4; t < len - 4; t += S.POLE_EVERY) {
+      const outSign = Math.sign((ax + dx * t + nx * 5 - cx) * nx + (az + dz * t + nz * 5 - cz) * nz) || 1;
+      const off = RW / 2 + 1;
+      const px = ax + dx * t + nx * off * outSign, pz = az + dz * t + nz * off * outSign;
+      pm.add(BOX, M4(px, y0 + 3.5, pz, 0, 0.15, 7, 0.15), 0x55585c);
+      pm.add(BOX, M4(px - nx * outSign * 0.7, y0 + 7, pz - nz * outSign * 0.7, ry, 0.15, 0.12, 1.6), 0x55585c);
+      if (r() < 0.6) {
+        const tx = px + dx * S.POLE_EVERY / 2, tz = pz + dz * S.POLE_EVERY / 2, th = 3 + r() * 2.5;
+        pm.add(CYL, M4(tx, y0 + th / 2, tz, 0, 0.35, th, 0.35), 0x5a4330);
+        pm.add(CONE, M4(tx, y0 + th + 1.4, tz, r() * 6, 3 + r(), 3.6 + r() * 1.5, 3 + r()), r() < 0.3 ? 0x6b5a33 : 0x3f5a2e);
+      }
+    }
+  }
+  // barris (fogo em cima)
+  const fires = [];
+  for (let i = 0; i < S.FIRES; i++) {
+    const p = roadPts[Math.floor(r() * roadPts.length)] || [x0 - ro, z0];
+    const fx = p[0] + 2.5, fz = p[1] + 1.5;
+    pm.add(CYL, M4(fx, y0 + 0.45, fz, 0, 0.6, 0.9, 0.6), 0x4a3a2c);
+    fires.push(new THREE.Vector3(fx, y0 + 1.25, fz));
+  }
+  const props = pm.mesh(new THREE.MeshLambertMaterial({ vertexColors: true }));
+  group.add(props);
+
+  // fogo dos barris: sprites que piscam
+  const fireMat = new THREE.SpriteMaterial({ map: fireTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  const fireSprites = fires.map((p) => { const s = new THREE.Sprite(fireMat); s.position.copy(p); s.scale.set(1.2, 1.6, 1); group.add(s); return s; });
+
+  // fumaça subindo ao longe (colunas de sprites que sobem e somem)
+  const smokeMat = new THREE.SpriteMaterial({ map: smokeTex(), transparent: true, depthWrite: false, fog: false, opacity: 0.6 });
+  const smoke = [];
+  for (let k = 0; k < S.SMOKES; k++) {
+    const ang = r() * Math.PI * 2, dist = Math.max(x1 - x0, z1 - z0) * 0.5 + 40 + r() * 60;
+    const base = new THREE.Vector3(cx + Math.cos(ang) * dist, y0 + 10, cz + Math.sin(ang) * dist);
+    for (let i = 0; i < 6; i++) {
+      const s = new THREE.Sprite(smokeMat.clone());
+      s.userData = { base, t: i / 6, drift: (r() - 0.5) * 8 };
+      group.add(s);
+      smoke.push(s);
+    }
+  }
+
+  // céu: esfera grande que acompanha o jogador
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(S.SKY_R, 32, 16), new THREE.MeshBasicMaterial({ map: skyTex(), side: THREE.BackSide, fog: false, depthWrite: false }));
+  sky.renderOrder = -1;
+  sky.frustumCulled = false;
+  group.add(sky);
+
+  scene.add(group);
+
+  let t0 = 0;
+  return {
+    group, sky, buildings, props,
+    // chamar todo quadro (p = posição da câmera)
+    update(dt, p) {
+      sky.position.copy(p);
+      t0 += dt;
+      for (let i = 0; i < fireSprites.length; i++) {
+        const k = 0.85 + Math.sin(t0 * 13 + i * 2.1) * 0.1 + Math.sin(t0 * 7.3 + i) * 0.08;
+        fireSprites[i].scale.set(1.1 * k, 1.6 * k, 1);
+      }
+      for (const s of smoke) {
+        const u = s.userData;
+        u.t = (u.t + dt * 0.035) % 1;
+        const k = u.t;
+        s.position.set(u.base.x + u.drift * k, u.base.y + k * 45, u.base.z + u.drift * k * 0.5);
+        const sc = 8 + k * 26;
+        s.scale.set(sc, sc, 1);
+        s.material.opacity = 0.55 * Math.sin(Math.PI * k);
+      }
+    },
+  };
+}
+
 // ===== js/scene.js =====
 // Mapa de teste: blocos coloridos + chão branco + caixas pretas (pontos de sinal).
 // Nada da escola ainda — o objetivo é só ter referências visuais e obstáculos.
@@ -1444,7 +1849,18 @@ async function loadSchool(world, scene, onStatus = () => {}, aniso = 1) {
   world.isFree = (x, z, r, fromY) => grid.isFree(x, z, r, fromY);
   world.segmentHit = (a, b) => grid.segmentHit(a, b);
   world.floorAt = (x, z) => grid.floorAt(x, z);
-  scene.fog = new THREE.Fog(0xcfe2f2, S.FOG_NEAR, S.FOG_FAR);
+  scene.fog = new THREE.Fog(S.FOG_COLOR, S.FOG_NEAR, S.FOG_FAR);
+  scene.background = new THREE.Color(S.FOG_COLOR);
+  // v24: mundo em volta (ruas, prédios, céu); o céu antigo (parado no início) sai
+  if (CONFIG.CENARIO.ON) {
+    try {
+      if (scene.userData.sky) { scene.remove(scene.userData.sky); scene.userData.sky = null; }
+      const box = new THREE.Box3();
+      model.traverse((o) => { if (o.isMesh && /^s_/.test(o.name)) box.expandByObject(o); });
+      if (box.isEmpty()) box.setFromObject(model);
+      world.cenario = buildCenario(scene, box, spawn.y);
+    } catch (e) { console.warn('Cenário não montou', e); }
+  }
   placeTargets(world, scene, false);
   onStatus('Escola pronta', 1);
   return world;
@@ -1457,10 +1873,10 @@ function collectDetails(model) {
   const list = [];
   model.updateMatrixWorld(true);
   model.traverse((o) => {
-    if (!o.isMesh || !/^d_/.test(o.name)) return;
+    if (!o.isMesh || !/^[ds]_/.test(o.name)) return;
     o.geometry.computeBoundingSphere();
     const s = o.geometry.boundingSphere.clone().applyMatrix4(o.matrixWorld);
-    list.push({ m: o, c: s.center, r: s.radius });
+    list.push({ m: o, c: s.center, r: s.radius, det: o.name[0] === 'd' });
   });
   return list;
 }
@@ -1468,8 +1884,11 @@ function collectDetails(model) {
 // Chamar de vez em quando: mostra os detalhes perto, esconde os longe (com folga
 // para não ficar piscando na borda).
 function updateDetails(world, p) {
-  const D = CONFIG.MAP.DETAIL_DIST;
+  const D0 = CONFIG.MAP.DETAIL_DIST, DS = CONFIG.MAP.FOG_FAR + 4;
   for (const d of world.details || []) {
+    // detalhes somem além de DETAIL_DIST; blocos da escola além da neblina (v24)
+    const D = d.det ? D0 : DS;
+    if (!d.det && !CONFIG.MAP.CHUNK_CULL) continue;
     const dist = Math.hypot(d.c.x - p.x, d.c.z - p.z) - d.r;
     if (d.m.visible && dist > D + 2) d.m.visible = false;
     else if (!d.m.visible && dist < D) d.m.visible = true;
@@ -1508,8 +1927,8 @@ function buildWorld(scene) {
   scene.background = new THREE.Color(0xbfd8ee);
   scene.fog = new THREE.Fog(0xcfe2f2, 16, 48);
 
-  scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x9a8f80, 1.05));
-  const sun = new THREE.DirectionalLight(0xfff3e0, 1.35);
+  scene.add(new THREE.HemisphereLight(0xf0e6d6, 0x857a6a, 1.05));
+  const sun = new THREE.DirectionalLight(0xffe4bd, 1.35);
   sun.position.set(6, 12, 4);
   scene.add(sun);
 
@@ -1949,7 +2368,7 @@ class Horde {
       alert: false, speed: Z.SPEED_MIN + Math.random() * (Z.SPEED_MAX - Z.SPEED_MIN),
       phase: Math.random() * 10, attackT: 0, hitT: 0, losT: Math.random() * 0.3, los: false,
       wander: 0, wanderYaw: Math.random() * 6.28, moving: 0,
-      punches: 0, knock: null,
+      punches: 0, knock: null, animN: 0, animAcc: 0,
     };
     this.list.push(zb);
     return zb;
@@ -2298,7 +2717,11 @@ class Horde {
         da = Math.atan2(Math.sin(da), Math.cos(da));
         r.rotation.y += da * Math.min(1, dt * 5);
       }
-      this._animWalk(z, dt);
+      // v24: zumbi longe anima 1 quadro sim, 2 não (ninguém vê o detalhe de longe)
+      if (dist > Z.ANIM_FAR) {
+        z.animAcc = (z.animAcc || 0) + dt;
+        if (++z.animN % 3 === 0 || !z.animN) { this._animWalk(z, z.animAcc); z.animAcc = 0; }
+      } else { if (z.animAcc) { this._animWalk(z, z.animAcc); z.animAcc = 0; } else this._animWalk(z, dt); }
     }
     // gemidos
     this._groanT -= dt;
@@ -2427,6 +2850,33 @@ class Gun {
     this.reticle.position.set(0, 0, -1.5);
     this.reticle.visible = false;
     camera.add(this.reticle);
+
+    // v24: pistola 3D na mão da pistolinha (aponta para onde a mira está)
+    this.model = new THREE.Group();
+    const dark = new THREE.MeshLambertMaterial({ color: 0x2a2d31 });
+    const grip = new THREE.MeshLambertMaterial({ color: 0x4a3a2c });
+    const tip = new THREE.MeshBasicMaterial({ color: 0xff7a1a });
+    const bx = (w, h, d, x, y, z, m) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); this.model.add(o); return o; };
+    bx(0.03, 0.035, 0.17, 0, 0.012, 0.05, dark);      // ferrolho
+    bx(0.026, 0.07, 0.035, 0, -0.035, -0.01, grip);   // cabo
+    bx(0.008, 0.02, 0.03, 0, -0.012, 0.02, dark);     // guarda do gatilho
+    bx(0.012, 0.012, 0.01, 0, 0.012, 0.137, tip);     // ponta laranja
+    this.model.visible = false;
+    scene.add(this.model);
+    this._muzzle = new THREE.Vector3(0, 0.012, 0.145);
+    this._aimAt = new THREE.Vector3();
+  }
+
+  // pistola na mão: entre os nós dos dedos e o pulso, apontando para a mira
+  _placeModel(cur) {
+    const P = cur.worldPts;
+    this.model.position.copy(P[5]).add(P[9]).multiplyScalar(0.5).lerp(P[0], 0.25);
+    this._aimAt.copy(this._o).addScaledVector(this._sd, 20);
+    this.model.lookAt(this._aimAt);
+    this.model.visible = true;
+    // a ponta do cano vira o lugar do clarão e do risco do tiro
+    this.model.updateMatrixWorld();
+    this._tip.copy(this._muzzle).applyMatrix4(this.model.matrixWorld);
   }
 
   get headAim() { return G.AIM === 'cabeca'; }
@@ -2520,6 +2970,7 @@ class Gun {
     this.camera.getWorldPosition(this._o);
     this.camera.getWorldDirection(this._sd);
     if (cur) this._tip.copy(cur.worldPts[8]); else this._tip.copy(this._o).addScaledVector(this._sd, 0.4).setY(this._o.y - 0.15);
+    if (cur && G.SHOW_MODEL) this._placeModel(cur); else this.model.visible = false;
     if (this.pistol && reloadK >= 1 && now - this._pistolSince >= G.PISTOL_HOLD_MS) this._fire(now, null, findHit);
     if (manualFire && now - this.lastShot >= G.RELOAD_MS) this._fire(now, null, findHit);
     // mira: amarela em cima de zumbi, vermelha com a pistolinha, branca parada
@@ -2721,6 +3172,7 @@ class Gun {
     this._hist = [];
     this.bar.visible = false;
     this.reticle.visible = false;
+    this.model.visible = false;
     this.pistol = false;
   }
 }
@@ -3452,13 +3904,16 @@ class HandView {
     this.jointMat = new THREE.MeshLambertMaterial({ color: 0x3a4654 });
     this.tint = null; // cor da mão inteira (arma: vermelho = pronta, cinza = recarregando)
     this.joints = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), this.jointMat, 21);
+    // v24: contorno (esferas maiores, por dentro) = brilho em volta da mão
+    this.haloMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide, transparent: true, opacity: 0.35, depthWrite: false });
+    this.halo = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 6), this.haloMat, 21);
     // cilindro com Y de 0 a 1, um pouco mais fino no topo (ponta do dedo)
     const cyl = new THREE.CylinderGeometry(0.88, 1, 1, 10, 1, true);
     cyl.translate(0, 0.5, 0);
     this.bones = new THREE.InstancedMesh(cyl, glove, BONES.length);
     this.tipMat = new THREE.MeshBasicMaterial({ color: GESTURE_COLORS.neutral });
     this.tips = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), this.tipMat, TIPS.length);
-    for (const im of [this.joints, this.bones, this.tips]) {
+    for (const im of [this.joints, this.bones, this.tips, this.halo]) {
       im.frustumCulled = false;
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.group.add(im);
@@ -3495,7 +3950,13 @@ class HandView {
       const r = JOINT_R[i] * 1.08;
       _m.compose(P[i], _q.identity(), _sc.set(r, r, r));
       this.joints.setMatrixAt(i, _m);
+      const rh = r * 1.9;
+      _m.compose(P[i], _q.identity(), _sc.set(rh, rh, rh));
+      this.halo.setMatrixAt(i, _m);
     }
+    this.halo.instanceMatrix.needsUpdate = true;
+    this.haloMat.color.setHex(this.tint ?? 0xbfe9ff);
+    this.haloMat.opacity = this.tint != null ? 0.45 : 0.22;
     BONES.forEach(([a, b], k) => {
       _dir.subVectors(P[b], P[a]);
       const len = _dir.length();
@@ -4973,6 +5434,7 @@ class CalibrationFlow {
       ${opt('vibrate', '📳 Vibração', '📴 Sem vibração')}
       ${opt('vignette', '🌑 Escurecer bordas ao andar', '⚪ Bordas normais ao andar')}
       ${opt('tutorial', '🎓 Tutorial antes da partida', '⏩ Direto para a partida')}
+      ${opt('parado', '🧍 Só atirar (os zumbis vêm até você)', '🚶 Andar pela escola')}
     </div>
     <p class="small">Modo feira: partida de ${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min, ${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis, tutorial curto e volta sozinho para o próximo jogador.</p>`;
   }
@@ -5663,6 +6125,79 @@ class Melee {
   }
 }
 
+// ===== js/demo.js =====
+// Mão fantasma do tutorial (v24): uma mão transparente no canto da visão
+// mostrando o gesto do passo atual (✋ palma aberta para andar, 👉 pistolinha
+// para atirar). Usa o mesmo desenho das mãos do jogador (HandView).
+
+// pontos da mão no espaço da câmera: pulso na origem, dedos para cima (+y),
+// dobrando para longe de quem olha (-z). open[i] = 0 (dobrado) .. 1 (esticado)
+function pose(open, thumbOut = 1) {
+  const P = Array.from({ length: 21 }, () => new THREE.Vector3());
+  const mcpX = [0.025, 0.008, -0.009, -0.025]; // mão direita vista por trás: polegar à esquerda
+  const L = [[0.04, 0.025, 0.022], [0.045, 0.028, 0.024], [0.042, 0.026, 0.022], [0.034, 0.02, 0.018]];
+  for (let f = 0; f < 4; f++) {
+    const b = 5 + f * 4;
+    P[b].set(-mcpX[f], 0.085 - Math.abs(f - 1.5) * 0.004, 0);
+    let y = P[b].y, z = 0, ang = 0;
+    for (let k = 0; k < 3; k++) {
+      ang += (1 - open[f]) * 1.45;
+      y += Math.cos(ang) * L[f][k]; z -= Math.sin(ang) * L[f][k];
+      P[b + k + 1].set(P[b].x, y, z);
+    }
+  }
+  // polegar
+  const tx = 0.035 + 0.03 * thumbOut;
+  P[1].set(0.02, 0.02, -0.005); P[2].set(0.04, 0.04, -0.01); P[3].set(tx, 0.06, -0.015); P[4].set(tx + 0.008, 0.08 - 0.02 * (1 - thumbOut), -0.02);
+  return P;
+}
+
+const OPEN = pose([1, 1, 1, 1]);
+const GUN = pose([1, 0.08, 0.05, 0.05], 1);
+const RELAX = pose([0.6, 0.55, 0.5, 0.5], 0.6);
+
+class DemoHand {
+  constructor(camera) {
+    this.hand = { side: 'right', visible: false, present: false, gesture: 'neutral', camPts: Array.from({ length: 21 }, () => new THREE.Vector3()) };
+    this.view = new HandView(camera, this.hand);
+    for (const m of [this.view.glove, this.view.jointMat, this.view.tipMat, this.view.palmMat]) { m.transparent = true; m.opacity = 0.5; m.depthTest = false; }
+    this.view.group.renderOrder = 52;
+    this.view.group.traverse((o) => { o.renderOrder = 52; });
+    this.t = 0;
+    this._q = new THREE.Quaternion();
+    this._e = new THREE.Euler();
+    this._p = new THREE.Vector3();
+  }
+
+  // step: 'walk' | 'aim' | 'shoot' | null
+  update(dt, step) {
+    const h = this.hand;
+    h.visible = !!step;
+    if (!step) { this.view.update(); return; }
+    this.t += dt;
+    const t = this.t;
+    let src, tint, pitch = -0.25, yaw = 0;
+    if (step === 'walk') {
+      // relaxada -> abre a palma e segura (repete)
+      const k = Math.min(1, Math.max(0, Math.sin(t * 1.6) * 1.5 + 0.5));
+      src = (i) => this._p.lerpVectors(RELAX[i], OPEN[i], k);
+      tint = k > 0.8 ? 0x2f7bff : null;
+    } else {
+      // faz a pistolinha apontando para frente; "coice" de tiro a cada 0,8 s
+      const k = Math.min(1, Math.max(0, Math.sin(t * 1.2) * 1.5 + 0.6));
+      src = (i) => this._p.lerpVectors(RELAX[i], GUN[i], k);
+      pitch = -1.1 + (k > 0.9 ? Math.max(0, 0.25 - ((t % 0.8) * 0.9)) : 0);
+      yaw = 0.15;
+      tint = k > 0.8 ? 0xe02424 : null;
+    }
+    this._q.setFromEuler(this._e.set(pitch, yaw, 0));
+    // cantinho de baixo à direita da visão
+    for (let i = 0; i < 21; i++) h.camPts[i].copy(src(i)).multiplyScalar(0.9).applyQuaternion(this._q).add(this._p.set(0.13, -0.13, -0.42));
+    this.view.tint = tint;
+    this.view.update();
+  }
+}
+
 // ===== js/main.js =====
 // Escola Zumbi (antigo Caçador de Sinal) — protótipo. Loop principal e estados do jogo.
 // Estados: boot -> calibration -> tutorial -> playing -> ended
@@ -5685,7 +6220,7 @@ class App {
     this.renderer.setPixelRatio(this.pixelRatio);
     this._q = { t0: performance.now(), frames: 0, low: 0, high: 0 };
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 60);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, CONFIG.MAP.VIEW_FAR || 60);
     // rig (posição no chão) -> eye (altura dos olhos / recentrar no WebXR) -> câmera
     this.rig = new THREE.Group();
     this.eye = new THREE.Group();
@@ -5761,11 +6296,19 @@ class App {
     this.coach = new Coach(this.camera);
     this.lobby = new Lobby(this.camera);
     this.melee = new Melee();
+    this.demo = new DemoHand(this.camera);
+    // v24: seta na borda da visão quando a mão sai da câmera
+    this.edgeArrow = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.03, 3), new THREE.MeshBasicMaterial({ color: 0xffd36b, depthTest: false, transparent: true }));
+    this.edgeArrow.renderOrder = 53;
+    this.edgeArrow.visible = false;
+    this.camera.add(this.edgeArrow);
+    this._edgeUntil = 0;
     this.hp = CONFIG.PLAYER.HP;
     this.lastPalm = -1e9;
     this._fx = [];
     this._hv = new THREE.Vector3();
     this._eyeP = new THREE.Vector3();
+    this._camW = new THREE.Vector3();
     this._walkDir = new THREE.Vector3(0, 0, -1);
     this._dirB = new THREE.Vector3();
     this.handHint = new HandHint(this);
@@ -5940,7 +6483,7 @@ class App {
     this.lobby.close();
     this.state = 'tutorial';
     this._resetWorld();
-    this.tutorial = { walk: false, aim: false, shoot: false };
+    this.tutorial = { walk: !!this.options.parado, aim: false, shoot: false }; // só atirar: sem passo de andar
     // zumbi de treino na frente do início (parado, 1 tiro)
     const yaw = this.rig.rotation.y;
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
@@ -6013,6 +6556,8 @@ class App {
     this._resetWorld();
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
     this.horde.spawnHorde(n, this.world.spawn);
+    // v24: modo "só atirar": você fica parado e todos os zumbis já vêm atrás de você
+    if (this.options.parado) this.horde.alertAll(this.world.spawn, 9999);
     this.timeLeft = this.gameTime();
     this._alarmDone = false;
     this._lastTick = 0;
@@ -6289,6 +6834,8 @@ class App {
       // botão do óculos / dedo na tela: segurar = andar
       session.addEventListener('selectstart', () => { this.xrSelect = true; });
       session.addEventListener('selectend', () => { this.xrSelect = false; });
+      // v24: lente mais leve nas bordas (o centro fica nítido): mais FPS
+      try { if (this.renderer.xr.setFoveation) this.renderer.xr.setFoveation(CONFIG.QUALITY.XR_FOVEATION); } catch (e) { /* */ }
       await this.renderer.xr.setSession(session);
       this.xrActive = true;
       document.body.classList.add('xr');
@@ -6475,7 +7022,7 @@ class App {
       const walkSide = this.locoSide();
       const strict = CONFIG.ROLES.STRICT_SIDES;
       this.gun.onlySide = strict ? this.interSide() : null;
-      const palm = this.hands.hands.find((h) => (!strict || h.side === walkSide) && this._isOpenPalm(h)
+      const palm = !this.options.parado && this.hands.hands.find((h) => (!strict || h.side === walkSide) && this._isOpenPalm(h)
         && !this.gun._isPistol(h, thr) && !(this.gun.pistol && h.side === this.gun.side));
       if (palm) { if (!this._palmSince) this._palmSince = now; if (now - this._palmSince >= CONFIG.PLAYER.PALM_START_MS) this.lastPalm = now; }
       else this._palmSince = 0;
@@ -6559,6 +7106,11 @@ class App {
     }
     // durante o jogo: as DUAS mãos abertas paradas = recentrar a visão
     if (active) this._recenterGesture(now);
+    this._updateEdgeArrow(now, active);
+    // mão fantasma do tutorial mostrando o gesto do passo atual
+    const tt = this.tutorial;
+    const step = this.state === 'tutorial' && !this._tutDoneAt ? (!tt.walk && !this.options.parado ? 'walk' : !tt.shoot ? 'aim' : null) : null;
+    this.demo.update(dt, step);
     for (const v of this.handViews) {
       if (CONFIG.GUN.AIM === 'cabeca') {
         // a cor mostra o que a mão está fazendo: vermelha = pistolinha, azul = palma (andando)
@@ -6592,6 +7144,7 @@ class App {
 
     // 6) render (detalhes longe da escola somem; confere 5× por segundo)
     if (now - (this._detT || 0) > 200) { this._detT = now; updateDetails(this.world, this.rig.position); }
+    if (this.world.cenario) this.world.cenario.update(dt, this.camera.getWorldPosition(this._camW));
     this._render();
     this.debug.frame(now, dtMs);
     this._adaptQuality(now);
@@ -6721,6 +7274,23 @@ class App {
     if (h.gesture === 'fist') return true;
     const r = this.gun._reach(h);
     return !!r && Math.max(r.index, r.middle) < CONFIG.GUN.FIRE_REACH;
+  }
+
+  // seta amarela na borda da visão, para o lado por onde a mão saiu da câmera
+  _updateEdgeArrow(now, active) {
+    const H = CONFIG.HANDS;
+    for (const h of this.hands.hands) {
+      const was = h._wasVis; h._wasVis = h.visible;
+      if (!active || !was || h.visible) continue;
+      const c = h.lastC, dx = c.x - 0.5, dy = -(c.y - 0.5);
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 0.5 - H.EDGE_MARGIN) continue; // sumiu no meio: não é borda
+      const a = Math.atan2(dy, dx);
+      this.edgeArrow.position.set(Math.cos(a) * 0.13, Math.sin(a) * 0.08, -0.5);
+      this.edgeArrow.rotation.set(0, 0, a - Math.PI / 2);
+      this._edgeUntil = now + 1600;
+    }
+    const on = active && now < this._edgeUntil;
+    this.edgeArrow.visible = on && Math.floor(now / 200) % 2 === 0;
   }
 
   _recenterGesture(now) {

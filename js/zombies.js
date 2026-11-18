@@ -100,7 +100,7 @@ export class Horde {
       alert: false, speed: Z.SPEED_MIN + Math.random() * (Z.SPEED_MAX - Z.SPEED_MIN),
       phase: Math.random() * 10, attackT: 0, hitT: 0, losT: Math.random() * 0.3, los: false,
       wander: 0, wanderYaw: Math.random() * 6.28, moving: 0,
-      punches: 0, knock: null,
+      punches: 0, knock: null, animN: 0, animAcc: 0,
     };
     this.list.push(zb);
     return zb;
@@ -449,7 +449,11 @@ export class Horde {
         da = Math.atan2(Math.sin(da), Math.cos(da));
         r.rotation.y += da * Math.min(1, dt * 5);
       }
-      this._animWalk(z, dt);
+      // v24: zumbi longe anima 1 quadro sim, 2 não (ninguém vê o detalhe de longe)
+      if (dist > Z.ANIM_FAR) {
+        z.animAcc = (z.animAcc || 0) + dt;
+        if (++z.animN % 3 === 0 || !z.animN) { this._animWalk(z, z.animAcc); z.animAcc = 0; }
+      } else { if (z.animAcc) { this._animWalk(z, z.animAcc); z.animAcc = 0; } else this._animWalk(z, dt); }
     }
     // gemidos
     this._groanT -= dt;

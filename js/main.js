@@ -21,6 +21,7 @@ import { Horde } from './zombies.js';
 import { Coach } from './coach.js';
 import { Lobby } from './lobby.js';
 import { Melee } from './melee.js';
+import { DemoHand } from './demo.js';
 
 class App {
   constructor() {
@@ -40,7 +41,7 @@ class App {
     this.renderer.setPixelRatio(this.pixelRatio);
     this._q = { t0: performance.now(), frames: 0, low: 0, high: 0 };
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 60);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, CONFIG.MAP.VIEW_FAR || 60);
     // rig (posição no chão) -> eye (altura dos olhos / recentrar no WebXR) -> câmera
     this.rig = new THREE.Group();
     this.eye = new THREE.Group();
@@ -116,11 +117,19 @@ class App {
     this.coach = new Coach(this.camera);
     this.lobby = new Lobby(this.camera);
     this.melee = new Melee();
+    this.demo = new DemoHand(this.camera);
+    // v24: seta na borda da visão quando a mão sai da câmera
+    this.edgeArrow = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.03, 3), new THREE.MeshBasicMaterial({ color: 0xffd36b, depthTest: false, transparent: true }));
+    this.edgeArrow.renderOrder = 53;
+    this.edgeArrow.visible = false;
+    this.camera.add(this.edgeArrow);
+    this._edgeUntil = 0;
     this.hp = CONFIG.PLAYER.HP;
     this.lastPalm = -1e9;
     this._fx = [];
     this._hv = new THREE.Vector3();
     this._eyeP = new THREE.Vector3();
+    this._camW = new THREE.Vector3();
     this._walkDir = new THREE.Vector3(0, 0, -1);
     this._dirB = new THREE.Vector3();
     this.handHint = new HandHint(this);
@@ -295,7 +304,7 @@ class App {
     this.lobby.close();
     this.state = 'tutorial';
     this._resetWorld();
-    this.tutorial = { walk: false, aim: false, shoot: false };
+    this.tutorial = { walk: !!this.options.parado, aim: false, shoot: false }; // só atirar: sem passo de andar
     // zumbi de treino na frente do início (parado, 1 tiro)
     const yaw = this.rig.rotation.y;
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
@@ -368,6 +377,8 @@ class App {
     this._resetWorld();
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
     this.horde.spawnHorde(n, this.world.spawn);
+    // v24: modo "só atirar": você fica parado e todos os zumbis já vêm atrás de você
+    if (this.options.parado) this.horde.alertAll(this.world.spawn, 9999);
     this.timeLeft = this.gameTime();
     this._alarmDone = false;
     this._lastTick = 0;
@@ -644,6 +655,8 @@ class App {
       // botão do óculos / dedo na tela: segurar = andar
       session.addEventListener('selectstart', () => { this.xrSelect = true; });
       session.addEventListener('selectend', () => { this.xrSelect = false; });
+      // v24: lente mais leve nas bordas (o centro fica nítido): mais FPS
+      try { if (this.renderer.xr.setFoveation) this.renderer.xr.setFoveation(CONFIG.QUALITY.XR_FOVEATION); } catch (e) { /* */ }
       await this.renderer.xr.setSession(session);
       this.xrActive = true;
       document.body.classList.add('xr');
@@ -830,7 +843,7 @@ class App {
       const walkSide = this.locoSide();
       const strict = CONFIG.ROLES.STRICT_SIDES;
       this.gun.onlySide = strict ? this.interSide() : null;
-      const palm = this.hands.hands.find((h) => (!strict || h.side === walkSide) && this._isOpenPalm(h)
+      const palm = !this.options.parado && this.hands.hands.find((h) => (!strict || h.side === walkSide) && this._isOpenPalm(h)
         && !this.gun._isPistol(h, thr) && !(this.gun.pistol && h.side === this.gun.side));
       if (palm) { if (!this._palmSince) this._palmSince = now; if (now - this._palmSince >= CONFIG.PLAYER.PALM_START_MS) this.lastPalm = now; }
       else this._palmSince = 0;
@@ -914,6 +927,11 @@ class App {
     }
     // durante o jogo: as DUAS mãos abertas paradas = recentrar a visão
     if (active) this._recenterGesture(now);
+    this._updateEdgeArrow(now, active);
+    // mão fantasma do tutorial mostrando o gesto do passo atual
+    const tt = this.tutorial;
+    const step = this.state === 'tutorial' && !this._tutDoneAt ? (!tt.walk && !this.options.parado ? 'walk' : !tt.shoot ? 'aim' : null) : null;
+    this.demo.update(dt, step);
     for (const v of this.handViews) {
       if (CONFIG.GUN.AIM === 'cabeca') {
         // a cor mostra o que a mão está fazendo: vermelha = pistolinha, azul = palma (andando)
@@ -947,6 +965,7 @@ class App {
 
     // 6) render (detalhes longe da escola somem; confere 5× por segundo)
     if (now - (this._detT || 0) > 200) { this._detT = now; updateDetails(this.world, this.rig.position); }
+    if (this.world.cenario) this.world.cenario.update(dt, this.camera.getWorldPosition(this._camW));
     this._render();
     this.debug.frame(now, dtMs);
     this._adaptQuality(now);
@@ -1076,6 +1095,23 @@ class App {
     if (h.gesture === 'fist') return true;
     const r = this.gun._reach(h);
     return !!r && Math.max(r.index, r.middle) < CONFIG.GUN.FIRE_REACH;
+  }
+
+  // seta amarela na borda da visão, para o lado por onde a mão saiu da câmera
+  _updateEdgeArrow(now, active) {
+    const H = CONFIG.HANDS;
+    for (const h of this.hands.hands) {
+      const was = h._wasVis; h._wasVis = h.visible;
+      if (!active || !was || h.visible) continue;
+      const c = h.lastC, dx = c.x - 0.5, dy = -(c.y - 0.5);
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 0.5 - H.EDGE_MARGIN) continue; // sumiu no meio: não é borda
+      const a = Math.atan2(dy, dx);
+      this.edgeArrow.position.set(Math.cos(a) * 0.13, Math.sin(a) * 0.08, -0.5);
+      this.edgeArrow.rotation.set(0, 0, a - Math.PI / 2);
+      this._edgeUntil = now + 1600;
+    }
+    const on = active && now < this._edgeUntil;
+    this.edgeArrow.visible = on && Math.floor(now / 200) % 2 === 0;
   }
 
   _recenterGesture(now) {

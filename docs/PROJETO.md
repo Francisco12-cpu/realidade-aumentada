@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v23, 18/11/2026)
+# Escola Zumbi: estado do projeto (v24, 18/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -53,6 +53,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v24 | #22 | Mundo em volta (céu com nuvens que acompanha o jogador, chão, ruas, calçadas, prédios, carros batidos, postes, árvores, fogo, fumaça), blocos além da neblina não são desenhados; pistola 3D na mão, contorno nas mãos, seta quando a mão sai da câmera, mão fantasma no tutorial, modo "só atirar", foveação no VR do Chrome, zumbis longe animam menos |
 | v23 | #21 | Conserto: mãos não detectadas de novo. O vídeo da câmera fica atrás do jogo (o navegador não pausa mais), e se ele parar mesmo assim a imagem vem direto da câmera (ImageCapture). O painel 🐞 mostra de onde vem a imagem |
 | v22 | #20 | Camada esquerda/direita (rótulo + lado + continuidade); só a direita atira e só a esquerda anda; palma tem que estar bem aberta e segurada para andar; soco conta mesmo quando a mão some no borrão |
 | v21 | #19 | Mira com a cabeça (ponto no meio da visão), pistolinha de qualquer mão atira sozinha com a barra embaixo da mira, palma aberta anda para onde olha, cor da mão = o que ela faz |
@@ -82,6 +83,13 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 
 ---
 
+## O mundo em volta (v24, `js/cenario.js`)
+
+- É todo feito por código, sem arquivos: céu com nuvens (esfera que acompanha o jogador; antes o céu ficava parado no começo do mapa e sumia no meio da escola), chão de terra e grama, ruas com faixa e calçadas em volta da escola, duas fileiras de prédios com janelas (acesas, escuras e quebradas), carros batidos, postes, árvores, barris pegando fogo e colunas de fumaça ao longe.
+- São 12 peças, uns 10 mil triângulos e 36 sprites. Fica fora da escola, então a colisão não muda.
+- Os prédios usam uma neblina própria, mais distante (`CENARIO.HAZE_NEAR/FAR`), para aparecer a silhueta da cidade. Os blocos da escola além da neblina normal não são desenhados (`MAP.CHUNK_CULL`).
+- As cores do céu e da neblina ficam em `CENARIO.SKY_*` e `MAP.FOG_COLOR`.
+
 ## Onde ajustar (tudo em `js/config.js`)
 
 | O que | Onde |
@@ -100,6 +108,8 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | Onde o jogador começa | `MAP.SPAWN` e `MAP.SPAWN_YAW` |
 | Começar no óculos (contagem, mão aberta) | `LOBBY` (`COUNTDOWN_S`, `HOLD_MS`, `RECENTER_HOLD_MS`) |
 | Distância em que os detalhes somem | `MAP.DETAIL_DIST` |
+| Mundo em volta | `CENARIO` (ruas, prédios, carros, fogo, fumaça, céu) · `MAP.VIEW_FAR`, `MAP.FOG_COLOR`, `MAP.CHUNK_CULL` |
+| Pistola 3D, seta da mão, foveação, zumbi longe | `GUN.SHOW_MODEL`, `HANDS.EDGE_MARGIN`, `QUALITY.XR_FOVEATION`, `ZOMBIES.ANIM_FAR` |
 | Tempo da partida | `GAME_TIME_S` (5 min) e `FEIRA.GAME_TIME_S` (3 min) |
 
 Depois de mudar o código, **mude também `VERSION`** no `config.js`: é o número que aparece na tela inicial e mostra que o celular pegou a versão nova.
@@ -115,6 +125,8 @@ js/main.js          loop do jogo, estados (tutorial, partida, fim), HUD, tiro, m
 js/zombies.js       zumbis: boneco, ondas, perseguição pelo caminho, ataque, tiro
 js/gun.js           arma de mão: pistolinha, gatilho do polegar, recarga, laser
 js/lobby.js         saguão na lente: contagem, mão aberta para começar e jogar de novo
+js/cenario.js       mundo em volta da escola (céu, ruas, prédios, carros, fogo, fumaça)
+js/demo.js          mão fantasma do tutorial
 js/melee.js         socos e tapas: mão encostando no zumbi com velocidade
 js/coach.js         dica dos gestos no canto da tela (e painel 3D no óculos)
 js/mapa.js          carrega a escola e monta a grade de colisão (chão/paredes)
@@ -150,4 +162,5 @@ dist/index.html     jogo inteiro num arquivo só (gerado sozinho pelo GitHub)
 - [ ] Zumbis que estão a mais de 45 m só vagam: não atravessam a escola inteira atrás do jogador.
 - [ ] Os testes automáticos no navegador sem janela travam neste PC (Chrome/Edge). Os testes foram feitos no Node, com scripts que ficaram só na pasta temporária, e no celular.
 - [ ] Branches antigas no GitHub (`escola-3d`, `feira-vr`) podem ser apagadas quando você quiser.
+- [ ] Do plano de melhoria, ainda faltam: texturas KTX2 de 2048 px perto do jogador, sombra "pintada" (bake de luz) no Blender, pré-cálculo de quais salas se enxergam, calibração mais curta.
 - [ ] Ideias: sons de passos dos zumbis, tipos diferentes de zumbi (rápido, forte), placar com zumbis por onda.

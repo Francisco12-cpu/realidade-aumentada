@@ -262,6 +262,7 @@ export class CalibrationFlow {
       ${opt('vibrate', '📳 Vibração', '📴 Sem vibração')}
       ${opt('vignette', '🌑 Escurecer bordas ao andar', '⚪ Bordas normais ao andar')}
       ${opt('tutorial', '🎓 Tutorial antes da partida', '⏩ Direto para a partida')}
+      ${opt('parado', '🧍 Só atirar (os zumbis vêm até você)', '🚶 Andar pela escola')}
     </div>
     <p class="small">Modo feira: partida de ${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min, ${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis, tutorial curto e volta sozinho para o próximo jogador.</p>`;
   }
