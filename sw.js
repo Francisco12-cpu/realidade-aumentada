@@ -25,7 +25,7 @@ const LIBS = [
 // arquivos do site (no dist/ só existe o index.html: os outros falham e são ignorados)
 const SITE = [
   './', 'index.html', 'css/style.css',
-  'js/main.js', 'js/config.js', 'js/options.js', 'js/audio.js', 'js/scene.js', 'js/orientation.js',
+  'js/main.js', 'js/config.js', 'js/options.js', 'js/audio.js', 'js/handhint.js', 'js/ranking.js', 'js/scene.js', 'js/orientation.js',
   'js/hands.js', 'js/filters.js', 'js/gestures.js', 'js/teleport.js', 'js/locomotion.js',
   'js/interaction.js', 'js/calibration.js', 'js/debug.js', 'js/vr.js',
 ];

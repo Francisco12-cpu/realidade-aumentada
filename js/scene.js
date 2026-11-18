@@ -67,16 +67,62 @@ const BLOCKS = [
 // Árvores (tronco com colisão + copa só visual): [x, z]
 const TREES = [[-5, 9], [5, 9], [-6.5, 3], [-11, 11], [-15, 8], [4.5, 13], [16.5, -4]];
 
-// Pontos de sinal. normal = face exposta (por onde a caixa "abre").
+// Pontos de sinal: um por lugar da escola. A cada partida a caixa de cada
+// lugar é sorteada entre os "spots" (o primeiro é o lugar padrão).
+// normal = face exposta (por onde a caixa "abre").
+const BH = BOX_SIZE / 2;
+const UP = [0, 1, 0];
 export const TARGET_DEFS = [
-  { id: 'tutorial', tutorial: true, pos: [0, 0.78 + BOX_SIZE / 2, 6.5], normal: [0, 1, 0], wires: 1 },
-  { id: 'sala-vermelha', pos: [-12, BOX_SIZE / 2, -10], normal: [0, 1, 0] },
-  { id: 'laboratorio-parede', pos: [-4.85 + BOX_SIZE / 2, 1.4, -10.5], normal: [1, 0, 0] },
-  { id: 'sala-verde', pos: [13, BOX_SIZE / 2, -13.5], normal: [0, 1, 0] },
-  { id: 'cantina-teto', pos: [11, 2.5 - BOX_SIZE / 2, -0.5], normal: [0, -1, 0] },
-  { id: 'quadra', pos: [-15.8, BOX_SIZE / 2, 4], normal: [0, 1, 0] },
-  { id: 'biblioteca', pos: [12.5, BOX_SIZE / 2, 9], normal: [0, 1, 0] },
+  { id: 'tutorial', name: 'pedestal', tutorial: true, wires: 1, spots: [{ pos: [0, 0.78 + BH, 6.5], normal: UP }] },
+  { id: 'sala-vermelha', name: 'sala vermelha', spots: [
+    { pos: [-12, BH, -10], normal: UP },
+    { pos: [-12, 0.75 + BH, -12.15], normal: UP },          // em cima da mesa
+    { pos: [-9, 1.3, -15 + BH], normal: [0, 0, 1] },         // na parede do fundo
+    { pos: [-6.4, BH, -13.8], normal: UP },                 // canto
+  ] },
+  { id: 'laboratorio', name: 'laboratório', spots: [
+    { pos: [-4.85 + BH, 1.4, -10.5], normal: [1, 0, 0] },   // parede oeste
+    { pos: [4.85 - BH, 1.4, -12], normal: [-1, 0, 0] },     // parede leste
+    { pos: [1.5, 0.9 + BH, -13.3], normal: UP },            // em cima da bancada
+    { pos: [-2.6, 0.75 + BH, -10.6], normal: UP },          // em cima da mesinha
+  ] },
+  { id: 'sala-verde', name: 'sala verde', spots: [
+    { pos: [13, BH, -13.5], normal: UP },
+    { pos: [8, 0.75 + BH, -12.15], normal: UP },            // em cima da mesa
+    { pos: [15 - BH, 1.2, -11], normal: [-1, 0, 0] },       // parede leste
+    { pos: [6.3, BH, -14.2], normal: UP },
+  ] },
+  { id: 'cantina', name: 'cantina', spots: [
+    { pos: [11, 2.5 - BH, -0.5], normal: [0, -1, 0] },      // no teto
+    { pos: [9.5, 2.5 - BH, 1.4], normal: [0, -1, 0] },      // no teto, perto da coluna
+    { pos: [8.6, 1.1 + BH, -1], normal: UP },               // em cima do balcão
+    { pos: [12.2, 0.75 + BH, -2.2], normal: UP },           // em cima da mesa
+  ] },
+  { id: 'quadra', name: 'quadra', spots: [
+    { pos: [-15.8, BH, 4], normal: UP },
+    { pos: [-9, BH, -4], normal: UP },
+    { pos: [-12.55, BH, 0], normal: UP },                   // no círculo do meio
+    { pos: [-16.4, BH, 0], normal: UP },                    // embaixo da trave
+  ] },
+  { id: 'biblioteca', name: 'biblioteca', spots: [
+    { pos: [12.5, BH, 9], normal: UP },
+    { pos: [12, 2 + BH, 6.55], normal: UP },                // em cima da estante
+    { pos: [15 - BH, 1.2, 9], normal: [-1, 0, 0] },         // parede do fundo
+    { pos: [14, BH, 10.6], normal: UP },
+  ] },
 ];
+
+// Cria (ou recria) as caixas. random = sorteia um spot por lugar.
+export function placeTargets(world, scene, random = false) {
+  for (const t of world.targets) {
+    scene.remove(t.group);
+    t.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  }
+  world.targets = TARGET_DEFS.map((def) => {
+    const spot = random ? def.spots[Math.floor(Math.random() * def.spots.length)] : def.spots[0];
+    return createTarget(scene, { ...def, pos: spot.pos, normal: spot.normal });
+  });
+}
 
 const tmpRay = new THREE.Ray();
 const tmpV = new THREE.Vector3();
@@ -138,7 +184,7 @@ export function buildWorld(scene) {
   scene.add(flag);
   scene.userData.flag = flag;
 
-  const shadowTex = makeShadowTexture();
+  const shadowTex = getShadowTexture();
   const addShadow = (cx, cz, w, d, opacity = 0.55) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
       new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity, depthWrite: false }));
@@ -211,10 +257,7 @@ export function buildWorld(scene) {
     },
   };
 
-  for (const def of TARGET_DEFS) {
-    world.targets.push(createTarget(scene, def));
-    if (def.pos[1] < 0.5) addShadow(def.pos[0], def.pos[2], BOX_SIZE + 0.5, BOX_SIZE + 0.5, 0.6);
-  }
+  placeTargets(world, scene, false);
   return world;
 }
 
@@ -268,10 +311,20 @@ function createTarget(scene, def) {
   glow.visible = false;
   group.add(glow);
 
+  // sombra no chão (só para caixa no chão): vai junto com a caixa quando ela é sorteada
+  if (def.pos[1] < 0.5) {
+    const sh = new THREE.Mesh(new THREE.PlaneGeometry(BOX_SIZE + 0.5, BOX_SIZE + 0.5),
+      new THREE.MeshBasicMaterial({ map: getShadowTexture(), transparent: true, opacity: 0.6, depthWrite: false }));
+    sh.rotation.x = -Math.PI / 2;
+    sh.position.y = 0.008 - def.pos[1];
+    group.add(sh);
+  }
+
   const center = new THREE.Vector3().fromArray(def.pos);
   const half = BOX_SIZE / 2;
   return {
     id: def.id,
+    name: def.name || def.id,
     tutorial: !!def.tutorial,
     wires: def.wires || CONFIG.INTERACTION.WIRES_PER_BOX,
     group, body, lid, led, signal, normal, lidClosed,
@@ -393,6 +446,9 @@ function makeFloorTexture(tiles) {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+let shadowTexCache = null;
+function getShadowTexture() { return shadowTexCache || (shadowTexCache = makeShadowTexture()); }
 
 // Sombra suave (centro escuro, bordas transparentes).
 function makeShadowTexture() {

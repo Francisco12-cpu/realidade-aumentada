@@ -2,7 +2,7 @@
 // Estados: boot -> calibration -> tutorial -> playing -> ended
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { buildWorld, animateTargets } from './scene.js';
+import { buildWorld, animateTargets, placeTargets } from './scene.js';
 import { OrientationController } from './orientation.js';
 import { HandTracker, HandView } from './hands.js';
 import { updateHandGesture } from './gestures.js';
@@ -14,6 +14,8 @@ import { DebugUI } from './debug.js';
 import { VRView, HUD3D, loadVrSettings, makeTestPattern } from './vr.js';
 import { Sfx } from './audio.js';
 import { loadOptions, saveOptions } from './options.js';
+import { HandHint } from './handhint.js';
+import { addResult, rename, rankingTable } from './ranking.js';
 
 class App {
   constructor() {
@@ -74,15 +76,18 @@ class App {
       onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.teleport && d > 2) { this.tutorial.teleport = true; this._refreshTutorial(); } },
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
-      onOpen: () => {
+      onOpen: (t) => {
         this.sfx.open();
-        this.toast('Caixa aberta! Conecte os fios.');
+        const n = t.panelWires || t.wires;
+        this.toast(n >= 5 ? `Caixa difícil: ${n} fios, com cores repetidas!` : `Caixa aberta! Conecte ${n === 1 ? 'o fio' : `os ${n} fios`}.`);
         if (this.state === 'tutorial' && !this.tutorial.touch) { this.tutorial.touch = true; this._refreshTutorial(); }
       },
       onWire: (ok, why) => { this.sfx.wire(ok); this.toast(ok ? 'Fio conectado ✔' : `Não encaixou (${why})`); },
       onGrab: () => this.sfx.grab(),
+      wireCount: (t) => this._wireCount(t),
       onFixed: () => this._onFixed(),
     });
+    this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
 
@@ -208,6 +213,8 @@ class App {
     this.calibration.hide();
     this.state = 'playing';
     this._resetWorld();
+    // cada partida sorteia onde fica a caixa de cada lugar
+    if (CONFIG.INTERACTION.RANDOM_SPOTS) { placeTargets(this.world, this.scene, true); this.applyOptions(); }
     this.interaction.mode = 'game';
     this.timeLeft = this.gameTime();
     this._alarmDone = false;
@@ -218,6 +225,14 @@ class App {
   }
 
   _gameTargets() { return this.world.targets.filter((t) => !t.tutorial && !t.off); }
+
+  // Dificuldade crescente: a caixa que você abre agora tem mais fios que a anterior.
+  _wireCount(t) {
+    if (t.tutorial) return t.wires;
+    const levels = this.options.feira ? CONFIG.FEIRA.WIRE_LEVELS : CONFIG.INTERACTION.WIRE_LEVELS;
+    const fixed = this._gameTargets().filter((x) => x.state === 'fixed').length;
+    return levels[Math.min(fixed, levels.length - 1)];
+  }
 
   _onFixed() {
     this.sfx.fixed();
@@ -241,19 +256,35 @@ class App {
     document.body.classList.remove('playing');
     const all = this._gameTargets();
     const fixed = all.filter((t) => t.state === 'fixed').length;
-    const used = (performance.now() - this.gameStart) / 1000;
+    const used = Math.min((performance.now() - this.gameStart) / 1000, this.gameTime());
     setTimeout(() => (win ? this.sfx.win() : this.sfx.lose()), 350);
     const c = this.calibration;
     const feira = this.options.feira;
+    const { rec, place } = addResult({ fixed, total: all.length, used, timeLeft: this.timeLeft, win, feira });
     c._show(win ? '🎉 Rede restaurada!' : '⏰ O tempo acabou', `
       <p>${win ? 'Você consertou todos os pontos de sinal.' : 'A rede caiu antes de você consertar tudo.'}</p>
-      <p>Caixas consertadas: <b>${fixed}/${all.length}</b><br>Tempo: <b>${fmtTime(Math.min(used, this.gameTime()))}</b></p>
+      <p class="score"><b>${rec.points}</b> pontos · caixas <b>${fixed}/${all.length}</b> · tempo <b>${fmtTime(used)}</b>
+      ${place ? `<br>${place === 1 ? '🏆 <b>Melhor do dia!</b>' : `Você ficou em <b>${place}º</b> hoje.`}` : ''}</p>
+      <div class="name-row"><input id="rank-name" maxlength="${CONFIG.RANKING.NAME_MAX}" placeholder="Seu nome" autocomplete="off" enterkeyhint="done"><button id="rank-save">Salvar nome</button></div>
+      <div id="rank-table">${rankingTable(feira, rec.id)}</div>
       ${feira ? '<p class="small" id="auto-return"></p>' : ''}`, [
       { label: '👤 Próximo jogador', cls: feira ? 'primary' : '', onClick: () => this.nextPlayer() },
       { label: '🔁 Jogar de novo', cls: feira ? '' : 'primary', onClick: () => this.startGame() },
       { label: 'Tutorial', onClick: () => this.startTutorial() },
       { label: 'Recalibrar', onClick: () => this.recalibrate() },
     ]);
+    // nome no ranking (opcional)
+    const input = document.getElementById('rank-name');
+    const saveName = () => {
+      if (!input.value.trim()) return;
+      rename(rec.id, input.value);
+      document.getElementById('rank-table').innerHTML = rankingTable(feira, rec.id);
+      input.blur();
+      this.toast('Nome salvo no ranking');
+    };
+    document.getElementById('rank-save').addEventListener('click', (e) => { e.stopPropagation(); saveName(); });
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') saveName(); });
+    input.addEventListener('focus', () => { clearInterval(this._autoT); const a = document.getElementById('auto-return'); if (a) a.textContent = ''; });
     if (feira) {
       // modo feira: volta sozinho para a tela do próximo jogador
       let left = CONFIG.FEIRA.AUTO_RETURN_S;
@@ -505,6 +536,7 @@ class App {
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
     }
     this._updateVignette(dt);
+    this.handHint.update(now, active);
     this._updateHud(active);
 
     // 6) render

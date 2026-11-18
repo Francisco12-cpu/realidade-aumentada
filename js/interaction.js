@@ -129,7 +129,9 @@ export class Interaction {
   }
 
   _buildPanel(target) {
-    const n = target.wires;
+    // quantos fios: a caixa define (tutorial = 1) ou o jogo decide pela dificuldade
+    const n = this.hooks.wireCount ? this.hooks.wireCount(target) : target.wires;
+    target.panelWires = n;
     const group = new THREE.Group();
     // posição: na frente do jogador, olhando para ele
     // na direção do olhar, com inclinação limitada (nem no chão, nem no teto)
@@ -151,10 +153,11 @@ export class Interaction {
     const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(PANEL_W, PANEL_H)), new THREE.LineBasicMaterial({ color: 0x00e5ff }));
     group.add(frame);
 
-    const colors = WIRE_COLORS.slice(0, n).map((c, i) => ({ c, i }));
+    // mais de 4 fios: as cores se repetem
+    const colors = Array.from({ length: n }, (_, k) => ({ c: WIRE_COLORS[k % WIRE_COLORS.length], i: k % WIRE_COLORS.length }));
     const socketOrder = shuffle(colors.slice());
     if (n > 1 && socketOrder.every((s, k) => s.i === k)) socketOrder.push(socketOrder.shift()); // nunca alinhado
-    const rowY = (k) => (n === 1 ? 0 : PANEL_H * 0.32 - (k * PANEL_H * 0.64) / (n - 1));
+    const rowY = (k) => (n === 1 ? 0 : PANEL_H * 0.36 - (k * PANEL_H * 0.72) / (n - 1));
 
     const plugs = [], sockets = [];
     const plugGeo = new THREE.SphereGeometry(0.02, 14, 10);
@@ -304,7 +307,12 @@ export class Interaction {
       const d = Math.hypot(s.x - ps.x, s.y - ps.y);
       if (d < bestD) { bestD = d; best = sk; }
     }
-    if (best && best.color === plug.color && !P.sockets.some((o) => o === best && o.used)) {
+    // cores repetidas: se o anel mais perto já está ocupado, vale outro livre da mesma cor ali perto
+    if (best && best.used && best.color === plug.color) {
+      const alt = P.sockets.find((o) => !o.used && o.color === plug.color && Math.hypot(this._toScreen(o.pos, s, w, h).x - ps.x, s.y - ps.y) < I.SNAP_SCREEN_PX);
+      if (alt) best = alt;
+    }
+    if (best && best.color === plug.color && !best.used) {
       plug.connected = true;
       best.used = true;
       plug.mesh.position.copy(best.pos).setZ(0.02);

@@ -155,6 +155,29 @@ body.mode-teleporte #btn-run { display: none; }
 .opts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
 .opts .opt { min-height: 40px; padding: 8px 12px; font-size: 14px; }
 .opts .opt.on { background: var(--btn-on); border-color: var(--accent); }
+
+/* ---------- Aviso de mão / luz ---------- */
+#hand-hint {
+  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  max-width: min(92vw, 520px); padding: 10px 16px; border-radius: 14px; z-index: 6; pointer-events: none;
+  background: rgba(255, 196, 0, 0.92); color: #1d1400; font-weight: 600; text-align: center;
+  opacity: 0; transition: opacity 0.25s;
+}
+#hand-hint.show { opacity: 1; }
+body.stereo #hand-hint { display: none; }
+
+/* ---------- Placar / ranking ---------- */
+.score { font-size: 16px; }
+.name-row { display: flex; gap: 8px; margin: 8px 0; }
+.name-row input {
+  flex: 1; min-width: 0; font: inherit; color: var(--text); background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 12px; padding: 8px 12px;
+  user-select: text; -webkit-user-select: text; touch-action: manipulation;
+}
+table.rank { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+table.rank th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; }
+table.rank td { padding: 5px 6px; border-top: 1px solid rgba(255,255,255,0.08); }
+table.rank tr.me td { background: rgba(0, 229, 255, 0.18); font-weight: 600; }
 </style>
   <script type="importmap">
   {
@@ -210,6 +233,7 @@ body.mode-teleporte #btn-run { display: none; }
   <!-- Calibração / tutorial / fim -->
   <div id="overlay" hidden></div>
   <div id="toast"></div>
+  <div id="hand-hint"></div>
   <div id="rotate-hint">📱↔ Vire o celular deitado para usar o óculos</div>
 
   <noscript>Este protótipo precisa de JavaScript.</noscript>
@@ -231,7 +255,7 @@ const CONFIG = {
   GAME_TIME_S: 360,         // duração da partida (6 min)
 
   // ---- Locomoção ----
-  VERSION: 'v8',
+  VERSION: 'v9',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -341,6 +365,10 @@ const CONFIG = {
     TOUCH_DIST: 0.30,       // ponta do indicador até a superfície da caixa (m)
     FALLBACK_TOUCH_DIST: 3.0, // botão "Tocar": abre caixa até essa distância
     WIRES_PER_BOX: 3,
+    // dificuldade crescente: fios da 1ª, 2ª, 3ª... caixa consertada.
+    // Com mais de 4 fios as cores se repetem (qualquer anel da mesma cor serve).
+    WIRE_LEVELS: [3, 3, 4, 4, 5, 5],
+    RANDOM_SPOTS: true,     // sorteia o lugar de cada caixa a cada partida
     PANEL_DIST: 0.55,       // painel aparece a essa distância da câmera
     PANEL_DROP: 0.15,       // inclina o painel um pouco abaixo do olhar (rad)
     GRAB_SCREEN_PX: 75,     // raio (px na tela) para pegar um fio
@@ -366,7 +394,8 @@ const CONFIG = {
   // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----
   FEIRA: {
     GAME_TIME_S: 180,       // partida de 3 min
-    TARGETS: ['sala-vermelha', 'cantina-teto', 'quadra', 'biblioteca'], // só 4 caixas
+    TARGETS: ['sala-vermelha', 'cantina', 'quadra', 'biblioteca'], // só 4 caixas
+    WIRE_LEVELS: [3, 3, 4, 5], // fios de cada caixa, na ordem em que são abertas
     AUTO_RETURN_S: 25,      // depois do fim, volta sozinho para "próximo jogador"
     TUTORIAL_SPAWN: [0, 0, 7.2], // tutorial começa do lado do pedestal (sem passo de andar)
   },
@@ -390,6 +419,15 @@ const CONFIG = {
     DIST: 5,                // começa a soltar faíscas a essa distância (m)
     COUNT: 18,
   },
+
+  // ---- Aviso de mão / luz ----
+  HAND_HINT: {
+    NO_HAND_MS: 3000,       // sem ver nenhuma mão por esse tempo -> "mostre a mão"
+    DARK: 38,               // brilho médio da câmera (0..255) abaixo disso -> "pouca luz"
+  },
+
+  // ---- Ranking do dia (guardado no celular) ----
+  RANKING: { SIZE: 10, NAME_MAX: 14 },
 
   STORAGE_KEY: 'cacador-sinal-calib-v1',
   OPTIONS_KEY: 'cacador-sinal-opcoes-v1',
@@ -551,6 +589,145 @@ class Sfx {
   resetDetector() { this.nextBeep = 0; }
 }
 
+// ===== js/ranking.js =====
+// Placar e ranking do dia, guardados só neste celular (localStorage).
+// Pontos = 100 por caixa consertada + 2 por segundo que sobrou (só se consertou tudo).
+
+const KEY = 'cacador-sinal-ranking-v1';
+
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function loadAll() {
+  try { return JSON.parse(localStorage.getItem(KEY) || '[]') || []; } catch (e) { return []; }
+}
+
+function saveAll(list) {
+  try { localStorage.setItem(KEY, JSON.stringify(list.slice(-300))); return true; } catch (e) { return false; }
+}
+
+function score(fixed, win, timeLeft) {
+  return fixed * 100 + (win ? Math.max(0, Math.ceil(timeLeft)) * 2 : 0);
+}
+
+// Guarda uma partida e devolve o registro (com id) e a posição no ranking do dia.
+function addResult({ fixed, total, used, timeLeft, win, feira }) {
+  const list = loadAll();
+  const date = today();
+  const n = list.filter((r) => r.date === date && r.feira === feira).length + 1;
+  const rec = {
+    id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+    name: `Jogador ${n}`,
+    fixed, total, used: Math.round(used), win, feira, date,
+    points: score(fixed, win, timeLeft),
+  };
+  list.push(rec);
+  saveAll(list);
+  return { rec, place: topToday(feira, 1000).findIndex((r) => r.id === rec.id) + 1 };
+}
+
+function rename(id, name) {
+  const list = loadAll();
+  const r = list.find((x) => x.id === id);
+  if (!r) return;
+  r.name = String(name).trim().slice(0, CONFIG.RANKING.NAME_MAX) || r.name;
+  saveAll(list);
+}
+
+// Melhores do dia: mais pontos, depois menos tempo.
+function topToday(feira, n = CONFIG.RANKING.SIZE) {
+  const date = today();
+  return loadAll()
+    .filter((r) => r.date === date && r.feira === feira)
+    .sort((a, b) => b.points - a.points || a.used - b.used)
+    .slice(0, n);
+}
+
+function clearToday(feira) {
+  const date = today();
+  saveAll(loadAll().filter((r) => !(r.date === date && r.feira === feira)));
+}
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+function fmt(s) { return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+
+function rankingTable(feira, highlightId = null) {
+  const top = topToday(feira);
+  if (!top.length) return '<p class="small">Ninguém jogou hoje ainda. Seja o primeiro!</p>';
+  const rows = top.map((r, i) => `<tr class="${r.id === highlightId ? 'me' : ''}">
+      <td>${['🥇', '🥈', '🥉'][i] || i + 1}</td><td>${esc(r.name)}</td><td>${r.points}</td>
+      <td>${r.fixed}/${r.total}</td><td>${fmt(r.used)}</td></tr>`).join('');
+  return `<table class="rank"><thead><tr><th></th><th>Nome</th><th>Pontos</th><th>Caixas</th><th>Tempo</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// ===== js/handhint.js =====
+// Aviso quando o jogo não vê a mão: "mostre a mão" ou "pouca luz".
+// Mede o brilho da câmera numa imagem pequenininha (32x24), duas vezes por segundo.
+
+const HH = CONFIG.HAND_HINT;
+
+class HandHint {
+  constructor(app) {
+    this.app = app;
+    this.el = document.getElementById('hand-hint');
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = 32;
+    this.canvas.height = 24;
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+    this.brightness = null;   // 0..255 (média da imagem)
+    this.lastSeen = performance.now();
+    this.lastMeasure = 0;
+    this.shown = '';
+    this.lastHudToast = 0;
+  }
+
+  _measure() {
+    const v = this.app.hands.video;
+    if (!v || !v.videoWidth || v.readyState < 2) return;
+    try {
+      this.ctx.drawImage(v, 0, 0, 32, 24);
+      const d = this.ctx.getImageData(0, 0, 32, 24).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      this.brightness = sum / (d.length / 4);
+    } catch (e) { this.brightness = null; }
+  }
+
+  // Chamar todo quadro. active = tutorial ou partida.
+  update(now, active) {
+    const app = this.app;
+    const tracking = !!(app.hands.landmarker && app.hands.stream);
+    if (app.hands.hands.some((h) => h.visible)) this.lastSeen = now;
+    if (!active || !tracking) { this._set(''); this.lastSeen = now; return; }
+    if (now - this.lastMeasure > 500) { this.lastMeasure = now; this._measure(); }
+    let msg = '';
+    const lost = now - this.lastSeen;
+    if (lost > 1500 && this.brightness != null && this.brightness < HH.DARK) {
+      msg = '💡 Pouca luz ou câmera tapada: vá para um lugar mais claro e deixe a câmera de trás livre.';
+    } else if (lost > HH.NO_HAND_MS) {
+      msg = app.stereo || app.xrActive
+        ? '✋ Mostre a mão na frente do celular (a tampa da câmera do óculos precisa estar aberta)'
+        : '✋ Mostre a mão para a câmera de trás do celular';
+    }
+    this._set(msg);
+    // no óculos o aviso em HTML não aparece: manda para o painel 3D de vez em quando
+    if (msg && (app.stereo || app.xrActive) && now - this.lastHudToast > 3000) {
+      this.lastHudToast = now;
+      app.hud3d.toast(msg.replace(/\(.*\)/, '').trim());
+    }
+  }
+
+  _set(msg) {
+    if (msg === this.shown || !this.el) return;
+    this.shown = msg;
+    this.el.textContent = msg;
+    this.el.classList.toggle('show', !!msg);
+  }
+}
+
 // ===== js/filters.js =====
 // Filtro One Euro (Casiez et al. 2012): suaviza tremor quando a mão está
 // parada e reduz atraso quando ela se move rápido.
@@ -666,16 +843,62 @@ const BLOCKS = [
 // Árvores (tronco com colisão + copa só visual): [x, z]
 const TREES = [[-5, 9], [5, 9], [-6.5, 3], [-11, 11], [-15, 8], [4.5, 13], [16.5, -4]];
 
-// Pontos de sinal. normal = face exposta (por onde a caixa "abre").
+// Pontos de sinal: um por lugar da escola. A cada partida a caixa de cada
+// lugar é sorteada entre os "spots" (o primeiro é o lugar padrão).
+// normal = face exposta (por onde a caixa "abre").
+const BH = BOX_SIZE / 2;
+const UP = [0, 1, 0];
 const TARGET_DEFS = [
-  { id: 'tutorial', tutorial: true, pos: [0, 0.78 + BOX_SIZE / 2, 6.5], normal: [0, 1, 0], wires: 1 },
-  { id: 'sala-vermelha', pos: [-12, BOX_SIZE / 2, -10], normal: [0, 1, 0] },
-  { id: 'laboratorio-parede', pos: [-4.85 + BOX_SIZE / 2, 1.4, -10.5], normal: [1, 0, 0] },
-  { id: 'sala-verde', pos: [13, BOX_SIZE / 2, -13.5], normal: [0, 1, 0] },
-  { id: 'cantina-teto', pos: [11, 2.5 - BOX_SIZE / 2, -0.5], normal: [0, -1, 0] },
-  { id: 'quadra', pos: [-15.8, BOX_SIZE / 2, 4], normal: [0, 1, 0] },
-  { id: 'biblioteca', pos: [12.5, BOX_SIZE / 2, 9], normal: [0, 1, 0] },
+  { id: 'tutorial', name: 'pedestal', tutorial: true, wires: 1, spots: [{ pos: [0, 0.78 + BH, 6.5], normal: UP }] },
+  { id: 'sala-vermelha', name: 'sala vermelha', spots: [
+    { pos: [-12, BH, -10], normal: UP },
+    { pos: [-12, 0.75 + BH, -12.15], normal: UP },          // em cima da mesa
+    { pos: [-9, 1.3, -15 + BH], normal: [0, 0, 1] },         // na parede do fundo
+    { pos: [-6.4, BH, -13.8], normal: UP },                 // canto
+  ] },
+  { id: 'laboratorio', name: 'laboratório', spots: [
+    { pos: [-4.85 + BH, 1.4, -10.5], normal: [1, 0, 0] },   // parede oeste
+    { pos: [4.85 - BH, 1.4, -12], normal: [-1, 0, 0] },     // parede leste
+    { pos: [1.5, 0.9 + BH, -13.3], normal: UP },            // em cima da bancada
+    { pos: [-2.6, 0.75 + BH, -10.6], normal: UP },          // em cima da mesinha
+  ] },
+  { id: 'sala-verde', name: 'sala verde', spots: [
+    { pos: [13, BH, -13.5], normal: UP },
+    { pos: [8, 0.75 + BH, -12.15], normal: UP },            // em cima da mesa
+    { pos: [15 - BH, 1.2, -11], normal: [-1, 0, 0] },       // parede leste
+    { pos: [6.3, BH, -14.2], normal: UP },
+  ] },
+  { id: 'cantina', name: 'cantina', spots: [
+    { pos: [11, 2.5 - BH, -0.5], normal: [0, -1, 0] },      // no teto
+    { pos: [9.5, 2.5 - BH, 1.4], normal: [0, -1, 0] },      // no teto, perto da coluna
+    { pos: [8.6, 1.1 + BH, -1], normal: UP },               // em cima do balcão
+    { pos: [12.2, 0.75 + BH, -2.2], normal: UP },           // em cima da mesa
+  ] },
+  { id: 'quadra', name: 'quadra', spots: [
+    { pos: [-15.8, BH, 4], normal: UP },
+    { pos: [-9, BH, -4], normal: UP },
+    { pos: [-12.55, BH, 0], normal: UP },                   // no círculo do meio
+    { pos: [-16.4, BH, 0], normal: UP },                    // embaixo da trave
+  ] },
+  { id: 'biblioteca', name: 'biblioteca', spots: [
+    { pos: [12.5, BH, 9], normal: UP },
+    { pos: [12, 2 + BH, 6.55], normal: UP },                // em cima da estante
+    { pos: [15 - BH, 1.2, 9], normal: [-1, 0, 0] },         // parede do fundo
+    { pos: [14, BH, 10.6], normal: UP },
+  ] },
 ];
+
+// Cria (ou recria) as caixas. random = sorteia um spot por lugar.
+function placeTargets(world, scene, random = false) {
+  for (const t of world.targets) {
+    scene.remove(t.group);
+    t.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  }
+  world.targets = TARGET_DEFS.map((def) => {
+    const spot = random ? def.spots[Math.floor(Math.random() * def.spots.length)] : def.spots[0];
+    return createTarget(scene, { ...def, pos: spot.pos, normal: spot.normal });
+  });
+}
 
 const tmpRay = new THREE.Ray();
 const tmpV = new THREE.Vector3();
@@ -737,7 +960,7 @@ function buildWorld(scene) {
   scene.add(flag);
   scene.userData.flag = flag;
 
-  const shadowTex = makeShadowTexture();
+  const shadowTex = getShadowTexture();
   const addShadow = (cx, cz, w, d, opacity = 0.55) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
       new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity, depthWrite: false }));
@@ -810,10 +1033,7 @@ function buildWorld(scene) {
     },
   };
 
-  for (const def of TARGET_DEFS) {
-    world.targets.push(createTarget(scene, def));
-    if (def.pos[1] < 0.5) addShadow(def.pos[0], def.pos[2], BOX_SIZE + 0.5, BOX_SIZE + 0.5, 0.6);
-  }
+  placeTargets(world, scene, false);
   return world;
 }
 
@@ -867,10 +1087,20 @@ function createTarget(scene, def) {
   glow.visible = false;
   group.add(glow);
 
+  // sombra no chão (só para caixa no chão): vai junto com a caixa quando ela é sorteada
+  if (def.pos[1] < 0.5) {
+    const sh = new THREE.Mesh(new THREE.PlaneGeometry(BOX_SIZE + 0.5, BOX_SIZE + 0.5),
+      new THREE.MeshBasicMaterial({ map: getShadowTexture(), transparent: true, opacity: 0.6, depthWrite: false }));
+    sh.rotation.x = -Math.PI / 2;
+    sh.position.y = 0.008 - def.pos[1];
+    group.add(sh);
+  }
+
   const center = new THREE.Vector3().fromArray(def.pos);
   const half = BOX_SIZE / 2;
   return {
     id: def.id,
+    name: def.name || def.id,
     tutorial: !!def.tutorial,
     wires: def.wires || CONFIG.INTERACTION.WIRES_PER_BOX,
     group, body, lid, led, signal, normal, lidClosed,
@@ -992,6 +1222,9 @@ function makeFloorTexture(tiles) {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+let shadowTexCache = null;
+function getShadowTexture() { return shadowTexCache || (shadowTexCache = makeShadowTexture()); }
 
 // Sombra suave (centro escuro, bordas transparentes).
 function makeShadowTexture() {
@@ -2373,7 +2606,9 @@ class Interaction {
   }
 
   _buildPanel(target) {
-    const n = target.wires;
+    // quantos fios: a caixa define (tutorial = 1) ou o jogo decide pela dificuldade
+    const n = this.hooks.wireCount ? this.hooks.wireCount(target) : target.wires;
+    target.panelWires = n;
     const group = new THREE.Group();
     // posição: na frente do jogador, olhando para ele
     // na direção do olhar, com inclinação limitada (nem no chão, nem no teto)
@@ -2395,10 +2630,11 @@ class Interaction {
     const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(PANEL_W, PANEL_H)), new THREE.LineBasicMaterial({ color: 0x00e5ff }));
     group.add(frame);
 
-    const colors = WIRE_COLORS.slice(0, n).map((c, i) => ({ c, i }));
+    // mais de 4 fios: as cores se repetem
+    const colors = Array.from({ length: n }, (_, k) => ({ c: WIRE_COLORS[k % WIRE_COLORS.length], i: k % WIRE_COLORS.length }));
     const socketOrder = shuffle(colors.slice());
     if (n > 1 && socketOrder.every((s, k) => s.i === k)) socketOrder.push(socketOrder.shift()); // nunca alinhado
-    const rowY = (k) => (n === 1 ? 0 : PANEL_H * 0.32 - (k * PANEL_H * 0.64) / (n - 1));
+    const rowY = (k) => (n === 1 ? 0 : PANEL_H * 0.36 - (k * PANEL_H * 0.72) / (n - 1));
 
     const plugs = [], sockets = [];
     const plugGeo = new THREE.SphereGeometry(0.02, 14, 10);
@@ -2548,7 +2784,12 @@ class Interaction {
       const d = Math.hypot(s.x - ps.x, s.y - ps.y);
       if (d < bestD) { bestD = d; best = sk; }
     }
-    if (best && best.color === plug.color && !P.sockets.some((o) => o === best && o.used)) {
+    // cores repetidas: se o anel mais perto já está ocupado, vale outro livre da mesma cor ali perto
+    if (best && best.used && best.color === plug.color) {
+      const alt = P.sockets.find((o) => !o.used && o.color === plug.color && Math.hypot(this._toScreen(o.pos, s, w, h).x - ps.x, s.y - ps.y) < I.SNAP_SCREEN_PX);
+      if (alt) best = alt;
+    }
+    if (best && best.color === plug.color && !best.used) {
       plug.connected = true;
       best.used = true;
       plug.mesh.position.copy(best.pos).setZ(0.02);
@@ -2947,6 +3188,7 @@ class CalibrationFlow {
       btns.push({ label: 'Começar', cls: 'primary', onClick: () => this._startFresh() });
     }
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
+    btns.push({ label: '🏆 Ranking do dia', onClick: () => this.showRanking(() => this.welcome()) });
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show(`Caçador de Sinal — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
     this._wireOptions(() => this.welcome());
@@ -2971,11 +3213,28 @@ class CalibrationFlow {
     this._show('👤 Próximo jogador', html, [
       { label: 'Tutorial rápido →', cls: 'primary', onClick: () => go('tutorial') },
       { label: 'Direto para a partida', onClick: () => go('game') },
+      { label: '🏆 Ranking do dia', onClick: () => this.showRanking(() => this.nextPlayer()) },
       { label: 'Recalibrar (mão diferente)', onClick: () => this.app.recalibrate() },
       { label: 'Tela inicial', onClick: () => this.welcome() },
     ]);
     this._wireOptions(() => this.nextPlayer());
     this._checkOffline();
+  }
+
+  // Ranking do dia (só deste celular). Apagar pede dois toques, sem janela de confirmação.
+  showRanking(back) {
+    const feira = this.app.options.feira;
+    let armed = false;
+    this._show(`🏆 Ranking de hoje${feira ? ' (modo feira)' : ''}`, `
+      <div id="rank-table">${rankingTable(feira)}</div>
+      <p class="small">Pontos: 100 por caixa consertada + 2 por segundo que sobrou (quando conserta todas). Fica guardado só neste celular.</p>`, [
+      { label: '← Voltar', cls: 'primary', onClick: back },
+      { label: '🗑 Apagar ranking de hoje', onClick: (btn) => {
+        if (!armed) { armed = true; btn.textContent = 'Toque de novo para apagar'; setTimeout(() => { armed = false; btn.textContent = '🗑 Apagar ranking de hoje'; }, 3000); return; }
+        clearToday(feira);
+        this.showRanking(back);
+      } },
+    ]);
   }
 
   // Botões liga/desliga das opções (som, vibração, vinheta, modo feira).
@@ -3556,15 +3815,18 @@ class App {
       onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.teleport && d > 2) { this.tutorial.teleport = true; this._refreshTutorial(); } },
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
-      onOpen: () => {
+      onOpen: (t) => {
         this.sfx.open();
-        this.toast('Caixa aberta! Conecte os fios.');
+        const n = t.panelWires || t.wires;
+        this.toast(n >= 5 ? `Caixa difícil: ${n} fios, com cores repetidas!` : `Caixa aberta! Conecte ${n === 1 ? 'o fio' : `os ${n} fios`}.`);
         if (this.state === 'tutorial' && !this.tutorial.touch) { this.tutorial.touch = true; this._refreshTutorial(); }
       },
       onWire: (ok, why) => { this.sfx.wire(ok); this.toast(ok ? 'Fio conectado ✔' : `Não encaixou (${why})`); },
       onGrab: () => this.sfx.grab(),
+      wireCount: (t) => this._wireCount(t),
       onFixed: () => this._onFixed(),
     });
+    this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
 
@@ -3690,6 +3952,8 @@ class App {
     this.calibration.hide();
     this.state = 'playing';
     this._resetWorld();
+    // cada partida sorteia onde fica a caixa de cada lugar
+    if (CONFIG.INTERACTION.RANDOM_SPOTS) { placeTargets(this.world, this.scene, true); this.applyOptions(); }
     this.interaction.mode = 'game';
     this.timeLeft = this.gameTime();
     this._alarmDone = false;
@@ -3700,6 +3964,14 @@ class App {
   }
 
   _gameTargets() { return this.world.targets.filter((t) => !t.tutorial && !t.off); }
+
+  // Dificuldade crescente: a caixa que você abre agora tem mais fios que a anterior.
+  _wireCount(t) {
+    if (t.tutorial) return t.wires;
+    const levels = this.options.feira ? CONFIG.FEIRA.WIRE_LEVELS : CONFIG.INTERACTION.WIRE_LEVELS;
+    const fixed = this._gameTargets().filter((x) => x.state === 'fixed').length;
+    return levels[Math.min(fixed, levels.length - 1)];
+  }
 
   _onFixed() {
     this.sfx.fixed();
@@ -3723,19 +3995,35 @@ class App {
     document.body.classList.remove('playing');
     const all = this._gameTargets();
     const fixed = all.filter((t) => t.state === 'fixed').length;
-    const used = (performance.now() - this.gameStart) / 1000;
+    const used = Math.min((performance.now() - this.gameStart) / 1000, this.gameTime());
     setTimeout(() => (win ? this.sfx.win() : this.sfx.lose()), 350);
     const c = this.calibration;
     const feira = this.options.feira;
+    const { rec, place } = addResult({ fixed, total: all.length, used, timeLeft: this.timeLeft, win, feira });
     c._show(win ? '🎉 Rede restaurada!' : '⏰ O tempo acabou', `
       <p>${win ? 'Você consertou todos os pontos de sinal.' : 'A rede caiu antes de você consertar tudo.'}</p>
-      <p>Caixas consertadas: <b>${fixed}/${all.length}</b><br>Tempo: <b>${fmtTime(Math.min(used, this.gameTime()))}</b></p>
+      <p class="score"><b>${rec.points}</b> pontos · caixas <b>${fixed}/${all.length}</b> · tempo <b>${fmtTime(used)}</b>
+      ${place ? `<br>${place === 1 ? '🏆 <b>Melhor do dia!</b>' : `Você ficou em <b>${place}º</b> hoje.`}` : ''}</p>
+      <div class="name-row"><input id="rank-name" maxlength="${CONFIG.RANKING.NAME_MAX}" placeholder="Seu nome" autocomplete="off" enterkeyhint="done"><button id="rank-save">Salvar nome</button></div>
+      <div id="rank-table">${rankingTable(feira, rec.id)}</div>
       ${feira ? '<p class="small" id="auto-return"></p>' : ''}`, [
       { label: '👤 Próximo jogador', cls: feira ? 'primary' : '', onClick: () => this.nextPlayer() },
       { label: '🔁 Jogar de novo', cls: feira ? '' : 'primary', onClick: () => this.startGame() },
       { label: 'Tutorial', onClick: () => this.startTutorial() },
       { label: 'Recalibrar', onClick: () => this.recalibrate() },
     ]);
+    // nome no ranking (opcional)
+    const input = document.getElementById('rank-name');
+    const saveName = () => {
+      if (!input.value.trim()) return;
+      rename(rec.id, input.value);
+      document.getElementById('rank-table').innerHTML = rankingTable(feira, rec.id);
+      input.blur();
+      this.toast('Nome salvo no ranking');
+    };
+    document.getElementById('rank-save').addEventListener('click', (e) => { e.stopPropagation(); saveName(); });
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') saveName(); });
+    input.addEventListener('focus', () => { clearInterval(this._autoT); const a = document.getElementById('auto-return'); if (a) a.textContent = ''; });
     if (feira) {
       // modo feira: volta sozinho para a tela do próximo jogador
       let left = CONFIG.FEIRA.AUTO_RETURN_S;
@@ -3987,6 +4275,7 @@ class App {
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
     }
     this._updateVignette(dt);
+    this.handHint.update(now, active);
     this._updateHud(active);
 
     // 6) render

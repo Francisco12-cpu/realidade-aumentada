@@ -147,3 +147,26 @@ body.mode-teleporte #btn-run { display: none; }
 .opts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
 .opts .opt { min-height: 40px; padding: 8px 12px; font-size: 14px; }
 .opts .opt.on { background: var(--btn-on); border-color: var(--accent); }
+
+/* ---------- Aviso de mão / luz ---------- */
+#hand-hint {
+  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  max-width: min(92vw, 520px); padding: 10px 16px; border-radius: 14px; z-index: 6; pointer-events: none;
+  background: rgba(255, 196, 0, 0.92); color: #1d1400; font-weight: 600; text-align: center;
+  opacity: 0; transition: opacity 0.25s;
+}
+#hand-hint.show { opacity: 1; }
+body.stereo #hand-hint { display: none; }
+
+/* ---------- Placar / ranking ---------- */
+.score { font-size: 16px; }
+.name-row { display: flex; gap: 8px; margin: 8px 0; }
+.name-row input {
+  flex: 1; min-width: 0; font: inherit; color: var(--text); background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 12px; padding: 8px 12px;
+  user-select: text; -webkit-user-select: text; touch-action: manipulation;
+}
+table.rank { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+table.rank th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; }
+table.rank td { padding: 5px 6px; border-top: 1px solid rgba(255,255,255,0.08); }
+table.rank tr.me td { background: rgba(0, 229, 255, 0.18); font-weight: 600; }
