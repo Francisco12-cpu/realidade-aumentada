@@ -122,6 +122,7 @@ class App {
     this._hv = new THREE.Vector3();
     this._eyeP = new THREE.Vector3();
     this._walkDir = new THREE.Vector3(0, 0, -1);
+    this._dirB = new THREE.Vector3();
     this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
@@ -809,10 +810,12 @@ class App {
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
       const w = this.hands.hands.find((h) => h.role === 'walk' && h.visible);
-      if (w && !this._isFistLike(w)) {
-        // direção: do olho até a mão azul, no plano do chão
-        this.camera.getWorldPosition(this._eyeP);
-        this._hv.copy(w.worldPts[5]).add(w.worldPts[9]).multiplyScalar(0.5).sub(this._eyeP);
+      // v20: a mão azul só anda fazendo um gesto: 👉 apontar = anda para onde o
+      // dedo aponta · ✋ palma aberta = anda para onde você olha. Outro jeito = parada.
+      const pointing = w && this._isPointing(w), palm = w && !pointing && this._isPalm(w);
+      if (pointing || palm) {
+        if (pointing) this._fingerDir(w, this._hv, CONFIG.ROLES.FINGER_BLEND);
+        else this.camera.getWorldDirection(this._hv);
         this._hv.y = 0;
         if (this._hv.lengthSq() > 1e-6) {
           this._hv.normalize();
@@ -856,6 +859,7 @@ class App {
     if (active) {
       const fire = !!input.fire;
       input.fire = false;
+      this.gun.aimFn = (h, out) => this._fingerDir(h, out, CONFIG.GUN.FINGER_BLEND);
       this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
       this.horde.update(dt, this.rig.position);
       if (CONFIG.MELEE.ON) this._updateMelee(now, dt);
@@ -957,22 +961,45 @@ class App {
   // andar). Com uma mão só, ela ganha o papel pelo lado em que apareceu e
   // fica com ele enquanto não sumir.
   _assignRoles() {
+    // v20: o lado da visão decide (com folga no meio para não ficar trocando):
+    // mão do lado esquerdo = AZUL (anda), do lado direito = VERMELHA (atira)
     const walkLeft = this.calib.locomotion !== 'right';
     const vis = this.hands.hands.filter((h) => h.visible);
     for (const h of this.hands.hands) if (!h.visible) h.role = null;
+    const roleOf = (left) => (left === walkLeft ? 'walk' : 'gun');
+    const x = (h) => h.camPts[9].x / Math.max(0.15, -h.camPts[9].z); // ângulo (tangente) na visão
     if (vis.length === 2) {
-      const [a, b] = vis[0].camPts[9].x <= vis[1].camPts[9].x ? vis : [vis[1], vis[0]];
-      a.role = walkLeft ? 'walk' : 'gun';
-      b.role = walkLeft ? 'gun' : 'walk';
-    } else if (vis.length === 1 && !vis[0].role) {
-      const onLeft = vis[0].camPts[9].x < 0;
-      vis[0].role = onLeft === walkLeft ? 'walk' : 'gun';
+      const [a, b] = x(vis[0]) <= x(vis[1]) ? vis : [vis[1], vis[0]];
+      a.role = roleOf(true);
+      b.role = roleOf(false);
+    } else if (vis.length === 1) {
+      const h = vis[0], hx = x(h), M = CONFIG.ROLES.CENTER_SLACK;
+      if (hx < -M) h.role = roleOf(true);
+      else if (hx > M) h.role = roleOf(false);
+      else if (!h.role) h.role = this._lastRole || roleOf(hx < 0);
+      this._lastRole = h.role;
     }
+  }
+
+  // mão da arma / de andar: indicador esticado e médio dobrado (pistolinha / apontar)
+  _isPointing(h) { return this.gun._isPistol(h, this.calib.thresholds); }
+
+  // direção para onde o indicador aponta (no mundo), misturada com a direção
+  // do olho até a mão (a ponta do dedo sozinha treme). Retorna em out.
+  _fingerDir(h, out, blend) {
+    const P = h.worldPts;
+    out.subVectors(P[8], P[5]);
+    const L = out.length();
+    this.camera.getWorldPosition(this._eyeP);
+    this._dirB.copy(P[5]).add(P[9]).multiplyScalar(0.5).sub(this._eyeP).normalize();
+    if (L < 1e-4) return out.copy(this._dirB);
+    out.divideScalar(L).multiplyScalar(blend).addScaledVector(this._dirB, 1 - blend).normalize();
+    return out;
   }
 
   // v19: soco/tapa (lógica em melee.js); aqui só os efeitos e o placar
   _updateMelee(now, dt) {
-    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position)) {
+    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position, this.camera)) {
       const z = e.zombie;
       this.sfx.punch(e.kill);
       this._pow(e.point, e.kill);
@@ -1068,9 +1095,9 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Mão <b>AZUL</b> (esquerda): mostre e <b>aponte para onde quer ir</b>. Feche a mão ou abaixe para parar. De perto, dá para dar <b>socos e tapas</b> 👊.',
+      walk: 'Mão <b>AZUL</b> (lado esquerdo): <b>aponte 👉 para onde quer ir</b> (ou ✋ palma aberta = anda para onde olha). Mão relaxada ou fechada = parada. De perto, <b>socos e tapas</b> 👊.',
       aim: 'Mão <b>VERMELHA</b> (direita): mostre para a câmera. Aparece o laser.',
-      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> em cima do zumbi. Atira sozinho; a <b>barra</b> mostra a recarga. Ou chegue perto e dê <b>3 socos</b> 👊.',
+      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> apontando o dedo para o zumbi. Atira sozinho; a <b>barra</b> mostra a recarga. Ou chegue perto e dê <b>3 socos</b> 👊 rápidos.',
     };
     const g = this.gun.state;
     this.coach.update({

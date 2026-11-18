@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v19',
+  VERSION: 'v20',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -75,6 +75,8 @@ export const CONFIG = {
     // vem invertido, então por padrão invertemos. A calibração confirma.
     FLIP_HANDEDNESS: true,
     LOST_GRACE_MS: 500,         // segura a mão na tela por esse tempo se sumir
+    DUP_DIST: 0.08,             // duas detecções mais perto que isso (fração da imagem) = a mesma mão
+    GHOST_DIST: 0.15,           // mão "pulou" de lado: a cópia antiga perto disso some na hora
     // 'real' = mão no mesmo ângulo e distância da mão de verdade (v16) · 'tela' = imagem esticada na tela (antigo)
     MAP_MODE: 'real',
     CAM_FOV_LONG: 64,           // ângulo de visão da câmera traseira no lado maior da imagem (graus)
@@ -164,6 +166,8 @@ export const CONFIG = {
     PISTOL_INDEX: 1.5,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
     PISTOL_MIDDLE: 1.4,     // (auto) médio mais perto que isso = dobrado
     PISTOL_HOLD_MS: 200,    // (auto) pistolinha firme esse tempo antes do 1º tiro (a mira assenta)
+    FINGER_BLEND: 0.65,     // mira: 1 = só para onde o dedo aponta · 0 = só do olho até a mão
+    AIM_SMOOTH: 0.35,       // suavização da mira por quadro (menor = mais firme, mais lenta)
     FIRE_REACH: 1.3,        // (punho) indicador e médio mais perto do pulso que isso (em palmos) = mão fechada = tiro
     ARM_REACH: 1.5,         // (punho) abrir a mão além disso engatilha de novo
     OPEN_REACH: 1.75,       // (punho) acima disso nos dois dedos = mão aberta (anda, não mira)
@@ -196,7 +200,7 @@ export const CONFIG = {
     SHOT_ALERT: 20,         // tiro acorda os zumbis até essa distância
     ATTACK_DIST: 0.95,
     ATTACK_S: 1.3,          // tempo entre ataques
-    ASSIST_DEG: 4,          // ajuda de mira (graus)
+    ASSIST_DEG: 7,          // ajuda de mira (graus)
     MIN_DIST_START: 25,     // os primeiros nascem pelo menos a essa distância da porta
     SPREAD: 12,             // distância entre zumbis ao espalhar
     FLOW_RADIUS: 45,        // raio do caminho calculado em volta do jogador (m)
@@ -221,6 +225,8 @@ export const CONFIG = {
     WALK_COLOR: 0x2f7bff,
     GUN_COLOR: 0xe02424,
     WALK_GRACE_MS: 400,     // continua andando esse tempo se a mão azul "piscar"
+    FINGER_BLEND: 0.7,      // andar apontando: 1 = só o dedo · 0 = só do olho até a mão
+    CENTER_SLACK: 0.12,     // uma mão só perto do meio da visão mantém a cor que tinha
   },
 
   // ---- Soco / tapa (v19): encostar a mão no zumbi com força ----
@@ -228,9 +234,12 @@ export const CONFIG = {
     ON: true,
     PUNCHES: 10,            // socos para derrubar um zumbi (o tiro continua matando rápido)
     DUMMY_PUNCHES: 3,       // zumbi de treino
-    MIN_SPEED: 0.5,         // a mão precisa chegar com essa velocidade (m/s): encostar parado não bate
-    RELEASE_DIST: 0.1,      // depois do golpe, afaste a mão isso (m) do zumbi para poder bater de novo
-    COOLDOWN_MS: 250,       // tempo mínimo entre golpes da mesma mão
+    MIN_DIST: 0.15,         // golpe = a mão anda mais que isso (m) em WINDOW_MS (soco, tapa)
+    REARM_DIST: 0.07,       // depois de um golpe, a mão precisa quase parar (anda menos que isso) para valer outro
+    WINDOW_MS: 200,         // janela para medir o golpe (o tremido da detecção fica bem abaixo de MIN_DIST)
+    RANGE: 1.25,            // zumbi a até essa distância do jogador (m) leva o golpe
+    ANGLE_DEG: 50,          // e na direção da mão (graus de folga)
+    COOLDOWN_MS: 300,       // tempo mínimo entre golpes da mesma mão
     KNOCK_SPEED: 1.6,       // empurrão para trás (m/s, some rápido)
     STAGGER_S: 0.6,         // o zumbi demora pelo menos isso para morder depois de apanhar
   },
