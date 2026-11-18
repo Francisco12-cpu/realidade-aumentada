@@ -2,7 +2,7 @@
 // Estados: boot -> calibration -> tutorial -> playing -> ended
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { buildWorld, loadSchool } from './scene.js';
+import { buildWorld, loadSchool, updateDetails } from './scene.js';
 import { OrientationController } from './orientation.js';
 import { HandTracker, HandView } from './hands.js';
 import { updateHandGesture } from './gestures.js';
@@ -19,6 +19,7 @@ import { addResult, rename, rankingTable } from './ranking.js';
 import { Gun } from './gun.js';
 import { Horde } from './zombies.js';
 import { Coach } from './coach.js';
+import { Lobby } from './lobby.js';
 
 class App {
   constructor() {
@@ -49,12 +50,14 @@ class App {
     // a pistolinha agora é a arma: o teleporte (que usava a pistolinha) vira 'palma'
     this.locoMode = CONFIG.LOCOMOTION === 'teleporte' ? 'palma' : CONFIG.LOCOMOTION;
     document.body.classList.add(`mode-${this.locoMode}`);
-    this.xrSupported = false;
+    this.xrSupported = undefined; // undefined = ainda não sabe · true/false depois da pergunta ao Chrome
     this.xrActive = false;
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType('local');
     if (navigator.xr && navigator.xr.isSessionSupported) {
-      navigator.xr.isSessionSupported('immersive-vr').then((ok) => { this.xrSupported = ok; }).catch(() => {});
+      navigator.xr.isSessionSupported('immersive-vr').then((ok) => { this.xrSupported = ok; }).catch(() => { this.xrSupported = false; });
+    } else {
+      this.xrSupported = false;
     }
     this.vrSettings = loadVrSettings();
     this.vr = new VRView(this.renderer, this.vrSettings);
@@ -110,6 +113,7 @@ class App {
       onWave: (n) => { if (this.state === 'playing') { this.toast(`🧟 Chegaram mais ${n} zumbis!`); this.sfx.alarm(); } },
     });
     this.coach = new Coach(this.camera);
+    this.lobby = new Lobby(this.camera);
     this.hp = CONFIG.PLAYER.HP;
     this.lastPalm = -1e9;
     this._fx = [];
@@ -134,6 +138,7 @@ class App {
     this._last = performance.now();
     this.renderer.setAnimationLoop(() => this._loop());
     this.calibration.welcome();
+    this._preloadP = this._preloadDevices();
     window.__app = this; // para depuração no console / testes
     registerServiceWorker();
   }
@@ -155,6 +160,8 @@ class App {
       this.sensorsReady = true;
       this.requestWakeLock();
     }
+    // a pré-carga (abriu o jogo com a câmera já liberada) pode estar no meio
+    if (withCamera && this._preloadP) { onStatus('Ligando câmera e mãos…'); await this._preloadP; }
     if (!withCamera || this.hands.landmarker) { this.devicesReady = true; return true; }
     try {
       onStatus('Pedindo acesso à câmera traseira…');
@@ -176,6 +183,19 @@ class App {
     return true;
   }
 
+  // v16: com calibração salva e a câmera já liberada antes, liga câmera e
+  // mãos logo ao abrir. Assim o toque em "Jogar no óculos" só entra no óculos.
+  async _preloadDevices() {
+    try {
+      if (!loadCalib() || !navigator.permissions) return;
+      const p = await navigator.permissions.query({ name: 'camera' });
+      if (p.state !== 'granted' || this.hands.stream) return;
+      await this.hands.startCamera();
+      await this.hands.loadModel(() => {});
+      if (this.state === 'boot') this.toast('📷 Câmera e mãos prontas');
+    } catch (e) { /* sem problema: liga no toque */ }
+  }
+
   // Mantém a tela acesa. O Chrome solta a trava quando a aba sai da frente,
   // então isto é chamado de novo ao voltar (visibilitychange).
   async requestWakeLock() {
@@ -195,7 +215,8 @@ class App {
       if (el) el.innerHTML = t;
     };
     try {
-      await loadSchool(this.world, this.scene, (msg, f) => setText(`🏫 ${msg}… ${Math.round(f * 100)}%`));
+      const aniso = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+      await loadSchool(this.world, this.scene, (msg, f) => setText(`🏫 ${msg}… ${Math.round(f * 100)}%`), aniso);
       this.rig.rotation.y = CONFIG.MAP.SPAWN_YAW;
       this._clearTargets();
       if (this.state === 'boot' || this.state === 'calibration') { this.rig.position.copy(this.world.spawn); this.floorY = this.world.spawn.y; }
@@ -260,6 +281,7 @@ class App {
   startTutorial() {
     if (this._waitMap(() => this.startTutorial())) return;
     this.calibration.hide();
+    this.lobby.close();
     this.state = 'tutorial';
     this._resetWorld();
     this.tutorial = { walk: false, aim: false, shoot: false };
@@ -287,7 +309,7 @@ class App {
   // Mão aberta para andar: o gesto 'palma' ou, com folga, 3 dos 4 dedos esticados.
   _isPalm(h) {
     if (!h.visible) return false;
-    if (h.gesture === 'open') return true;
+    if (h.gesture === 'open' || (CONFIG.GUN.MODE === 'punho' && this.gun._isOpen(h))) return true;
     const f = h.features;
     if (!f || h.gesture === 'fist' || h.gesture === 'pinch') return false;
     const thr = this.calib.thresholds;
@@ -317,6 +339,7 @@ class App {
   startGame() {
     if (this._waitMap(() => this.startGame())) return;
     this.calibration.hide();
+    this.lobby.close();
     this.state = 'playing';
     this._resetWorld();
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
@@ -451,6 +474,16 @@ class App {
       { label: 'Tutorial', onClick: () => this.startTutorial() },
       { label: 'Recalibrar', onClick: () => this.recalibrate() },
     ]);
+    // no óculos: resultado na lente e mão aberta = jogar de novo
+    if (this.inHeadset()) {
+      this.lobby.open({
+        title: win ? '🎉 Escola salva!' : bitten ? '🧟 Te pegaram!' : '⏰ Acabou o tempo',
+        lines: [`${rec.points} pontos · zumbis ${fixed}/${all.length}`, '✋ mão aberta = jogar de novo'],
+        holdMs: CONFIG.LOBBY.HOLD_MS * 1.3,
+        armMs: 2500,
+        onGo: () => { clearInterval(this._autoT); this.recenter(); this.startGame(); },
+      });
+    }
     // nome no ranking (opcional)
     const input = document.getElementById('rank-name');
     const saveName = () => {
@@ -482,10 +515,72 @@ class App {
   nextPlayer() {
     clearInterval(this._autoT);
     document.body.classList.remove('playing', 'tutorial');
-    if (this.xrActive) this.renderer.xr.getSession().end();
+    // no óculos: fica no óculos e espera o próximo jogador mostrar a mão aberta
+    if (this.inHeadset() && this.devicesReady) {
+      this.calibration.nextPlayer();
+      this._openLobby(false);
+      return;
+    }
     this.state = 'next';
     this._resetWorld();
     this.calibration.nextPlayer();
+  }
+
+  // ---------------------------------------------------------------
+  // v14: jogar no óculos com UM toque (usa a calibração salva).
+  // Entra no óculos já no toque (o navegador exige), liga câmera e mãos
+  // por trás e mostra o saguão na lente: contagem para pôr no rosto,
+  // ou mão aberta parada para começar na hora.
+  // ---------------------------------------------------------------
+  inHeadset() { return this.stereo || this.xrActive; }
+
+  playInHeadset() {
+    if (!this.inHeadset()) this.toggleVR(); // 1ª coisa do toque
+    const saved = loadCalib();
+    Object.assign(this.calib, saved || defaultCalib());
+    this.calibration.hide();
+    this._openLobby(true);
+    this.lobby.setStatus('Ligando a câmera…');
+    this.initDevices((m) => this.lobby.setStatus(String(m).replace(/<[^>]+>/g, '')), true).then((ok) => {
+      if (ok) { this.lobby.setStatus(saved ? 'Calibração salva carregada' : 'Sem calibração: usando o padrão'); return; }
+      this.lobby.setStatus('A câmera não abriu: tire o óculos');
+      setTimeout(() => {
+        this.lobby.close();
+        this.exitHeadset();
+        this.calibration._showInitError(() => this.playInHeadset());
+      }, 2500);
+    });
+  }
+
+  exitHeadset() {
+    if (this.xrActive) this.renderer.xr.getSession().end();
+    else if (this.stereo) this.setStereo(false);
+  }
+
+  // countdown: true = "coloque no rosto" com contagem; false = espera a mão aberta
+  _openLobby(countdown, title) {
+    this.state = 'lobby';
+    this._resetWorld();
+    document.body.classList.remove('playing', 'tutorial');
+    const tut = this.options.tutorial !== false;
+    const L = CONFIG.LOBBY;
+    this.lobby.open({
+      title: title || (countdown ? '👓 Coloque o óculos no rosto' : '👤 Próximo jogador'),
+      lines: countdown
+        ? ['Olhe para frente.', `Começa sozinho, ou ✋ mão aberta = já`]
+        : ['Olhe para frente e mostre', '✋ a mão aberta para começar'],
+      countdownS: countdown ? L.COUNTDOWN_S : 0,
+      holdMs: L.HOLD_MS,
+      armMs: countdown ? 0 : 1000,
+      onGo: () => { this.recenter(); if (tut) this.startTutorial(); else this.startGame(); },
+    });
+  }
+
+  _lobbyReady() { return this.devicesReady && this.mapDone; }
+
+  _lobbyStatus() {
+    if (!this.mapDone) return this.mapText.replace(/<[^>]+>/g, '');
+    return null;
   }
 
   recalibrate() {
@@ -508,9 +603,10 @@ class App {
   toggleVR() {
     if (this.xrActive) { this.renderer.xr.getSession().end(); return; }
     if (this.stereo) { this.setStereo(false); return; }
-    // sempre tenta primeiro o modo VR do Chrome (igual ao teste-xr.html);
-    // o modo próprio só entra se ele não existir ou falhar
-    if (navigator.xr && this.vrSettings.engine !== 'proprio') this.startXR();
+    // modo VR do Chrome só se ele disse que funciona (ou ainda não respondeu);
+    // senão vai direto para o modo próprio, ainda dentro do toque, para a
+    // tela cheia funcionar (o navegador só deixa com um toque)
+    if (navigator.xr && this.vrSettings.engine !== 'proprio' && this.xrSupported !== false) this.startXR();
     else {
       if (!navigator.xr) this.toast('Este navegador não tem o modo VR do Chrome — usando o modo próprio');
       this.setStereo(true);
@@ -532,6 +628,7 @@ class App {
       setTimeout(() => this.recenter(), 800);
     }).catch((e) => {
       console.warn('WebXR falhou, usando o modo próprio', e);
+      this.xrSupported = false; // na próxima vez vai direto para o modo próprio
       this.toast(`VR do Chrome não abriu (${e.message || e.name || e}) — usando o modo próprio`);
       this.setStereo(true);
     });
@@ -570,7 +667,7 @@ class App {
       } catch (e) { /* nem todo navegador deixa travar: o aviso "vire o celular" ajuda */ }
       this.showVrUi(4000);
       setTimeout(() => this.recenter(), 900);
-      this.hud3d.toast('Modo óculos — toque na tela para opções');
+      this.hud3d.toast(document.fullscreenElement ? 'Modo óculos — toque na tela para opções' : 'Toque na tela para tela cheia');
     } else {
       try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* */ }
       document.body.classList.remove('vr-ui', 'vr-adjust');
@@ -599,8 +696,12 @@ class App {
     const max = Math.min(window.devicePixelRatio || 1, Q.PIXEL_RATIO);
     if (fps < Q.LOW_FPS) { q.low++; q.high = 0; } else if (fps > Q.HIGH_FPS) { q.high++; q.low = 0; } else { q.low = 0; q.high = 0; }
     let pr = this.pixelRatio;
+    const H = CONFIG.HANDS, hs = this.hands.maxSide || H.WORKER_MAX_SIDE;
     if (q.low >= 2 && pr > Q.MIN_PIXEL_RATIO) { pr = Math.max(Q.MIN_PIXEL_RATIO, pr - 0.15); q.low = 0; }
-    if (q.high >= 6 && pr < max) { pr = Math.min(max, pr + 0.1); q.high = 0; }
+    // já na resolução mínima e ainda lento: a imagem das mãos também diminui
+    else if (q.low >= 3 && hs > H.WORKER_MIN_SIDE) { this.hands.maxSide = Math.max(H.WORKER_MIN_SIDE, hs - 64); q.low = 0; }
+    if (q.high >= 6 && hs < H.WORKER_MAX_SIDE) { this.hands.maxSide = Math.min(H.WORKER_MAX_SIDE, hs + 64); q.high = 0; }
+    else if (q.high >= 6 && pr < max) { pr = Math.min(max, pr + 0.1); q.high = 0; }
     if (pr !== this.pixelRatio) { this.pixelRatio = pr; this.renderer.setPixelRatio(pr); this.resize(); }
   }
 
@@ -625,7 +726,16 @@ class App {
   _wireCanvasPointers() {
     const c = this.canvas;
     c.addEventListener('pointerdown', (e) => {
-      if (this.stereo && !document.body.classList.contains('vr-adjust')) { this.showVrUi(); return; }
+      if (this.stereo && !document.body.classList.contains('vr-adjust')) {
+        // sem tela cheia (o navegador recusou): o toque na tela tenta de novo
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+            .then(() => (screen.orientation && screen.orientation.lock ? screen.orientation.lock('landscape') : null))
+            .then(() => this.resize()).catch(() => {});
+        }
+        this.showVrUi();
+        return;
+      }
       c.setPointerCapture(e.pointerId);
       this.mouse.set(e.pointerId, { id: `m${e.pointerId}`, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, down: true, lx: e.clientX, ly: e.clientY });
     });
@@ -715,6 +825,16 @@ class App {
     } else {
       this.gun.hide();
     }
+    // saguão do óculos (antes da partida / no fim): mão aberta parada = começar
+    if (this.lobby.active) {
+      const palm = this.hands.hands.some((h) => this._isPalm(h));
+      const st = this._lobbyStatus();
+      if (st) this.lobby.setStatus(st);
+      this.lobby.update(now, palm || !!input.fire, this._lobbyReady());
+      input.fire = false;
+    }
+    // durante o jogo: as DUAS mãos abertas paradas = recentrar a visão
+    if (active) this._recenterGesture(now);
     for (const v of this.handViews) { v.tint = this.gun.tintFor(v.hand.side, now); v.update(); }
     this._updateFx(dt);
 
@@ -731,7 +851,8 @@ class App {
     this._updateHud(active);
     this._updateCoach(active);
 
-    // 6) render
+    // 6) render (detalhes longe da escola somem; confere 5× por segundo)
+    if (now - (this._detT || 0) > 200) { this._detT = now; updateDetails(this.world, this.rig.position); }
     this._render();
     this.debug.frame(now, dtMs);
     this._adaptQuality(now);
@@ -786,6 +907,17 @@ class App {
     return list;
   }
 
+  _recenterGesture(now) {
+    const both = this.hands.hands.every((h) => this._isPalm(h));
+    if (!both) { this._bothPalmAt = 0; this._recentered = false; return; }
+    if (!this._bothPalmAt) this._bothPalmAt = now;
+    if (!this._recentered && now - this._bothPalmAt > CONFIG.LOBBY.RECENTER_HOLD_MS) {
+      this._recentered = true;
+      this.recenter();
+      this.toast('⟲ Visão recentrada');
+    }
+  }
+
   _debugWalk(dt, move) {
     const fwd = this.camera.getWorldDirection(this._v);
     fwd.y = 0; fwd.normalize();
@@ -838,8 +970,8 @@ class App {
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
       walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> (4 dedos esticados) para a câmera. Abaixe a mão para parar.',
-      aim: 'Faça a <b>pistolinha</b>: indicador esticado, polegar para cima. A mão fica <b>vermelha</b> = pronta.',
-      shoot: 'Cubra o zumbi de treino com a mão e <b>abaixe o polegar</b>. A mão fica <b>cinza</b> até recarregar.',
+      aim: 'Mostre a mão <b>meio aberta</b> ou <b>apontando</b> para frente. Aparece o laser e a mão fica <b>vermelha</b> = pronta.',
+      shoot: 'Cubra o zumbi de treino com a mão e <b>feche a mão ✊</b>. A mão fica <b>cinza</b>; abra de novo para atirar outra vez.',
     };
     const g = this.gun.state;
     this.coach.update({

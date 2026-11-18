@@ -6,8 +6,8 @@ import * as THREE from 'three';
 
 export const COACH_STEPS = [
   { id: 'walk', icon: '✋', text: 'Mão aberta = andar' },
-  { id: 'aim', icon: '👉', text: 'Pistolinha = mirar' },
-  { id: 'shoot', icon: '👍⬇', text: 'Abaixe o polegar = BANG' },
+  { id: 'aim', icon: '👉', text: 'Aponte = mirar' },
+  { id: 'shoot', icon: '✊', text: 'Feche a mão = BANG' },
 ];
 
 export class Coach {
@@ -43,7 +43,7 @@ export class Coach {
       const cls = [st.done[s.id] ? 'done' : '', st.cur === s.id ? 'cur' : '', st.active[s.id] ? 'act' : ''].join(' ');
       return `<div class="row ${cls}"><span class="ic">${s.icon}</span><span>${s.text}</span>${st.done[s.id] ? '<span class="ok">✔</span>' : ''}</div>`;
     }).join('');
-    const gun = st.gun === 'ready' ? '<span class="gun ready">● arma pronta</span>' : st.gun === 'reload' ? '<span class="gun reload">● recarregando… levante o polegar</span>' : '';
+    const gun = st.gun === 'ready' ? '<span class="gun ready">● arma pronta</span>' : st.gun === 'reload' ? '<span class="gun reload">● recarregando… abra a mão</span>' : '';
     this.el.innerHTML = `${st.title ? `<div class="title">${st.title}</div>` : ''}${rows}${gun}${st.note ? `<div class="note">${st.note}</div>` : ''}`;
     if (st.stereo) this._draw(st);
   }

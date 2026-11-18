@@ -115,7 +115,7 @@ export const TARGET_DEFS = [
 
 // Materiais mais baratos para o celular: Lambert (sem reflexo PBR) e folhas
 // com recorte (alphaTest) em vez de transparência (que é cara e precisa ordenar).
-function simplifyMaterials(root) {
+function simplifyMaterials(root, aniso = 1) {
   const cache = new Map();
   root.traverse((o) => {
     if (!o.isMesh) return;
@@ -130,6 +130,8 @@ function simplifyMaterials(root) {
       alphaTest: leaf ? 0.5 : old.alphaTest || 0,
       depthWrite: leaf ? true : old.depthWrite,
     });
+    // textura do chão/parede mais nítida quando vista de lado (barato)
+    if (m.map) { m.map.anisotropy = aniso; m.map.needsUpdate = true; }
     m.name = old.name;
     cache.set(old, m);
     old.dispose();
@@ -139,10 +141,11 @@ function simplifyMaterials(root) {
 
 // Troca o mapa de blocos pela escola de verdade (modelo 3D original).
 // onStatus(texto, fração 0..1). Se falhar, o mapa de blocos continua.
-export async function loadSchool(world, scene, onStatus = () => {}) {
+export async function loadSchool(world, scene, onStatus = () => {}, aniso = 1) {
   const model = await loadSchoolModel((f) => onStatus('Baixando a escola', f * 0.7));
   onStatus('Montando a escola', 0.7);
-  simplifyMaterials(model);
+  simplifyMaterials(model, aniso);
+  world.details = collectDetails(model);
   model.name = 'escola';
   scene.add(model);
   model.updateMatrixWorld(true);
@@ -174,6 +177,32 @@ export async function loadSchool(world, scene, onStatus = () => {}) {
   placeTargets(world, scene, false);
   onStatus('Escola pronta', 1);
   return world;
+}
+
+// v15: a escola vem em blocos (s_* = estrutura, d_* = detalhe: carro, pessoa,
+// planta, móvel). O celular já pula os blocos fora da visão; os detalhes
+// também somem quando estão longe (a neblina já esconde quase tudo lá).
+function collectDetails(model) {
+  const list = [];
+  model.updateMatrixWorld(true);
+  model.traverse((o) => {
+    if (!o.isMesh || !/^d_/.test(o.name)) return;
+    o.geometry.computeBoundingSphere();
+    const s = o.geometry.boundingSphere.clone().applyMatrix4(o.matrixWorld);
+    list.push({ m: o, c: s.center, r: s.radius });
+  });
+  return list;
+}
+
+// Chamar de vez em quando: mostra os detalhes perto, esconde os longe (com folga
+// para não ficar piscando na borda).
+export function updateDetails(world, p) {
+  const D = CONFIG.MAP.DETAIL_DIST;
+  for (const d of world.details || []) {
+    const dist = Math.hypot(d.c.x - p.x, d.c.z - p.z) - d.r;
+    if (d.m.visible && dist > D + 2) d.m.visible = false;
+    else if (!d.m.visible && dist < D) d.m.visible = true;
+  }
 }
 
 // Lugar da caixa do tutorial: chão livre a ~2,5 m na frente do início.

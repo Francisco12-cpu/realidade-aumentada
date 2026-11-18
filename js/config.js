@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v13',
+  VERSION: 'v16',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -65,6 +65,7 @@ export const CONFIG = {
     VIDEO_H: 480,
     USE_WORKER: true,           // detecção numa thread separada (muito mais FPS)
     WORKER_MAX_SIDE: 480,       // reduz a imagem enviada ao worker (px do lado maior)
+    WORKER_MIN_SIDE: 480,       // (igual ao máximo: diminuir a imagem piorava a detecção das mãos)
     MAX_DETECT_HZ: 30,          // detecções por segundo, no máximo
     DETECT_EVERY_N_FRAMES: 1,   // (modo normal) 2 = detecta em quadros alternados
     MIN_DETECTION_CONF: 0.4,    // mais baixo = acha a mão mais fácil (com pouca luz também)
@@ -73,7 +74,12 @@ export const CONFIG = {
     // MediaPipe supõe imagem espelhada (selfie). Na câmera traseira o rótulo
     // vem invertido, então por padrão invertemos. A calibração confirma.
     FLIP_HANDEDNESS: true,
-    LOST_GRACE_MS: 350,         // segura a mão na tela por esse tempo se sumir
+    LOST_GRACE_MS: 500,         // segura a mão na tela por esse tempo se sumir
+    // 'real' = mão no mesmo ângulo e distância da mão de verdade (v16) · 'tela' = imagem esticada na tela (antigo)
+    MAP_MODE: 'real',
+    CAM_FOV_LONG: 64,           // ângulo de visão da câmera traseira no lado maior da imagem (graus)
+    REAL_NEAR: 0.2,             // (real) distância mínima/máxima da mão (m)
+    REAL_FAR: 0.75,
     TRACK_MEMORY_MS: 600,       // memória de posição p/ não trocar esquerda/direita
     LABEL_WEIGHT: 1.0,          // peso do rótulo do MediaPipe na atribuição
     POS_WEIGHT: 4.0,            // peso da continuidade de posição
@@ -96,13 +102,13 @@ export const CONFIG = {
     D_CUTOFF: 1.0,
   },
   FILTER_ANCHOR: {   // posição da mão na tela (-1..1)
-    MIN_CUTOFF: 1.0,
-    BETA: 1.5,
+    MIN_CUTOFF: 0.8,
+    BETA: 0.8,
     D_CUTOFF: 1.0,
   },
   FILTER_DEPTH: {    // profundidade estimada (a medida mais tremida)
-    MIN_CUTOFF: 0.5,
-    BETA: 0.4,
+    MIN_CUTOFF: 0.3,
+    BETA: 0.2,
     D_CUTOFF: 1.0,
   },
 
@@ -152,6 +158,12 @@ export const CONFIG = {
   // ---- Mapa: escola de verdade (modelo 3D original) ----
   // ---- Arma de mão (pistolinha) ----
   GUN: {
+    // 'punho' = fechar a mão atira (funciona de qualquer ângulo) · 'polegar' = pistolinha + abaixar o polegar (antigo)
+    MODE: 'punho',
+    FIRE_REACH: 1.3,        // (punho) indicador e médio mais perto do pulso que isso (em palmos) = mão fechada = tiro
+    ARM_REACH: 1.5,         // (punho) abrir a mão além disso engatilha de novo
+    OPEN_REACH: 1.75,       // (punho) acima disso nos dois dedos = mão aberta (anda, não mira)
+    AIM_LAG_MS: 90,         // o tiro usa a mira de um instante antes de fechar a mão
     RELOAD_MS: 450,         // depois do tiro a mão fica cinza só esse tempo e volta a ficar vermelha
     THUMB_UP_K: 0.92,       // polegar "levantado" = thumbOut acima de limiar × isto (engatilha)
     THUMB_DOWN_K: 0.8,      // polegar "abaixado" = abaixo de limiar × isto (atira)
@@ -191,6 +203,14 @@ export const CONFIG = {
     DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
   },
 
+  // ---- Começar no óculos (v14) ----
+  LOBBY: {
+    COUNTDOWN_S: 10,        // tempo para pôr o óculos no rosto antes de começar sozinho
+    HOLD_MS: 1500,          // mão aberta parada esse tempo = começar já
+    RECENTER_HOLD_MS: 1500, // durante o jogo: as duas mãos abertas esse tempo = recentrar
+  },
+  PROFILE_KEYS: ['cacador-sinal-calib-v1', 'cacador-sinal-vr-v1', 'cacador-sinal-opcoes-v1'],
+
   // ---- Jogador ----
   PLAYER: {
     HP: 5,                  // vidas (cada mordida tira 1)
@@ -215,6 +235,7 @@ export const CONFIG = {
     LUGARES_POR_AREA: 4,    // lugares possíveis em cada área (sorteio)
     DIST_MIN: 3,            // distância mínima entre lugares (m)
     LONGE_DO_INICIO: 8,     // nenhum ponto a menos disso do início (m)
+    DETAIL_DIST: 28,        // detalhes (carros, pessoas, plantas, móveis) somem além disso (m)
     FOG_NEAR: 18,
     FOG_FAR: 55,
   },

@@ -136,26 +136,41 @@ export class CalibrationFlow {
   // ------------------------------------------------------------------
   welcome() {
     const saved = loadCalib();
+    // ?auto no link: tela inicial só com o botão grande (bom para a feira)
+    let auto = false;
+    try { auto = new URLSearchParams(location.search).has('auto') && !this._full; } catch (e) { /* */ }
+    const headset = { label: '▶ Jogar no óculos', cls: 'primary big', onClick: () => this.app.playInHeadset() };
+    if (auto) {
+      this._show(`🧟 Escola Zumbi <span class="small">${CONFIG.VERSION}</span>`, `
+        <p>Toque no botão, <b>coloque o celular no óculos</b> e olhe para frente. O jogo começa sozinho em ${CONFIG.LOBBY.COUNTDOWN_S} s (ou mostre a <b>✋ mão aberta</b>).</p>
+        ${saved ? '<p class="ok">✔ Usando a calibração salva.</p>' : '<p class="small">Sem calibração salva: usa o padrão.</p>'}
+        <p class="small" id="map-status">${this.app.mapText}</p>`, [
+        headset,
+        { label: 'Mais opções', onClick: () => { this._full = true; this.welcome(); } },
+      ]);
+      return;
+    }
     const html = `
       <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
-      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>✋ mão aberta = andar</b>, <b>👉 pistolinha = mirar</b> e <b>abaixar o polegar = atirar</b>.</p>
+      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>✋ mão aberta = andar</b>, <b>👉 apontar = mirar</b> e <b>✊ fechar a mão = atirar</b>.</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
-      ${saved ? '<p class="ok">✔ Existe uma calibração salva neste aparelho.</p>' : ''}
+      ${saved ? '<p class="ok">✔ Calibração salva: toque em <b>▶ Jogar no óculos</b>, ponha o celular no óculos e pronto. Começa sozinho em ' + CONFIG.LOBBY.COUNTDOWN_S + ' s (ou mostre a ✋ mão aberta). No jogo, <b>as duas mãos abertas</b> recentram a visão.</p>' : '<p class="small">Dica: calibre uma vez; depois é só um toque para jogar no óculos.</p>'}
       ${this._optionsHtml()}
       <p class="small" id="map-status">${this.app.mapText}</p>
       <p class="small" id="offline"></p>
       <p class="small">Dica: o botão 🐞 mostra o painel de depuração (FPS, gestos, prévia da câmera).</p>`;
-    const btns = [];
+    const btns = [headset];
     if (saved) {
-      btns.push({ label: 'Usar calibração salva → tutorial', cls: 'primary', onClick: () => this._startWithSaved(saved, 'tutorial') });
+      btns.push({ label: 'Usar calibração salva → tutorial (sem óculos)', onClick: () => this._startWithSaved(saved, 'tutorial') });
       btns.push({ label: 'Ir direto para a partida', onClick: () => this._startWithSaved(saved, 'game') });
       btns.push({ label: 'Recalibrar', onClick: () => this._startFresh() });
     } else {
-      btns.push({ label: 'Começar', cls: 'primary', onClick: () => this._startFresh() });
+      btns.push({ label: 'Calibrar (uma vez só)', cls: 'primary', onClick: () => this._startFresh() });
     }
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
     btns.push({ label: '🏆 Ranking do dia', onClick: () => this.showRanking(() => this.welcome()) });
+    btns.push({ label: '📋 Perfil (passar para outro celular)', onClick: () => this.showProfile(() => this.welcome()) });
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show(`🧟 Escola Zumbi — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
     this._wireOptions(() => this.welcome());
@@ -166,7 +181,7 @@ export class CalibrationFlow {
   nextPlayer() {
     const feira = this.app.options.feira;
     const html = `
-      <p><b>Próximo jogador!</b> Elimine os zumbis da escola. <b>✋ Mão aberta</b> anda, <b>👉 pistolinha</b> mira e <b>abaixar o polegar</b> atira.</p>
+      <p><b>Próximo jogador!</b> Elimine os zumbis da escola. <b>✋ Mão aberta</b> anda, <b>👉 apontar</b> mira e <b>✊ fechar a mão</b> atira.</p>
       <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis</b>.` : ''}
       A mão fica <b>vermelha</b> quando a arma está pronta e <b>cinza</b> enquanto recarrega. A setinha no alto mostra o zumbi mais perto.</p>
       ${this._optionsHtml()}
@@ -179,7 +194,8 @@ export class CalibrationFlow {
       if (saved) this._startWithSaved(saved, next); else this._startFresh();
     };
     this._show('👤 Próximo jogador', html, [
-      { label: 'Tutorial rápido →', cls: 'primary', onClick: () => go('tutorial') },
+      { label: '▶ Jogar no óculos', cls: 'primary big', onClick: () => this.app.playInHeadset() },
+      { label: 'Tutorial rápido →', onClick: () => go('tutorial') },
       { label: 'Direto para a partida', onClick: () => go('game') },
       { label: '🏆 Ranking do dia', onClick: () => this.showRanking(() => this.nextPlayer()) },
       { label: 'Recalibrar (mão diferente)', onClick: () => this.app.recalibrate() },
@@ -205,6 +221,37 @@ export class CalibrationFlow {
     ]);
   }
 
+  // Perfil = calibração + ajustes do óculos + opções, num código só (copiar/colar).
+  showProfile(back) {
+    const data = {};
+    for (const k of CONFIG.PROFILE_KEYS) { try { const v = localStorage.getItem(k); if (v) data[k] = JSON.parse(v); } catch (e) { /* */ } }
+    const code = Object.keys(data).length ? btoa(unescape(encodeURIComponent(JSON.stringify(data)))) : '';
+    this._show('📋 Perfil deste celular', `
+      <p>O perfil guarda a <b>calibração das mãos</b>, os <b>ajustes do óculos</b> e as <b>opções</b>. Tudo já fica salvo neste celular sozinho.</p>
+      <p>Para usar em outro celular: copie o código, mande (WhatsApp, por exemplo) e cole lá.</p>
+      <textarea id="prof-code" rows="3" readonly>${code || '(nada salvo ainda: calibre primeiro)'}</textarea>
+      <p>Colar um perfil:</p>
+      <textarea id="prof-in" rows="3" placeholder="cole o código aqui"></textarea>
+      <p class="small" id="prof-msg"></p>`, [
+      { label: '← Voltar', cls: 'primary', onClick: back },
+      { label: '📋 Copiar código', onClick: async () => {
+        const msg = this.el.querySelector('#prof-msg');
+        try { await navigator.clipboard.writeText(code); msg.textContent = 'Copiado!'; } catch (e) { this.el.querySelector('#prof-code').select(); msg.textContent = 'Selecionei o código: copie com o dedo.'; }
+      } },
+      { label: '📥 Usar o perfil colado', onClick: () => {
+        const msg = this.el.querySelector('#prof-msg');
+        try {
+          const d = JSON.parse(decodeURIComponent(escape(atob(this.el.querySelector('#prof-in').value.trim()))));
+          let n = 0;
+          for (const k of CONFIG.PROFILE_KEYS) if (d[k]) { localStorage.setItem(k, JSON.stringify(d[k])); n++; }
+          if (!n) throw new Error('vazio');
+          msg.innerHTML = '<span class="ok">Perfil salvo! Recarregando…</span>';
+          setTimeout(() => location.reload(), 800);
+        } catch (e) { msg.innerHTML = '<span class="bad">Código inválido.</span>'; }
+      } },
+    ]);
+  }
+
   // Botões liga/desliga das opções (som, vibração, vinheta, modo feira).
   _optionsHtml() {
     const o = this.app.options;
@@ -214,6 +261,7 @@ export class CalibrationFlow {
       ${opt('sound', '🔊 Som', '🔇 Sem som')}
       ${opt('vibrate', '📳 Vibração', '📴 Sem vibração')}
       ${opt('vignette', '🌑 Escurecer bordas ao andar', '⚪ Bordas normais ao andar')}
+      ${opt('tutorial', '🎓 Tutorial antes da partida', '⏩ Direto para a partida')}
     </div>
     <p class="small">Modo feira: partida de ${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min, ${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis, tutorial curto e volta sozinho para o próximo jogador.</p>`;
   }
@@ -328,7 +376,7 @@ export class CalibrationFlow {
     const calib = this.app.calib;
     const set = (side) => { calib.locomotion = side; this.stepPose(0); };
     this._show('3. Mão de locomoção', `
-      <p>No jogo, qualquer mão pode <b>andar</b> (palma aberta) ou <b>atirar</b> (pistolinha + abaixar o polegar). A escolha aqui só define a mão principal da calibração.</p>
+      <p>No jogo, qualquer mão pode <b>andar</b> (palma aberta) ou <b>atirar</b> (apontar e fechar a mão ✊). A escolha aqui só define a mão principal da calibração.</p>
       <p>Qual mão você quer usar para <b>andar</b>?</p>
       <p class="small">Teste com o celular na mão: use a mão livre para tudo — dá para trocar depois recalibrando.</p>`, [
       { label: 'Esquerda anda (padrão)', cls: calib.locomotion === 'left' ? 'primary' : '', onClick: () => set('left') },
