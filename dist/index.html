@@ -278,7 +278,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v11',
+  VERSION: 'v12',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -332,13 +332,13 @@ const CONFIG = {
     WORKER_MAX_SIDE: 480,       // reduz a imagem enviada ao worker (px do lado maior)
     MAX_DETECT_HZ: 30,          // detecções por segundo, no máximo
     DETECT_EVERY_N_FRAMES: 1,   // (modo normal) 2 = detecta em quadros alternados
-    MIN_DETECTION_CONF: 0.5,
-    MIN_PRESENCE_CONF: 0.5,
-    MIN_TRACKING_CONF: 0.5,
+    MIN_DETECTION_CONF: 0.4,    // mais baixo = acha a mão mais fácil (com pouca luz também)
+    MIN_PRESENCE_CONF: 0.4,
+    MIN_TRACKING_CONF: 0.4,
     // MediaPipe supõe imagem espelhada (selfie). Na câmera traseira o rótulo
     // vem invertido, então por padrão invertemos. A calibração confirma.
     FLIP_HANDEDNESS: true,
-    LOST_GRACE_MS: 220,         // segura a mão na tela por esse tempo se sumir
+    LOST_GRACE_MS: 350,         // segura a mão na tela por esse tempo se sumir
     TRACK_MEMORY_MS: 600,       // memória de posição p/ não trocar esquerda/direita
     LABEL_WEIGHT: 1.0,          // peso do rótulo do MediaPipe na atribuição
     POS_WEIGHT: 4.0,            // peso da continuidade de posição
@@ -373,7 +373,7 @@ const CONFIG = {
 
   // ---- Gestos ----
   GESTURE: {
-    STABLE_FRAMES: 3,       // quadros seguidos para aceitar um gesto novo
+    STABLE_FRAMES: 2,       // quadros seguidos para aceitar um gesto novo
     // Limiares padrão (a calibração substitui)
     DEFAULT_THRESHOLDS: {
       ext: [0.72, 0.72, 0.72, 0.72], // retidão p/ considerar dedo esticado (indicador..mínimo)
@@ -407,20 +407,20 @@ const CONFIG = {
 
   // ---- Qualidade / FPS ----
   QUALITY: {
-    PIXEL_RATIO: 1.0,       // resolução máxima (1 = um pixel por pixel CSS; celular fica bem mais leve)
-    MIN_PIXEL_RATIO: 0.55,  // nunca abaixo disso
+    PIXEL_RATIO: 0.85,      // resolução máxima (1 = um pixel por pixel CSS; menos = mais FPS)
+    MIN_PIXEL_RATIO: 0.5,   // nunca abaixo disso
     AUTO: true,             // baixa a resolução se o FPS cair, sobe se sobrar
-    LOW_FPS: 40,
+    LOW_FPS: 45,
     HIGH_FPS: 56,
   },
 
   // ---- Mapa: escola de verdade (modelo 3D original) ----
   // ---- Arma de mão (pistolinha) ----
   GUN: {
-    RELOAD_MS: 650,         // depois do tiro a mão fica cinza por pelo menos isso
-    THUMB_UP_K: 1.0,        // polegar "levantado" = thumbOut acima de limiar × isto (engatilha)
-    THUMB_DOWN_K: 0.85,     // polegar "abaixado" = abaixo de limiar × isto (atira)
-    COCK_FRAMES: 2,         // detecções seguidas com o polegar em pé para engatilhar
+    RELOAD_MS: 450,         // depois do tiro a mão fica cinza só esse tempo e volta a ficar vermelha
+    THUMB_UP_K: 0.92,       // polegar "levantado" = thumbOut acima de limiar × isto (engatilha)
+    THUMB_DOWN_K: 0.8,      // polegar "abaixado" = abaixo de limiar × isto (atira)
+    SHAPE_SLACK: 0.1,       // folga no formato da pistolinha (maior = reconhece mais fácil)
     GRACE_MS: 300,          // a arma continua na mão se a pistolinha "piscar"
     RANGE: 35,              // alcance do tiro (m)
   },
@@ -440,7 +440,8 @@ const CONFIG = {
     ATTACK_DIST: 0.95,
     ATTACK_S: 1.3,          // tempo entre ataques
     ASSIST_DEG: 4,          // ajuda de mira (graus)
-    MIN_DIST_START: 12,     // nenhum zumbi nasce perto do início
+    MIN_DIST_START: 9,      // nenhum zumbi nasce perto do início
+    IN_VIEW: 3,             // quantos nascem À VISTA da porta (9 a 20 m, sem parede no meio)
     SPREAD: 12,             // distância entre zumbis ao espalhar
     FLOW_RADIUS: 45,        // raio do caminho calculado em volta do jogador (m)
     FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
@@ -453,7 +454,8 @@ const CONFIG = {
   // ---- Jogador ----
   PLAYER: {
     HP: 5,                  // vidas (cada mordida tira 1)
-    WALK_GRACE_MS: 350,     // continua andando esse tempo se a palma "piscar"
+    WALK_GRACE_MS: 450,     // continua andando esse tempo se a palma "piscar"
+    PALM_FINGERS: 3,        // dedos esticados que já contam como mão aberta (de 4)
   },
 
   MAP: {
@@ -472,8 +474,8 @@ const CONFIG = {
     LUGARES_POR_AREA: 4,    // lugares possíveis em cada área (sorteio)
     DIST_MIN: 3,            // distância mínima entre lugares (m)
     LONGE_DO_INICIO: 8,     // nenhum ponto a menos disso do início (m)
-    FOG_NEAR: 25,
-    FOG_FAR: 75,
+    FOG_NEAR: 18,
+    FOG_FAR: 55,
   },
 
   // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----
@@ -885,7 +887,8 @@ class CollisionGrid {
     const box = new THREE.Box3().setFromObject(root);
     const C = M.CELL;
     g.cell = C;
-    g.x0 = box.min.x - 1; g.z0 = box.min.z - 1;
+    // origem alinhada à célula: a grade não muda se o tamanho do modelo mudar
+    g.x0 = Math.floor(box.min.x / C) * C - 1; g.z0 = Math.floor(box.min.z / C) * C - 1;
     g.W = Math.ceil((box.max.x - box.min.x + 2) / C);
     g.H = Math.ceil((box.max.z - box.min.z + 2) / C);
     g.Y0 = box.min.y - 0.2;
@@ -1285,11 +1288,36 @@ const TARGET_DEFS = [
   ] },
 ];
 
+// Materiais mais baratos para o celular: Lambert (sem reflexo PBR) e folhas
+// com recorte (alphaTest) em vez de transparência (que é cara e precisa ordenar).
+function simplifyMaterials(root) {
+  const cache = new Map();
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.updateMatrix();
+    o.matrixAutoUpdate = false;
+    const old = o.material;
+    if (cache.has(old)) { o.material = cache.get(old); return; }
+    const leaf = old.transparent && old.map;
+    const m = new THREE.MeshLambertMaterial({
+      color: old.color, map: old.map || null, side: old.side,
+      transparent: old.transparent && !leaf, opacity: old.opacity,
+      alphaTest: leaf ? 0.5 : old.alphaTest || 0,
+      depthWrite: leaf ? true : old.depthWrite,
+    });
+    m.name = old.name;
+    cache.set(old, m);
+    old.dispose();
+    o.material = m;
+  });
+}
+
 // Troca o mapa de blocos pela escola de verdade (modelo 3D original).
 // onStatus(texto, fração 0..1). Se falhar, o mapa de blocos continua.
 async function loadSchool(world, scene, onStatus = () => {}) {
   const model = await loadSchoolModel((f) => onStatus('Baixando a escola', f * 0.7));
   onStatus('Montando a escola', 0.7);
+  simplifyMaterials(model);
   model.name = 'escola';
   scene.add(model);
   model.updateMatrixWorld(true);
@@ -1832,6 +1860,15 @@ class Horde {
     // embaralha e aceita pontos afastados entre si (diminui a distância se faltar)
     for (let i = cand.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cand[i], cand[j]] = [cand[j], cand[i]]; }
     const out = [];
+    // alguns já À VISTA da porta: o jogador vê zumbi logo que começa
+    const eye = new THREE.Vector3(start.x, (start.y || 0) + 1.5, start.z), to = new THREE.Vector3();
+    for (const p of cand) {
+      if (out.length >= Math.min(Z.IN_VIEW, count)) break;
+      const d = Math.hypot(p.x - start.x, p.z - start.z);
+      if (d > 20 || out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 3)) continue;
+      to.set(p.x, p.y + 1.5, p.z);
+      if (!w.segmentHit(eye, to)) out.push(p);
+    }
     for (let d = Z.SPREAD; d >= 2 && out.length < count; d *= 0.7) {
       for (const p of cand) {
         if (out.length >= count) break;
@@ -2123,7 +2160,7 @@ class Gun {
     this.lastShot = -1e9;
     this.shots = 0;
     this.aiming = false;
-    this._upFrames = 0;
+    this._armed = false;
     this._lostAt = -1e9;
     this._o = new THREE.Vector3();
     this._d = new THREE.Vector3();
@@ -2164,13 +2201,15 @@ class Gun {
   _shape(h, thr) {
     const f = h.features;
     if (!h.visible || !f) return false;
-    return f.straight[0] > thr.ext[0] - 0.04 && f.straight[1] < thr.ext[1] && f.straight[2] < thr.ext[2] + 0.04;
+    const k = G.SHAPE_SLACK;
+    // indicador esticado e médio dobrado (anelar e mínimo não importam)
+    return f.straight[0] > thr.ext[0] - k && f.straight[1] < thr.ext[1] + k * 0.5 && f.straight[0] - f.straight[1] > 0.12;
   }
 
   // Cor da mão: vermelho = pronta · cinza = recarregando · null = normal
   tintFor(side, now) {
     if (side !== this.side || this.state === 'off') return null;
-    return this.state === 'ready' ? 0xd4202a : 0x8a8f96;
+    return this.state === 'reload' ? 0x8a8f96 : 0xd4202a;
   }
 
   // hands: lista de mãos · fresh: houve detecção nova neste quadro
@@ -2182,20 +2221,22 @@ class Gun {
     if (hand) { this.side = hand.side; this._lostAt = now; } else if (now - this._lostAt > G.GRACE_MS) { this.side = null; }
     const cur = this.side ? hands.find((h) => h.side === this.side && h.visible) : null;
 
+    // Estados: 'reload' (cinza, só RELOAD_MS depois do tiro) -> 'ready' (vermelha).
+    // O tiro sai quando o polegar DESCE depois de ter subido (armed): assim
+    // segurar o polegar abaixado não fica atirando sem parar.
     if (!this.side || !cur) {
       this.state = 'off';
-      this._upFrames = 0;
-    } else if (fresh && cur.features) {
-      const t = cur.features.thumbOut;
-      const up = t > thr.thumbOut * G.THUMB_UP_K;
-      const down = t < thr.thumbOut * G.THUMB_DOWN_K;
-      const reloaded = now - this.lastShot >= G.RELOAD_MS;
-      if (this.state === 'off') this.state = up ? 'cocking' : 'reload';
-      if (up) this._upFrames++; else this._upFrames = 0;
-      if (this.state === 'ready' && down && hand) this._fire(now, cur, findHit);
-      else if ((this.state === 'cocking' || this.state === 'reload') && reloaded && this._upFrames >= G.COCK_FRAMES) {
+      this._armed = false;
+    } else {
+      if (this.state === 'off') { this.state = 'ready'; this._armed = false; }
+      if (this.state === 'reload' && now - this.lastShot >= G.RELOAD_MS) {
         this.state = 'ready';
         this.hooks.onReady && this.hooks.onReady();
+      }
+      if (fresh && cur.features) {
+        const t = cur.features.thumbOut;
+        if (t > thr.thumbOut * G.THUMB_UP_K) this._armed = true;
+        else if (t < thr.thumbOut * G.THUMB_DOWN_K && this._armed && this.state === 'ready' && hand) this._fire(now, cur, findHit);
       }
     }
 
@@ -2246,7 +2287,7 @@ class Gun {
   _fire(now, hand, findHit) {
     this.lastShot = now;
     this.state = 'reload';
-    this._upFrames = 0;
+    this._armed = false;
     this.shots++;
     const hit = findHit(this._o, this._sd, true);
     const dist = hit ? hit.dist : G.RANGE;
@@ -4908,7 +4949,7 @@ class App {
     this.renderer.setPixelRatio(this.pixelRatio);
     this._q = { t0: performance.now(), frames: 0, low: 0, high: 0 };
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 80);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 60);
     // rig (posição no chão) -> eye (altura dos olhos / recentrar no WebXR) -> câmera
     this.rig = new THREE.Group();
     this.eye = new THREE.Group();
@@ -5080,7 +5121,7 @@ class App {
   // Se a escola ainda está carregando, mostra o progresso e chama again() no fim.
   _waitMap(again) {
     if (this.mapDone) return false;
-    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (10 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
+    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (7 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
     this.mapPromise.then(again);
     return true;
   }
@@ -5152,6 +5193,17 @@ class App {
   }
 
   _refreshTutorial() {}
+
+  // Mão aberta para andar: o gesto 'palma' ou, com folga, 3 dos 4 dedos esticados.
+  _isPalm(h) {
+    if (!h.visible) return false;
+    if (h.gesture === 'open') return true;
+    const f = h.features;
+    if (!f || h.gesture === 'fist' || h.gesture === 'pinch') return false;
+    const thr = this.calib.thresholds;
+    const n = f.straight.filter((s, i) => s > thr.ext[i] - 0.05).length;
+    return n >= CONFIG.PLAYER.PALM_FINGERS && f.straight[1] > thr.ext[1] - 0.05;
+  }
 
   // Tira as caixas do jogo antigo (o jogo agora é de zumbis).
   _clearTargets() {
@@ -5543,7 +5595,7 @@ class App {
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
       // mão aberta (a que não está com a arma) = anda; continua um instante se a palma "piscar"
-      if (this.hands.hands.some((h) => h.visible && h.gesture === 'open' && h.side !== this.gun.side)) this.lastPalm = now;
+      if (this.hands.hands.some((h) => h.side !== this.gun.side && this._isPalm(h))) this.lastPalm = now;
       if (this.locoMode === 'palma' && now - this.lastPalm < CONFIG.PLAYER.WALK_GRACE_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.useSwing = this.locoMode === 'correr';
       this.runner.maxSpeed = this.locoMode === 'correr' ? CONFIG.RUN.MAX_SPEED : CONFIG.RUN.WALK_SPEED;

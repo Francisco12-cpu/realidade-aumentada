@@ -113,11 +113,36 @@ export const TARGET_DEFS = [
   ] },
 ];
 
+// Materiais mais baratos para o celular: Lambert (sem reflexo PBR) e folhas
+// com recorte (alphaTest) em vez de transparência (que é cara e precisa ordenar).
+function simplifyMaterials(root) {
+  const cache = new Map();
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.updateMatrix();
+    o.matrixAutoUpdate = false;
+    const old = o.material;
+    if (cache.has(old)) { o.material = cache.get(old); return; }
+    const leaf = old.transparent && old.map;
+    const m = new THREE.MeshLambertMaterial({
+      color: old.color, map: old.map || null, side: old.side,
+      transparent: old.transparent && !leaf, opacity: old.opacity,
+      alphaTest: leaf ? 0.5 : old.alphaTest || 0,
+      depthWrite: leaf ? true : old.depthWrite,
+    });
+    m.name = old.name;
+    cache.set(old, m);
+    old.dispose();
+    o.material = m;
+  });
+}
+
 // Troca o mapa de blocos pela escola de verdade (modelo 3D original).
 // onStatus(texto, fração 0..1). Se falhar, o mapa de blocos continua.
 export async function loadSchool(world, scene, onStatus = () => {}) {
   const model = await loadSchoolModel((f) => onStatus('Baixando a escola', f * 0.7));
   onStatus('Montando a escola', 0.7);
+  simplifyMaterials(model);
   model.name = 'escola';
   scene.add(model);
   model.updateMatrixWorld(true);

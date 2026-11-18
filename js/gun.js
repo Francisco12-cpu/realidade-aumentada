@@ -23,7 +23,7 @@ export class Gun {
     this.lastShot = -1e9;
     this.shots = 0;
     this.aiming = false;
-    this._upFrames = 0;
+    this._armed = false;
     this._lostAt = -1e9;
     this._o = new THREE.Vector3();
     this._d = new THREE.Vector3();
@@ -64,13 +64,15 @@ export class Gun {
   _shape(h, thr) {
     const f = h.features;
     if (!h.visible || !f) return false;
-    return f.straight[0] > thr.ext[0] - 0.04 && f.straight[1] < thr.ext[1] && f.straight[2] < thr.ext[2] + 0.04;
+    const k = G.SHAPE_SLACK;
+    // indicador esticado e médio dobrado (anelar e mínimo não importam)
+    return f.straight[0] > thr.ext[0] - k && f.straight[1] < thr.ext[1] + k * 0.5 && f.straight[0] - f.straight[1] > 0.12;
   }
 
   // Cor da mão: vermelho = pronta · cinza = recarregando · null = normal
   tintFor(side, now) {
     if (side !== this.side || this.state === 'off') return null;
-    return this.state === 'ready' ? 0xd4202a : 0x8a8f96;
+    return this.state === 'reload' ? 0x8a8f96 : 0xd4202a;
   }
 
   // hands: lista de mãos · fresh: houve detecção nova neste quadro
@@ -82,20 +84,22 @@ export class Gun {
     if (hand) { this.side = hand.side; this._lostAt = now; } else if (now - this._lostAt > G.GRACE_MS) { this.side = null; }
     const cur = this.side ? hands.find((h) => h.side === this.side && h.visible) : null;
 
+    // Estados: 'reload' (cinza, só RELOAD_MS depois do tiro) -> 'ready' (vermelha).
+    // O tiro sai quando o polegar DESCE depois de ter subido (armed): assim
+    // segurar o polegar abaixado não fica atirando sem parar.
     if (!this.side || !cur) {
       this.state = 'off';
-      this._upFrames = 0;
-    } else if (fresh && cur.features) {
-      const t = cur.features.thumbOut;
-      const up = t > thr.thumbOut * G.THUMB_UP_K;
-      const down = t < thr.thumbOut * G.THUMB_DOWN_K;
-      const reloaded = now - this.lastShot >= G.RELOAD_MS;
-      if (this.state === 'off') this.state = up ? 'cocking' : 'reload';
-      if (up) this._upFrames++; else this._upFrames = 0;
-      if (this.state === 'ready' && down && hand) this._fire(now, cur, findHit);
-      else if ((this.state === 'cocking' || this.state === 'reload') && reloaded && this._upFrames >= G.COCK_FRAMES) {
+      this._armed = false;
+    } else {
+      if (this.state === 'off') { this.state = 'ready'; this._armed = false; }
+      if (this.state === 'reload' && now - this.lastShot >= G.RELOAD_MS) {
         this.state = 'ready';
         this.hooks.onReady && this.hooks.onReady();
+      }
+      if (fresh && cur.features) {
+        const t = cur.features.thumbOut;
+        if (t > thr.thumbOut * G.THUMB_UP_K) this._armed = true;
+        else if (t < thr.thumbOut * G.THUMB_DOWN_K && this._armed && this.state === 'ready' && hand) this._fire(now, cur, findHit);
       }
     }
 
@@ -146,7 +150,7 @@ export class Gun {
   _fire(now, hand, findHit) {
     this.lastShot = now;
     this.state = 'reload';
-    this._upFrames = 0;
+    this._armed = false;
     this.shots++;
     const hit = findHit(this._o, this._sd, true);
     const dist = hit ? hit.dist : G.RANGE;

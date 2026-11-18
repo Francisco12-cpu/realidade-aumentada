@@ -38,7 +38,7 @@ class App {
     this.renderer.setPixelRatio(this.pixelRatio);
     this._q = { t0: performance.now(), frames: 0, low: 0, high: 0 };
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 80);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, 1, 0.03, 60);
     // rig (posição no chão) -> eye (altura dos olhos / recentrar no WebXR) -> câmera
     this.rig = new THREE.Group();
     this.eye = new THREE.Group();
@@ -210,7 +210,7 @@ class App {
   // Se a escola ainda está carregando, mostra o progresso e chama again() no fim.
   _waitMap(again) {
     if (this.mapDone) return false;
-    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (10 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
+    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (7 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
     this.mapPromise.then(again);
     return true;
   }
@@ -282,6 +282,17 @@ class App {
   }
 
   _refreshTutorial() {}
+
+  // Mão aberta para andar: o gesto 'palma' ou, com folga, 3 dos 4 dedos esticados.
+  _isPalm(h) {
+    if (!h.visible) return false;
+    if (h.gesture === 'open') return true;
+    const f = h.features;
+    if (!f || h.gesture === 'fist' || h.gesture === 'pinch') return false;
+    const thr = this.calib.thresholds;
+    const n = f.straight.filter((s, i) => s > thr.ext[i] - 0.05).length;
+    return n >= CONFIG.PLAYER.PALM_FINGERS && f.straight[1] > thr.ext[1] - 0.05;
+  }
 
   // Tira as caixas do jogo antigo (o jogo agora é de zumbis).
   _clearTargets() {
@@ -673,7 +684,7 @@ class App {
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
       // mão aberta (a que não está com a arma) = anda; continua um instante se a palma "piscar"
-      if (this.hands.hands.some((h) => h.visible && h.gesture === 'open' && h.side !== this.gun.side)) this.lastPalm = now;
+      if (this.hands.hands.some((h) => h.side !== this.gun.side && this._isPalm(h))) this.lastPalm = now;
       if (this.locoMode === 'palma' && now - this.lastPalm < CONFIG.PLAYER.WALK_GRACE_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.useSwing = this.locoMode === 'correr';
       this.runner.maxSpeed = this.locoMode === 'correr' ? CONFIG.RUN.MAX_SPEED : CONFIG.RUN.WALK_SPEED;
