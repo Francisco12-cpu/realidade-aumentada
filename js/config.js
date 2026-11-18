@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v18',
+  VERSION: 'v19',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -221,6 +221,18 @@ export const CONFIG = {
     WALK_COLOR: 0x2f7bff,
     GUN_COLOR: 0xe02424,
     WALK_GRACE_MS: 400,     // continua andando esse tempo se a mão azul "piscar"
+  },
+
+  // ---- Soco / tapa (v19): encostar a mão no zumbi com força ----
+  MELEE: {
+    ON: true,
+    PUNCHES: 10,            // socos para derrubar um zumbi (o tiro continua matando rápido)
+    DUMMY_PUNCHES: 3,       // zumbi de treino
+    MIN_SPEED: 0.5,         // a mão precisa chegar com essa velocidade (m/s): encostar parado não bate
+    RELEASE_DIST: 0.1,      // depois do golpe, afaste a mão isso (m) do zumbi para poder bater de novo
+    COOLDOWN_MS: 250,       // tempo mínimo entre golpes da mesma mão
+    KNOCK_SPEED: 1.6,       // empurrão para trás (m/s, some rápido)
+    STAGGER_S: 0.6,         // o zumbi demora pelo menos isso para morder depois de apanhar
   },
 
   // ---- Jogador ----
