@@ -14,7 +14,7 @@ O mapa é a **escola de verdade** (Centro Educa Mais José Mariano Muniz, `model
 
 ### Zumbis
 
-- Nascem espalhados **dentro do muro da escola**, longe da porta (12 na partida, 8 no modo feira).
+- São **24 zumbis** (14 no modo feira). 6 já estão espalhados dentro do muro, longe da porta; o resto chega em **ondas** de 4 a cada 15 s (a 1ª depois de 20 s), nascendo escondidos a 15–35 m de você e já vindo na sua direção.
 - Ficam vagando até **ver** você (até 13 m, sem parede no meio), **ouvir** você (5 m) ou ouvir um **tiro** (20 m). Aí perseguem pelo caminho a pé: contornam paredes e passam pelas portas.
 - De perto, **mordem**: você tem **5 vidas** (❤ no alto da tela; a tela pisca vermelho e o celular vibra).
 - **Tiro na cabeça mata na hora**; no corpo são 2 tiros. Tem uma pequena ajuda de mira.

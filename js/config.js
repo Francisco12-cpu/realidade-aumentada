@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v12',
+  VERSION: 'v13',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -162,8 +162,14 @@ export const CONFIG = {
 
   // ---- Zumbis ----
   ZOMBIES: {
-    COUNT: 12,              // zumbis na partida
-    FEIRA_COUNT: 8,         // no modo feira
+    COUNT: 24,              // zumbis na partida (total, contando as ondas)
+    FEIRA_COUNT: 14,        // no modo feira
+    START_COUNT: 6,         // já estão na escola no começo (longe da porta)
+    FIRST_WAVE_S: 20,       // a 1ª onda chega depois disso
+    WAVE_EVERY_S: 15,       // depois, uma onda a cada
+    WAVE_SIZE: 4,           // zumbis por onda
+    WAVE_MIN_DIST: 15,      // a onda nasce escondida entre essas distâncias do jogador
+    WAVE_MAX_DIST: 35,
     HP: 2,                  // tiros no corpo para matar (cabeça mata na hora)
     SPEED_MIN: 0.55,        // m/s (o jogador anda a 2 m/s)
     SPEED_MAX: 1.0,
@@ -175,8 +181,7 @@ export const CONFIG = {
     ATTACK_DIST: 0.95,
     ATTACK_S: 1.3,          // tempo entre ataques
     ASSIST_DEG: 4,          // ajuda de mira (graus)
-    MIN_DIST_START: 9,      // nenhum zumbi nasce perto do início
-    IN_VIEW: 3,             // quantos nascem À VISTA da porta (9 a 20 m, sem parede no meio)
+    MIN_DIST_START: 25,     // os primeiros nascem pelo menos a essa distância da porta
     SPREAD: 12,             // distância entre zumbis ao espalhar
     FLOW_RADIUS: 45,        // raio do caminho calculado em volta do jogador (m)
     FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
@@ -190,7 +195,8 @@ export const CONFIG = {
   PLAYER: {
     HP: 5,                  // vidas (cada mordida tira 1)
     WALK_GRACE_MS: 450,     // continua andando esse tempo se a palma "piscar"
-    PALM_FINGERS: 3,        // dedos esticados que já contam como mão aberta (de 4)
+    PALM_FINGERS: 4,        // dedos esticados para contar como mão aberta (de 4)
+    NO_WALK_AFTER_GUN_MS: 600, // depois de mirar, a mão da arma não anda por esse tempo
   },
 
   MAP: {

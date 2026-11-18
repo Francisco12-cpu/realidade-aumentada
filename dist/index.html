@@ -278,7 +278,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v12',
+  VERSION: 'v13',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -427,8 +427,14 @@ const CONFIG = {
 
   // ---- Zumbis ----
   ZOMBIES: {
-    COUNT: 12,              // zumbis na partida
-    FEIRA_COUNT: 8,         // no modo feira
+    COUNT: 24,              // zumbis na partida (total, contando as ondas)
+    FEIRA_COUNT: 14,        // no modo feira
+    START_COUNT: 6,         // já estão na escola no começo (longe da porta)
+    FIRST_WAVE_S: 20,       // a 1ª onda chega depois disso
+    WAVE_EVERY_S: 15,       // depois, uma onda a cada
+    WAVE_SIZE: 4,           // zumbis por onda
+    WAVE_MIN_DIST: 15,      // a onda nasce escondida entre essas distâncias do jogador
+    WAVE_MAX_DIST: 35,
     HP: 2,                  // tiros no corpo para matar (cabeça mata na hora)
     SPEED_MIN: 0.55,        // m/s (o jogador anda a 2 m/s)
     SPEED_MAX: 1.0,
@@ -440,8 +446,7 @@ const CONFIG = {
     ATTACK_DIST: 0.95,
     ATTACK_S: 1.3,          // tempo entre ataques
     ASSIST_DEG: 4,          // ajuda de mira (graus)
-    MIN_DIST_START: 9,      // nenhum zumbi nasce perto do início
-    IN_VIEW: 3,             // quantos nascem À VISTA da porta (9 a 20 m, sem parede no meio)
+    MIN_DIST_START: 25,     // os primeiros nascem pelo menos a essa distância da porta
     SPREAD: 12,             // distância entre zumbis ao espalhar
     FLOW_RADIUS: 45,        // raio do caminho calculado em volta do jogador (m)
     FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
@@ -455,7 +460,8 @@ const CONFIG = {
   PLAYER: {
     HP: 5,                  // vidas (cada mordida tira 1)
     WALK_GRACE_MS: 450,     // continua andando esse tempo se a palma "piscar"
-    PALM_FINGERS: 3,        // dedos esticados que já contam como mão aberta (de 4)
+    PALM_FINGERS: 4,        // dedos esticados para contar como mão aberta (de 4)
+    NO_WALK_AFTER_GUN_MS: 600, // depois de mirar, a mão da arma não anda por esse tempo
   },
 
   MAP: {
@@ -1783,6 +1789,10 @@ class Horde {
     this.world = world;
     this.hooks = hooks;
     this.list = [];
+    this.planned = 0;
+    this.pending = 0;
+    this.waveT = 0;
+    this.waves = 0;
     this.flow = null;
     this._flowT = 0;
     this._groanT = 0;
@@ -1791,9 +1801,10 @@ class Horde {
     this._b = new THREE.Vector3();
   }
 
-  get alive() { return this.list.filter((z) => !z.dead).length; }
+  // vivos = na escola + os que ainda vão chegar nas próximas ondas
+  get alive() { return this.list.filter((z) => !z.dead && !z.dummy).length + this.pending; }
   get killed() { return this.list.filter((z) => z.dead && !z.dummy).length; }
-  get total() { return this.list.filter((z) => !z.dummy).length; }
+  get total() { return this.planned; }
 
   clear() {
     for (const z of this.list) {
@@ -1803,6 +1814,10 @@ class Horde {
     this.list = [];
     this.flow = null;
     this._flowAt = null;
+    this.planned = 0;
+    this.pending = 0;
+    this.waveT = 0;
+    this.waves = 0;
   }
 
   _add(x, y, z, opts = {}) {
@@ -1820,11 +1835,35 @@ class Horde {
     return zb;
   }
 
-  // Espalha `count` zumbis em lugares alcançáveis a pé, longe do início.
+  // Partida: `count` zumbis no total. Alguns já estão espalhados pela escola
+  // (longe da porta); o resto chega em ondas, de tempos em tempos,
+  // nascendo escondidos a 15–35 m do jogador e já vindo atrás dele.
   spawnHorde(count, start) {
-    const pts = this._spots(count, start);
+    this.planned = count;
+    const first = Math.min(count, Z.START_COUNT);
+    const pts = this._pick(this._cands(start), first, (p) => Math.hypot(p.x - start.x, p.z - start.z) >= Z.MIN_DIST_START);
     for (const p of pts) this._add(p.x, p.y, p.z);
-    return pts.length;
+    this.pending = count - pts.length;
+    this.waveT = Z.FIRST_WAVE_S;
+    this.waves = 0;
+    return count;
+  }
+
+  _wave(player) {
+    const n = Math.min(this.pending, Z.WAVE_SIZE);
+    const eye = new THREE.Vector3(player.x, player.y + 1.5, player.z), to = new THREE.Vector3();
+    const ok = (p, far) => {
+      const d = Math.hypot(p.x - player.x, p.z - player.z);
+      if (d < Z.WAVE_MIN_DIST || d > (far ? 80 : Z.WAVE_MAX_DIST)) return false;
+      to.set(p.x, p.y + 1.5, p.z);
+      return !!this.world.segmentHit(eye, to); // nasce escondido (parede no meio)
+    };
+    const c = this._cands(this.world.spawn);
+    let pts = this._pick(c, n, (p) => ok(p, false));
+    if (pts.length < n) pts = pts.concat(this._pick(c, n - pts.length, (p) => ok(p, true)));
+    for (const p of pts) this._add(p.x, p.y, p.z).alert = true;
+    this.pending -= pts.length;
+    if (pts.length) { this.waves++; this.hooks.onWave && this.hooks.onWave(pts.length, this.pending); }
   }
 
   // Zumbi de treino (tutorial): parado, 1 tiro, não ataca.
@@ -1832,8 +1871,10 @@ class Horde {
     return this._add(pos.x, pos.y, pos.z, { dummy: true, hp: 1, yaw: yawToPlayer });
   }
 
-  _spots(count, start) {
+  // Lugares possíveis (alcançáveis a pé, dentro do muro). Calculado uma vez.
+  _cands(start) {
     const w = this.world;
+    if (w._zcand) return w._zcand;
     const cand = [];
     if (w.grid) {
       const g = w.grid;
@@ -1843,7 +1884,6 @@ class Horde {
         if (!seen[k]) continue;
         const i = k % g.W, j = (k / g.W) | 0;
         const x = g.x0 + (i + 0.5) * g.cell, z = g.z0 + (j + 0.5) * g.cell;
-        if (Math.hypot(x - start.x, z - start.z) < Z.MIN_DIST_START) continue;
         const A = Z.AREA;
         if (A && (x < A[0] || x > A[1] || z < A[2] || z > A[3])) continue;
         if (!g.isFree(x, z, 0.35, g.floor[k])) continue;
@@ -1853,26 +1893,28 @@ class Horde {
       const B = w.bounds || 19;
       for (let n = 0; n < 4000; n++) {
         const x = (Math.random() * 2 - 1) * B, z = (Math.random() * 2 - 1) * B;
-        if (Math.hypot(x - start.x, z - start.z) < 8 || !w.isFree(x, z, 0.4)) continue;
-        cand.push({ x, y: 0, z });
+        if (w.isFree(x, z, 0.4)) cand.push({ x, y: 0, z });
       }
     }
-    // embaralha e aceita pontos afastados entre si (diminui a distância se faltar)
-    for (let i = cand.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cand[i], cand[j]] = [cand[j], cand[i]]; }
+    w._zcand = cand;
+    return cand;
+  }
+
+  // Sorteia até `count` lugares que passam no teste, afastados entre si e dos zumbis vivos.
+  _pick(cand, count, test) {
     const out = [];
-    // alguns já À VISTA da porta: o jogador vê zumbi logo que começa
-    const eye = new THREE.Vector3(start.x, (start.y || 0) + 1.5, start.z), to = new THREE.Vector3();
-    for (const p of cand) {
-      if (out.length >= Math.min(Z.IN_VIEW, count)) break;
-      const d = Math.hypot(p.x - start.x, p.z - start.z);
-      if (d > 20 || out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 3)) continue;
-      to.set(p.x, p.y + 1.5, p.z);
-      if (!w.segmentHit(eye, to)) out.push(p);
-    }
+    const live = this.list.filter((z) => !z.dead).map((z) => z.m.root.position);
+    const order = Array.from({ length: cand.length }, (_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
     for (let d = Z.SPREAD; d >= 2 && out.length < count; d *= 0.7) {
-      for (const p of cand) {
-        if (out.length >= count) break;
-        if (out.every((q) => Math.hypot(q.x - p.x, q.z - p.z) >= d)) out.push(p);
+      let tries = 0;
+      for (const i of order) {
+        if (out.length >= count || ++tries > 4000) break;
+        const p = cand[i];
+        if (out.includes(p)) continue;
+        if (!out.every((q) => Math.hypot(q.x - p.x, q.z - p.z) >= d)) continue;
+        if (!live.every((q) => Math.hypot(q.x - p.x, q.z - p.z) >= 3)) continue;
+        if (test(p)) out.push(p);
       }
     }
     return out;
@@ -2014,6 +2056,11 @@ class Horde {
   }
 
   update(dt, player) {
+    // ondas
+    if (this.pending > 0) {
+      this.waveT -= dt;
+      if (this.waveT <= 0) { this._wave(player); this.waveT = Z.WAVE_EVERY_S; }
+    }
     let chasing = 0;
     for (const z of this.list) if (!z.dead && z.alert) chasing++;
     this._flowT -= dt;
@@ -2205,6 +2252,8 @@ class Gun {
     // indicador esticado e médio dobrado (anelar e mínimo não importam)
     return f.straight[0] > thr.ext[0] - k && f.straight[1] < thr.ext[1] + k * 0.5 && f.straight[0] - f.straight[1] > 0.12;
   }
+
+  isGunHand(h, thr) { return this._shape(h, thr); }
 
   // Cor da mão: vermelho = pronta · cinza = recarregando · null = normal
   tintFor(side, now) {
@@ -5018,6 +5067,7 @@ class App {
     this.horde = new Horde(this.scene, this.world, {
       onHit: () => this._onBite(),
       onGroan: (d) => this.sfx.groan(d),
+      onWave: (n) => { if (this.state === 'playing') { this.toast(`🧟 Chegaram mais ${n} zumbis!`); this.sfx.alarm(); } },
     });
     this.coach = new Coach(this.camera);
     this.hp = CONFIG.PLAYER.HP;
@@ -5210,6 +5260,7 @@ class App {
     for (const t of this.world.targets) this.scene.remove(t.group);
     this.world.targets = [];
     this.world._reach = null;
+    this.world._zcand = null;
   }
 
   // Passos do tutorial: todos feitos -> a partida começa sozinha em 3 s.
@@ -5237,7 +5288,7 @@ class App {
     this.gameStart = performance.now();
     document.body.classList.remove('tutorial');
     document.body.classList.add('playing');
-    this.toast(`🧟 ${this.horde.total} zumbis na escola. Elimine todos!`);
+    this.toast(`🧟 ${this.horde.total} zumbis vão aparecer. Elimine todos!`);
   }
 
   // Raio da mira: zumbi mais perto ou parede (o que vier primeiro).
@@ -5595,7 +5646,12 @@ class App {
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
       // mão aberta (a que não está com a arma) = anda; continua um instante se a palma "piscar"
-      if (this.hands.hands.some((h) => h.side !== this.gun.side && this._isPalm(h))) this.lastPalm = now;
+      // não anda sem querer ao mirar: a mão que fez pistolinha há pouco não conta
+      if (this.gun.side) { this._gunSide = this.gun.side; this._gunAt = now; }
+      const recentGun = now - (this._gunAt || -1e9) < CONFIG.PLAYER.NO_WALK_AFTER_GUN_MS;
+      const palm = this.hands.hands.find((h) => this._isPalm(h) && !(recentGun && h.side === this._gunSide) && !this.gun.isGunHand(h, this.calib.thresholds));
+      if (palm) { this.lastPalm = now; this._palmSide = palm.side; }
+      if (this.gun.side && this._palmSide === this.gun.side) this.lastPalm = -1e9; // virou arma: para na hora
       if (this.locoMode === 'palma' && now - this.lastPalm < CONFIG.PLAYER.WALK_GRACE_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.useSwing = this.locoMode === 'correr';
       this.runner.maxSpeed = this.locoMode === 'correr' ? CONFIG.RUN.MAX_SPEED : CONFIG.RUN.WALK_SPEED;
@@ -5741,7 +5797,7 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> para a câmera. Abaixe a mão para parar.',
+      walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> (4 dedos esticados) para a câmera. Abaixe a mão para parar.',
       aim: 'Faça a <b>pistolinha</b>: indicador esticado, polegar para cima. A mão fica <b>vermelha</b> = pronta.',
       shoot: 'Cubra o zumbi de treino com a mão e <b>abaixe o polegar</b>. A mão fica <b>cinza</b> até recarregar.',
     };

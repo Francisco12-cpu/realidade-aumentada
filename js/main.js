@@ -107,6 +107,7 @@ class App {
     this.horde = new Horde(this.scene, this.world, {
       onHit: () => this._onBite(),
       onGroan: (d) => this.sfx.groan(d),
+      onWave: (n) => { if (this.state === 'playing') { this.toast(`🧟 Chegaram mais ${n} zumbis!`); this.sfx.alarm(); } },
     });
     this.coach = new Coach(this.camera);
     this.hp = CONFIG.PLAYER.HP;
@@ -299,6 +300,7 @@ class App {
     for (const t of this.world.targets) this.scene.remove(t.group);
     this.world.targets = [];
     this.world._reach = null;
+    this.world._zcand = null;
   }
 
   // Passos do tutorial: todos feitos -> a partida começa sozinha em 3 s.
@@ -326,7 +328,7 @@ class App {
     this.gameStart = performance.now();
     document.body.classList.remove('tutorial');
     document.body.classList.add('playing');
-    this.toast(`🧟 ${this.horde.total} zumbis na escola. Elimine todos!`);
+    this.toast(`🧟 ${this.horde.total} zumbis vão aparecer. Elimine todos!`);
   }
 
   // Raio da mira: zumbi mais perto ou parede (o que vier primeiro).
@@ -684,7 +686,12 @@ class App {
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
       // mão aberta (a que não está com a arma) = anda; continua um instante se a palma "piscar"
-      if (this.hands.hands.some((h) => h.side !== this.gun.side && this._isPalm(h))) this.lastPalm = now;
+      // não anda sem querer ao mirar: a mão que fez pistolinha há pouco não conta
+      if (this.gun.side) { this._gunSide = this.gun.side; this._gunAt = now; }
+      const recentGun = now - (this._gunAt || -1e9) < CONFIG.PLAYER.NO_WALK_AFTER_GUN_MS;
+      const palm = this.hands.hands.find((h) => this._isPalm(h) && !(recentGun && h.side === this._gunSide) && !this.gun.isGunHand(h, this.calib.thresholds));
+      if (palm) { this.lastPalm = now; this._palmSide = palm.side; }
+      if (this.gun.side && this._palmSide === this.gun.side) this.lastPalm = -1e9; // virou arma: para na hora
       if (this.locoMode === 'palma' && now - this.lastPalm < CONFIG.PLAYER.WALK_GRACE_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.useSwing = this.locoMode === 'correr';
       this.runner.maxSpeed = this.locoMode === 'correr' ? CONFIG.RUN.MAX_SPEED : CONFIG.RUN.WALK_SPEED;
@@ -830,7 +837,7 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> para a câmera. Abaixe a mão para parar.',
+      walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> (4 dedos esticados) para a câmera. Abaixe a mão para parar.',
       aim: 'Faça a <b>pistolinha</b>: indicador esticado, polegar para cima. A mão fica <b>vermelha</b> = pronta.',
       shoot: 'Cubra o zumbi de treino com a mão e <b>abaixe o polegar</b>. A mão fica <b>cinza</b> até recarregar.',
     };

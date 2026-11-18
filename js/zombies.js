@@ -59,6 +59,10 @@ export class Horde {
     this.world = world;
     this.hooks = hooks;
     this.list = [];
+    this.planned = 0;
+    this.pending = 0;
+    this.waveT = 0;
+    this.waves = 0;
     this.flow = null;
     this._flowT = 0;
     this._groanT = 0;
@@ -67,9 +71,10 @@ export class Horde {
     this._b = new THREE.Vector3();
   }
 
-  get alive() { return this.list.filter((z) => !z.dead).length; }
+  // vivos = na escola + os que ainda vão chegar nas próximas ondas
+  get alive() { return this.list.filter((z) => !z.dead && !z.dummy).length + this.pending; }
   get killed() { return this.list.filter((z) => z.dead && !z.dummy).length; }
-  get total() { return this.list.filter((z) => !z.dummy).length; }
+  get total() { return this.planned; }
 
   clear() {
     for (const z of this.list) {
@@ -79,6 +84,10 @@ export class Horde {
     this.list = [];
     this.flow = null;
     this._flowAt = null;
+    this.planned = 0;
+    this.pending = 0;
+    this.waveT = 0;
+    this.waves = 0;
   }
 
   _add(x, y, z, opts = {}) {
@@ -96,11 +105,35 @@ export class Horde {
     return zb;
   }
 
-  // Espalha `count` zumbis em lugares alcançáveis a pé, longe do início.
+  // Partida: `count` zumbis no total. Alguns já estão espalhados pela escola
+  // (longe da porta); o resto chega em ondas, de tempos em tempos,
+  // nascendo escondidos a 15–35 m do jogador e já vindo atrás dele.
   spawnHorde(count, start) {
-    const pts = this._spots(count, start);
+    this.planned = count;
+    const first = Math.min(count, Z.START_COUNT);
+    const pts = this._pick(this._cands(start), first, (p) => Math.hypot(p.x - start.x, p.z - start.z) >= Z.MIN_DIST_START);
     for (const p of pts) this._add(p.x, p.y, p.z);
-    return pts.length;
+    this.pending = count - pts.length;
+    this.waveT = Z.FIRST_WAVE_S;
+    this.waves = 0;
+    return count;
+  }
+
+  _wave(player) {
+    const n = Math.min(this.pending, Z.WAVE_SIZE);
+    const eye = new THREE.Vector3(player.x, player.y + 1.5, player.z), to = new THREE.Vector3();
+    const ok = (p, far) => {
+      const d = Math.hypot(p.x - player.x, p.z - player.z);
+      if (d < Z.WAVE_MIN_DIST || d > (far ? 80 : Z.WAVE_MAX_DIST)) return false;
+      to.set(p.x, p.y + 1.5, p.z);
+      return !!this.world.segmentHit(eye, to); // nasce escondido (parede no meio)
+    };
+    const c = this._cands(this.world.spawn);
+    let pts = this._pick(c, n, (p) => ok(p, false));
+    if (pts.length < n) pts = pts.concat(this._pick(c, n - pts.length, (p) => ok(p, true)));
+    for (const p of pts) this._add(p.x, p.y, p.z).alert = true;
+    this.pending -= pts.length;
+    if (pts.length) { this.waves++; this.hooks.onWave && this.hooks.onWave(pts.length, this.pending); }
   }
 
   // Zumbi de treino (tutorial): parado, 1 tiro, não ataca.
@@ -108,8 +141,10 @@ export class Horde {
     return this._add(pos.x, pos.y, pos.z, { dummy: true, hp: 1, yaw: yawToPlayer });
   }
 
-  _spots(count, start) {
+  // Lugares possíveis (alcançáveis a pé, dentro do muro). Calculado uma vez.
+  _cands(start) {
     const w = this.world;
+    if (w._zcand) return w._zcand;
     const cand = [];
     if (w.grid) {
       const g = w.grid;
@@ -119,7 +154,6 @@ export class Horde {
         if (!seen[k]) continue;
         const i = k % g.W, j = (k / g.W) | 0;
         const x = g.x0 + (i + 0.5) * g.cell, z = g.z0 + (j + 0.5) * g.cell;
-        if (Math.hypot(x - start.x, z - start.z) < Z.MIN_DIST_START) continue;
         const A = Z.AREA;
         if (A && (x < A[0] || x > A[1] || z < A[2] || z > A[3])) continue;
         if (!g.isFree(x, z, 0.35, g.floor[k])) continue;
@@ -129,26 +163,28 @@ export class Horde {
       const B = w.bounds || 19;
       for (let n = 0; n < 4000; n++) {
         const x = (Math.random() * 2 - 1) * B, z = (Math.random() * 2 - 1) * B;
-        if (Math.hypot(x - start.x, z - start.z) < 8 || !w.isFree(x, z, 0.4)) continue;
-        cand.push({ x, y: 0, z });
+        if (w.isFree(x, z, 0.4)) cand.push({ x, y: 0, z });
       }
     }
-    // embaralha e aceita pontos afastados entre si (diminui a distância se faltar)
-    for (let i = cand.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cand[i], cand[j]] = [cand[j], cand[i]]; }
+    w._zcand = cand;
+    return cand;
+  }
+
+  // Sorteia até `count` lugares que passam no teste, afastados entre si e dos zumbis vivos.
+  _pick(cand, count, test) {
     const out = [];
-    // alguns já À VISTA da porta: o jogador vê zumbi logo que começa
-    const eye = new THREE.Vector3(start.x, (start.y || 0) + 1.5, start.z), to = new THREE.Vector3();
-    for (const p of cand) {
-      if (out.length >= Math.min(Z.IN_VIEW, count)) break;
-      const d = Math.hypot(p.x - start.x, p.z - start.z);
-      if (d > 20 || out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 3)) continue;
-      to.set(p.x, p.y + 1.5, p.z);
-      if (!w.segmentHit(eye, to)) out.push(p);
-    }
+    const live = this.list.filter((z) => !z.dead).map((z) => z.m.root.position);
+    const order = Array.from({ length: cand.length }, (_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
     for (let d = Z.SPREAD; d >= 2 && out.length < count; d *= 0.7) {
-      for (const p of cand) {
-        if (out.length >= count) break;
-        if (out.every((q) => Math.hypot(q.x - p.x, q.z - p.z) >= d)) out.push(p);
+      let tries = 0;
+      for (const i of order) {
+        if (out.length >= count || ++tries > 4000) break;
+        const p = cand[i];
+        if (out.includes(p)) continue;
+        if (!out.every((q) => Math.hypot(q.x - p.x, q.z - p.z) >= d)) continue;
+        if (!live.every((q) => Math.hypot(q.x - p.x, q.z - p.z) >= 3)) continue;
+        if (test(p)) out.push(p);
       }
     }
     return out;
@@ -290,6 +326,11 @@ export class Horde {
   }
 
   update(dt, player) {
+    // ondas
+    if (this.pending > 0) {
+      this.waveT -= dt;
+      if (this.waveT <= 0) { this._wave(player); this.waveT = Z.WAVE_EVERY_S; }
+    }
     let chasing = 0;
     for (const z of this.list) if (!z.dead && z.alert) chasing++;
     this._flowT -= dt;
