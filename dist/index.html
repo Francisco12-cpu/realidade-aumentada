@@ -282,7 +282,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v18',
+  VERSION: 'v19',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -490,6 +490,18 @@ const CONFIG = {
     WALK_COLOR: 0x2f7bff,
     GUN_COLOR: 0xe02424,
     WALK_GRACE_MS: 400,     // continua andando esse tempo se a mão azul "piscar"
+  },
+
+  // ---- Soco / tapa (v19): encostar a mão no zumbi com força ----
+  MELEE: {
+    ON: true,
+    PUNCHES: 10,            // socos para derrubar um zumbi (o tiro continua matando rápido)
+    DUMMY_PUNCHES: 3,       // zumbi de treino
+    MIN_SPEED: 0.5,         // a mão precisa chegar com essa velocidade (m/s): encostar parado não bate
+    RELEASE_DIST: 0.1,      // depois do golpe, afaste a mão isso (m) do zumbi para poder bater de novo
+    COOLDOWN_MS: 250,       // tempo mínimo entre golpes da mesma mão
+    KNOCK_SPEED: 1.6,       // empurrão para trás (m/s, some rápido)
+    STAGGER_S: 0.6,         // o zumbi demora pelo menos isso para morder depois de apanhar
   },
 
   // ---- Jogador ----
@@ -732,6 +744,14 @@ class Sfx {
       this._tone(220, 0.5, { type: 'sawtooth', gain: 0.2, slide: -150, at: 0.05 });
       this._tone(160, 0.6, { type: 'sawtooth', gain: 0.12, slide: -100, at: 0.12 });
     } else this._tone(300, 0.18, { type: 'sawtooth', gain: 0.16, slide: -120 });
+  }
+
+  // v19: soco/tapa (pancada seca, mais forte no golpe final)
+  punch(kill) {
+    this._noise(0.07, { gain: 0.6, freq: 900 });
+    this._tone(110, 0.12, { type: 'sine', gain: 0.5, slide: -60 });
+    if (kill) this._tone(200, 0.45, { type: 'sawtooth', gain: 0.18, slide: -140, at: 0.06 });
+    this.vibrate(kill ? [40, 30, 60] : 35);
   }
 
   // gemido: mais alto quanto mais perto
@@ -1896,6 +1916,7 @@ class Horde {
       alert: false, speed: Z.SPEED_MIN + Math.random() * (Z.SPEED_MAX - Z.SPEED_MIN),
       phase: Math.random() * 10, attackT: 0, hitT: 0, losT: Math.random() * 0.3, los: false,
       wander: 0, wanderYaw: Math.random() * 6.28, moving: 0,
+      punches: 0, knock: null,
     };
     this.list.push(zb);
     return zb;
@@ -2028,6 +2049,40 @@ class Horde {
     return best;
   }
 
+  // v19: o ponto p (mão, em metros) encosta em algum zumbi vivo?
+  // Corpo = cápsula em pé (cintura até o pescoço) + cabeça. Retorna o zumbi ou null.
+  touch(p, r = 0.04) {
+    for (const z of this.list) {
+      if (z.dead) continue;
+      const q = z.m.root.position, s = z.m.scale;
+      const dy = p.y - q.y;
+      // cabeça
+      if (Math.hypot(p.x - q.x, dy - 1.72 * s, p.z - q.z) < 0.2 * s + r) return { zombie: z, part: 'head' };
+      // tronco e pernas
+      if (dy > 0.2 * s && dy < 1.55 * s && Math.hypot(p.x - q.x, p.z - q.z) < 0.3 * s + r) return { zombie: z, part: 'body' };
+    }
+    return null;
+  }
+
+  // v19: soco/tapa. Precisa de MELEE.PUNCHES golpes para derrubar. Empurra o
+  // zumbi para trás e atrasa a mordida dele um pouco. Retorna true se matou.
+  punch(z, dir) {
+    if (z.dead) return false;
+    const M = CONFIG.MELEE;
+    z.punches++;
+    z.hitT = 0.15;
+    z.alert = true;
+    z.attackT = Math.max(z.attackT, M.STAGGER_S);
+    if (dir) z.knock = { x: dir.x * M.KNOCK_SPEED, z: dir.z * M.KNOCK_SPEED };
+    if (z.punches >= (z.dummy ? M.DUMMY_PUNCHES : M.PUNCHES)) {
+      z.dead = true;
+      z.deadT = 0;
+      z.fallDir = Math.random() < 0.5 ? 1 : -1;
+      return true;
+    }
+    return false;
+  }
+
   // dano: retorna true se matou
   damage(z, part) {
     if (z.dead) return false;
@@ -2148,6 +2203,14 @@ class Horde {
       if (z.losT <= 0) { z.losT = 0.3; z.los = dist < Z.SIGHT && this._los(p, player); }
       if (!z.dummy && !z.alert && (dist < Z.HEAR || z.los)) { z.alert = true; this.hooks.onAlert && this.hooks.onAlert(z, dist); }
 
+      // empurrão do soco: desliza para trás e para (sem atravessar parede)
+      if (z.knock) {
+        const nx = p.x + z.knock.x * dt, nz = p.z + z.knock.z * dt;
+        if (this._free(nx, nz, p.y)) { p.x = nx; p.z = nz; }
+        const k = Math.exp(-dt * 9);
+        z.knock.x *= k; z.knock.z *= k;
+        if (Math.hypot(z.knock.x, z.knock.z) < 0.05) z.knock = null;
+      }
       let mx = 0, mz = 0, sp = 0;
       if (z.dummy) {
         // treino: só se vira para o jogador
@@ -5358,6 +5421,58 @@ function lobbyRect(c, x, y, w, h, r) {
   c.closePath();
 }
 
+// ===== js/melee.js =====
+// Soco / tapa (v19). Cada mão (azul ou vermelha, aberta ou fechada) bate no
+// zumbi quando ENCOSTA nele chegando com velocidade (golpe). Depois precisa se
+// afastar um pouco (RELEASE_DIST) antes de bater de novo: encostar e deixar a
+// mão parada lá não dá dano infinito. São MELEE.PUNCHES golpes para derrubar.
+
+const PTS = [8, 12, 16, 5, 9, 13, 17, 0]; // pontas, nós dos dedos e pulso
+
+class Melee {
+  constructor() {
+    this._dir = new THREE.Vector3();
+  }
+
+  // hands: mãos do rastreador · horde: zumbis · player: posição do jogador
+  // Retorna a lista de golpes deste quadro: [{ zombie, kill, point, need }]
+  update(now, dt, hands, horde, player) {
+    const M = CONFIG.MELEE;
+    const out = [];
+    for (const h of hands) {
+      const st = h._melee || (h._melee = { prev: new THREE.Vector3(), speed: 0, inside: null, last: -1e9, has: false });
+      if (!h.visible) { st.has = false; st.inside = null; st.speed = 0; continue; }
+      // velocidade da mão em relação à cabeça (andar com a mão parada não conta)
+      const c = h.camPts[9];
+      if (st.has && dt > 0) {
+        const v = c.distanceTo(st.prev) / dt;
+        st.speed += (v - st.speed) * Math.min(1, dt * 20);
+      }
+      st.prev.copy(c); st.has = true;
+      if (st.inside) {
+        // ainda colada no mesmo zumbi? só solta quando a mão se afastar
+        const z = st.inside;
+        let near = false;
+        if (!z.dead) for (const i of PTS) { const t = horde.touch(h.worldPts[i], 0.04 + M.RELEASE_DIST); if (t && t.zombie === z) { near = true; break; } }
+        if (!near) st.inside = null;
+        continue;
+      }
+      let hit = null, at = null;
+      for (const i of PTS) { hit = horde.touch(h.worldPts[i]); if (hit) { at = h.worldPts[i]; break; } }
+      if (!hit) continue;
+      st.inside = hit.zombie;
+      if (st.speed < M.MIN_SPEED || now - st.last < M.COOLDOWN_MS) continue; // só encostou: não conta
+      st.last = now;
+      const z = hit.zombie, zp = z.m.root.position;
+      this._dir.set(zp.x - player.x, 0, zp.z - player.z);
+      if (this._dir.lengthSq() > 1e-6) this._dir.normalize();
+      const kill = horde.punch(z, this._dir);
+      out.push({ zombie: z, kill, point: at.clone(), need: z.dummy ? M.DUMMY_PUNCHES : M.PUNCHES });
+    }
+    return out;
+  }
+}
+
 // ===== js/main.js =====
 // Escola Zumbi (antigo Caçador de Sinal) — protótipo. Loop principal e estados do jogo.
 // Estados: boot -> calibration -> tutorial -> playing -> ended
@@ -5455,6 +5570,7 @@ class App {
     });
     this.coach = new Coach(this.camera);
     this.lobby = new Lobby(this.camera);
+    this.melee = new Melee();
     this.hp = CONFIG.PLAYER.HP;
     this.lastPalm = -1e9;
     this._fx = [];
@@ -6197,6 +6313,7 @@ class App {
       input.fire = false;
       this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
       this.horde.update(dt, this.rig.position);
+      if (CONFIG.MELEE.ON) this._updateMelee(now, dt);
       this._collectPointers();
       if (this.state === 'tutorial') this._tutorialStep(now);
     } else {
@@ -6308,6 +6425,35 @@ class App {
     }
   }
 
+  // v19: soco/tapa (lógica em melee.js); aqui só os efeitos e o placar
+  _updateMelee(now, dt) {
+    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position)) {
+      const z = e.zombie;
+      this.sfx.punch(e.kill);
+      this._pow(e.point, e.kill);
+      if (!e.kill) { this.toast(`👊 ${z.punches}/${e.need}`); continue; }
+      if (z.dummy) {
+        if (this.state === 'tutorial') { this.tutorial.shoot = true; this.tutorial.aim = true; this.toast('👊 Nocaute no zumbi de treino!'); }
+        continue;
+      }
+      const left = this.horde.alive;
+      this.toast(`👊 Nocaute! Faltam ${left}`);
+      if (this.state === 'playing' && left === 0) this.endGame(true);
+    }
+  }
+
+  // efeito do soco: estrela de pancada (anel + clarão) que cresce e some
+  _pow(p, big) {
+    if (!this._powGeo) { this._powGeo = new THREE.RingGeometry(0.6, 1, 20); this._powStar = new THREE.SphereGeometry(1, 8, 6); }
+    const ring = new THREE.Mesh(this._powGeo, new THREE.MeshBasicMaterial({ color: big ? 0xffd000 : 0xffffff, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+    ring.position.copy(p);
+    ring.lookAt(this.camera.getWorldPosition(this._eyeP));
+    ring.renderOrder = 35;
+    this.scene.add(ring);
+    this._fx.push({ m: ring, t: 0, size: big ? 0.35 : 0.2 });
+    this._puff(p, big ? 0xffb000 : 0xfff2b0, big ? 0.3 : 0.16);
+  }
+
   // mão fechada (para a mão azul: fechar = parar de andar)
   _isFistLike(h) {
     if (h.gesture === 'fist') return true;
@@ -6377,9 +6523,9 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Mão <b>AZUL</b> (esquerda): mostre e <b>aponte para onde quer ir</b>. Feche a mão ou abaixe para parar.',
+      walk: 'Mão <b>AZUL</b> (esquerda): mostre e <b>aponte para onde quer ir</b>. Feche a mão ou abaixe para parar. De perto, dá para dar <b>socos e tapas</b> 👊.',
       aim: 'Mão <b>VERMELHA</b> (direita): mostre para a câmera. Aparece o laser.',
-      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> em cima do zumbi. Atira sozinho; a <b>barra</b> mostra a recarga.',
+      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> em cima do zumbi. Atira sozinho; a <b>barra</b> mostra a recarga. Ou chegue perto e dê <b>3 socos</b> 👊.',
     };
     const g = this.gun.state;
     this.coach.update({

@@ -20,6 +20,7 @@ import { Gun } from './gun.js';
 import { Horde } from './zombies.js';
 import { Coach } from './coach.js';
 import { Lobby } from './lobby.js';
+import { Melee } from './melee.js';
 
 class App {
   constructor() {
@@ -114,6 +115,7 @@ class App {
     });
     this.coach = new Coach(this.camera);
     this.lobby = new Lobby(this.camera);
+    this.melee = new Melee();
     this.hp = CONFIG.PLAYER.HP;
     this.lastPalm = -1e9;
     this._fx = [];
@@ -856,6 +858,7 @@ class App {
       input.fire = false;
       this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
       this.horde.update(dt, this.rig.position);
+      if (CONFIG.MELEE.ON) this._updateMelee(now, dt);
       this._collectPointers();
       if (this.state === 'tutorial') this._tutorialStep(now);
     } else {
@@ -967,6 +970,35 @@ class App {
     }
   }
 
+  // v19: soco/tapa (lógica em melee.js); aqui só os efeitos e o placar
+  _updateMelee(now, dt) {
+    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position)) {
+      const z = e.zombie;
+      this.sfx.punch(e.kill);
+      this._pow(e.point, e.kill);
+      if (!e.kill) { this.toast(`👊 ${z.punches}/${e.need}`); continue; }
+      if (z.dummy) {
+        if (this.state === 'tutorial') { this.tutorial.shoot = true; this.tutorial.aim = true; this.toast('👊 Nocaute no zumbi de treino!'); }
+        continue;
+      }
+      const left = this.horde.alive;
+      this.toast(`👊 Nocaute! Faltam ${left}`);
+      if (this.state === 'playing' && left === 0) this.endGame(true);
+    }
+  }
+
+  // efeito do soco: estrela de pancada (anel + clarão) que cresce e some
+  _pow(p, big) {
+    if (!this._powGeo) { this._powGeo = new THREE.RingGeometry(0.6, 1, 20); this._powStar = new THREE.SphereGeometry(1, 8, 6); }
+    const ring = new THREE.Mesh(this._powGeo, new THREE.MeshBasicMaterial({ color: big ? 0xffd000 : 0xffffff, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+    ring.position.copy(p);
+    ring.lookAt(this.camera.getWorldPosition(this._eyeP));
+    ring.renderOrder = 35;
+    this.scene.add(ring);
+    this._fx.push({ m: ring, t: 0, size: big ? 0.35 : 0.2 });
+    this._puff(p, big ? 0xffb000 : 0xfff2b0, big ? 0.3 : 0.16);
+  }
+
   // mão fechada (para a mão azul: fechar = parar de andar)
   _isFistLike(h) {
     if (h.gesture === 'fist') return true;
@@ -1036,9 +1068,9 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Mão <b>AZUL</b> (esquerda): mostre e <b>aponte para onde quer ir</b>. Feche a mão ou abaixe para parar.',
+      walk: 'Mão <b>AZUL</b> (esquerda): mostre e <b>aponte para onde quer ir</b>. Feche a mão ou abaixe para parar. De perto, dá para dar <b>socos e tapas</b> 👊.',
       aim: 'Mão <b>VERMELHA</b> (direita): mostre para a câmera. Aparece o laser.',
-      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> em cima do zumbi. Atira sozinho; a <b>barra</b> mostra a recarga.',
+      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> em cima do zumbi. Atira sozinho; a <b>barra</b> mostra a recarga. Ou chegue perto e dê <b>3 socos</b> 👊.',
     };
     const g = this.gun.state;
     this.coach.update({

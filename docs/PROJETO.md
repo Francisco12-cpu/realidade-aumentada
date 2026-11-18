@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v18, 18/11/2026)
+# Escola Zumbi: estado do projeto (v19, 18/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -14,6 +14,8 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 |---|---|
 | 🔵 **mão AZUL** (a da esquerda; dá para trocar na calibração) | **anda para onde ela aponta** (do olho até a mão). Fechar a mão ou abaixar = para |
 | 🔴 **mão VERMELHA** (a da direita) | mostra o laser. Fazendo a **pistolinha 👉** (indicador esticado, médio dobrado), **atira sozinha**; a **barra** em cima da mão enche em 0,8 s e atira de novo enquanto a pistolinha continuar |
+
+| 👊 **qualquer mão encostando no zumbi com força** | **soco ou tapa**: estrela de pancada, som, vibração e o zumbi é empurrado para trás. São **10 socos** para derrubar (3 no zumbi de treino). Deixar a mão parada encostada não bate: é preciso afastar a mão e golpear de novo |
 
 > Desde a v18 cada mão tem um papel fixo. Com as duas mãos na câmera, a da esquerda na imagem é a azul. Com uma mão só, ela fica com o papel do lado em que apareceu. Modos antigos: `ROLES.ON: false` com `GUN.MODE: 'punho'` ou `'polegar'`.
 
@@ -51,6 +53,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v19 | #17 | Socos e tapas: encostar a mão no zumbi com velocidade = golpe (10 para derrubar), efeito de pancada, empurrão; mão parada encostada não dá dano |
 | v18 | #16 | Mão azul anda para onde aponta, mão vermelha atira sozinha com a pistolinha, barra de recarga em cima da mão (0,8 s) |
 | v17 | #15 | Conserto: na v16 a câmera ligava sozinha ao abrir, e o Chrome do Android pausava o vídeo escondido (a mão nunca aparecia). Agora só o detector carrega ao abrir; a câmera liga no toque, e um vigia dá play de novo se o vídeo parar |
 | v16 | #14 | Atirar fechando a mão (✊); mão virtual no mesmo ângulo e distância da mão de verdade (`HANDS.MAP_MODE: 'real'`), menos tremida e some menos; óculos vai direto para o modo próprio quando o VR do Chrome não existe (tela cheia volta a funcionar); câmera liga sozinha ao abrir se já foi liberada |
@@ -80,6 +83,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | O que | Onde |
 |---|---|
 | Quantidade de zumbis, ondas, velocidade, visão, mordida | `ZOMBIES` (`COUNT`, `START_COUNT`, `FIRST_WAVE_S`, `WAVE_EVERY_S`, `WAVE_SIZE`, `SPEED_MIN/MAX`, `SIGHT`, `ATTACK_S`, `HP`) |
+| Socos e tapas | `MELEE` (`PUNCHES`, `MIN_SPEED`, `RELEASE_DIST`, `COOLDOWN_MS`, `KNOCK_SPEED`, `STAGGER_S`) |
 | Papéis e cores das mãos | `ROLES` (`ON`, `WALK_COLOR`, `GUN_COLOR`, `WALK_GRACE_MS`) |
 | Pistolinha automática | `GUN.MODE: 'auto'`, `PISTOL_INDEX`, `PISTOL_MIDDLE`, `PISTOL_HOLD_MS`, `RELOAD_MS` (recarga) |
 | Gatilho da arma (mão fechada) | `GUN.FIRE_REACH` (atira), `GUN.ARM_REACH` (engatilha), `GUN.OPEN_REACH` (mão aberta = anda). Modo antigo: `GUN.MODE: 'polegar'` com `THUMB_DOWN_K`/`THUMB_UP_K` |
@@ -107,6 +111,7 @@ js/main.js          loop do jogo, estados (tutorial, partida, fim), HUD, tiro, m
 js/zombies.js       zumbis: boneco, ondas, perseguição pelo caminho, ataque, tiro
 js/gun.js           arma de mão: pistolinha, gatilho do polegar, recarga, laser
 js/lobby.js         saguão na lente: contagem, mão aberta para começar e jogar de novo
+js/melee.js         socos e tapas: mão encostando no zumbi com velocidade
 js/coach.js         dica dos gestos no canto da tela (e painel 3D no óculos)
 js/mapa.js          carrega a escola e monta a grade de colisão (chão/paredes)
 js/scene.js         mapa de blocos (reserva) e troca para a escola

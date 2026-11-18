@@ -145,6 +145,14 @@ export class Sfx {
     } else this._tone(300, 0.18, { type: 'sawtooth', gain: 0.16, slide: -120 });
   }
 
+  // v19: soco/tapa (pancada seca, mais forte no golpe final)
+  punch(kill) {
+    this._noise(0.07, { gain: 0.6, freq: 900 });
+    this._tone(110, 0.12, { type: 'sine', gain: 0.5, slide: -60 });
+    if (kill) this._tone(200, 0.45, { type: 'sawtooth', gain: 0.18, slide: -140, at: 0.06 });
+    this.vibrate(kill ? [40, 30, 60] : 35);
+  }
+
   // gemido: mais alto quanto mais perto
   groan(dist) {
     const k = Math.max(0.15, 1 - dist / 10);

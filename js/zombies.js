@@ -100,6 +100,7 @@ export class Horde {
       alert: false, speed: Z.SPEED_MIN + Math.random() * (Z.SPEED_MAX - Z.SPEED_MIN),
       phase: Math.random() * 10, attackT: 0, hitT: 0, losT: Math.random() * 0.3, los: false,
       wander: 0, wanderYaw: Math.random() * 6.28, moving: 0,
+      punches: 0, knock: null,
     };
     this.list.push(zb);
     return zb;
@@ -232,6 +233,40 @@ export class Horde {
     return best;
   }
 
+  // v19: o ponto p (mão, em metros) encosta em algum zumbi vivo?
+  // Corpo = cápsula em pé (cintura até o pescoço) + cabeça. Retorna o zumbi ou null.
+  touch(p, r = 0.04) {
+    for (const z of this.list) {
+      if (z.dead) continue;
+      const q = z.m.root.position, s = z.m.scale;
+      const dy = p.y - q.y;
+      // cabeça
+      if (Math.hypot(p.x - q.x, dy - 1.72 * s, p.z - q.z) < 0.2 * s + r) return { zombie: z, part: 'head' };
+      // tronco e pernas
+      if (dy > 0.2 * s && dy < 1.55 * s && Math.hypot(p.x - q.x, p.z - q.z) < 0.3 * s + r) return { zombie: z, part: 'body' };
+    }
+    return null;
+  }
+
+  // v19: soco/tapa. Precisa de MELEE.PUNCHES golpes para derrubar. Empurra o
+  // zumbi para trás e atrasa a mordida dele um pouco. Retorna true se matou.
+  punch(z, dir) {
+    if (z.dead) return false;
+    const M = CONFIG.MELEE;
+    z.punches++;
+    z.hitT = 0.15;
+    z.alert = true;
+    z.attackT = Math.max(z.attackT, M.STAGGER_S);
+    if (dir) z.knock = { x: dir.x * M.KNOCK_SPEED, z: dir.z * M.KNOCK_SPEED };
+    if (z.punches >= (z.dummy ? M.DUMMY_PUNCHES : M.PUNCHES)) {
+      z.dead = true;
+      z.deadT = 0;
+      z.fallDir = Math.random() < 0.5 ? 1 : -1;
+      return true;
+    }
+    return false;
+  }
+
   // dano: retorna true se matou
   damage(z, part) {
     if (z.dead) return false;
@@ -352,6 +387,14 @@ export class Horde {
       if (z.losT <= 0) { z.losT = 0.3; z.los = dist < Z.SIGHT && this._los(p, player); }
       if (!z.dummy && !z.alert && (dist < Z.HEAR || z.los)) { z.alert = true; this.hooks.onAlert && this.hooks.onAlert(z, dist); }
 
+      // empurrão do soco: desliza para trás e para (sem atravessar parede)
+      if (z.knock) {
+        const nx = p.x + z.knock.x * dt, nz = p.z + z.knock.z * dt;
+        if (this._free(nx, nz, p.y)) { p.x = nx; p.z = nz; }
+        const k = Math.exp(-dt * 9);
+        z.knock.x *= k; z.knock.z *= k;
+        if (Math.hypot(z.knock.x, z.knock.z) < 0.05) z.knock = null;
+      }
       let mx = 0, mz = 0, sp = 0;
       if (z.dummy) {
         // treino: só se vira para o jogador
