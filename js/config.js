@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v17',
+  VERSION: 'v18',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -159,12 +159,16 @@ export const CONFIG = {
   // ---- Arma de mão (pistolinha) ----
   GUN: {
     // 'punho' = fechar a mão atira (funciona de qualquer ângulo) · 'polegar' = pistolinha + abaixar o polegar (antigo)
-    MODE: 'punho',
+    // v18 'auto' = mão VERMELHA faz a pistolinha e atira sozinha a cada recarga (barra)
+    MODE: 'auto',
+    PISTOL_INDEX: 1.5,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
+    PISTOL_MIDDLE: 1.4,     // (auto) médio mais perto que isso = dobrado
+    PISTOL_HOLD_MS: 200,    // (auto) pistolinha firme esse tempo antes do 1º tiro (a mira assenta)
     FIRE_REACH: 1.3,        // (punho) indicador e médio mais perto do pulso que isso (em palmos) = mão fechada = tiro
     ARM_REACH: 1.5,         // (punho) abrir a mão além disso engatilha de novo
     OPEN_REACH: 1.75,       // (punho) acima disso nos dois dedos = mão aberta (anda, não mira)
     AIM_LAG_MS: 90,         // o tiro usa a mira de um instante antes de fechar a mão
-    RELOAD_MS: 450,         // depois do tiro a mão fica cinza só esse tempo e volta a ficar vermelha
+    RELOAD_MS: 800,         // recarga entre um tiro e outro (a barra enche nesse tempo)
     THUMB_UP_K: 0.92,       // polegar "levantado" = thumbOut acima de limiar × isto (engatilha)
     THUMB_DOWN_K: 0.8,      // polegar "abaixado" = abaixo de limiar × isto (atira)
     SHAPE_SLACK: 0.1,       // folga no formato da pistolinha (maior = reconhece mais fácil)
@@ -210,6 +214,14 @@ export const CONFIG = {
     RECENTER_HOLD_MS: 1500, // durante o jogo: as duas mãos abertas esse tempo = recentrar
   },
   PROFILE_KEYS: ['cacador-sinal-calib-v1', 'cacador-sinal-vr-v1', 'cacador-sinal-opcoes-v1'],
+
+  // ---- Mãos com papéis (v18) ----
+  ROLES: {
+    ON: true,               // mão AZUL anda (para onde aponta), mão VERMELHA atira
+    WALK_COLOR: 0x2f7bff,
+    GUN_COLOR: 0xe02424,
+    WALK_GRACE_MS: 400,     // continua andando esse tempo se a mão azul "piscar"
+  },
 
   // ---- Jogador ----
   PLAYER: {

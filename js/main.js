@@ -118,6 +118,8 @@ class App {
     this.lastPalm = -1e9;
     this._fx = [];
     this._hv = new THREE.Vector3();
+    this._eyeP = new THREE.Vector3();
+    this._walkDir = new THREE.Vector3(0, 0, -1);
     this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
@@ -797,8 +799,34 @@ class App {
     const loco = this.hands.get(this.locoSide());
     const inter = this.hands.get(this.interSide());
 
-    // 3) locomoção: correr (padrão) ou teleporte
-    if (active && this.locoMode !== 'teleporte') {
+    // 3) locomoção. v18: mão AZUL anda para onde aponta; mão VERMELHA é a arma
+    if (CONFIG.ROLES.ON) this._assignRoles();
+    if (active && CONFIG.ROLES.ON) {
+      let manual = 0;
+      this.runner.manualSource = 'botão';
+      if (input.run || input.move.f > 0) manual = 1;
+      if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
+      const w = this.hands.hands.find((h) => h.role === 'walk' && h.visible);
+      if (w && !this._isFistLike(w)) {
+        // direção: do olho até a mão azul, no plano do chão
+        this.camera.getWorldPosition(this._eyeP);
+        this._hv.copy(w.worldPts[5]).add(w.worldPts[9]).multiplyScalar(0.5).sub(this._eyeP);
+        this._hv.y = 0;
+        if (this._hv.lengthSq() > 1e-6) {
+          this._hv.normalize();
+          if (now - this.lastPalm > CONFIG.ROLES.WALK_GRACE_MS) this._walkDir.copy(this._hv);
+          else this._walkDir.lerp(this._hv, 0.25).normalize();
+          this.lastPalm = now;
+        }
+      }
+      const handWalk = now - this.lastPalm < CONFIG.ROLES.WALK_GRACE_MS;
+      if (handWalk) { manual = 1; this.runner.manualSource = 'mão azul'; }
+      this.runner.dir = handWalk ? this._walkDir : null;
+      this.runner.useSwing = false;
+      this.runner.maxSpeed = CONFIG.RUN.WALK_SPEED;
+      this.runner.update(now, dt, this.hands.hands, manual, false);
+      this.teleport.hide();
+    } else if (active && this.locoMode !== 'teleporte') {
       let manual = 0;
       this.runner.manualSource = 'botão';
       if (input.run || input.move.f > 0) manual = 1;
@@ -843,7 +871,13 @@ class App {
     }
     // durante o jogo: as DUAS mãos abertas paradas = recentrar a visão
     if (active) this._recenterGesture(now);
-    for (const v of this.handViews) { v.tint = this.gun.tintFor(v.hand.side, now); v.update(); }
+    for (const v of this.handViews) {
+      if (CONFIG.ROLES.ON) {
+        const r = v.hand.role;
+        v.tint = r === 'walk' ? CONFIG.ROLES.WALK_COLOR : r === 'gun' ? (this.gun.state === 'reload' ? 0x8e1b1b : CONFIG.ROLES.GUN_COLOR) : null;
+      } else v.tint = this.gun.tintFor(v.hand.side, now);
+      v.update();
+    }
     this._updateFx(dt);
 
     // 5) tempo
@@ -915,6 +949,31 @@ class App {
     return list;
   }
 
+  // v18: quem é quem. Com as duas mãos, a da esquerda (na imagem) anda e a da
+  // direita atira (ou o contrário, se a calibração escolheu a direita para
+  // andar). Com uma mão só, ela ganha o papel pelo lado em que apareceu e
+  // fica com ele enquanto não sumir.
+  _assignRoles() {
+    const walkLeft = this.calib.locomotion !== 'right';
+    const vis = this.hands.hands.filter((h) => h.visible);
+    for (const h of this.hands.hands) if (!h.visible) h.role = null;
+    if (vis.length === 2) {
+      const [a, b] = vis[0].camPts[9].x <= vis[1].camPts[9].x ? vis : [vis[1], vis[0]];
+      a.role = walkLeft ? 'walk' : 'gun';
+      b.role = walkLeft ? 'gun' : 'walk';
+    } else if (vis.length === 1 && !vis[0].role) {
+      const onLeft = vis[0].camPts[9].x < 0;
+      vis[0].role = onLeft === walkLeft ? 'walk' : 'gun';
+    }
+  }
+
+  // mão fechada (para a mão azul: fechar = parar de andar)
+  _isFistLike(h) {
+    if (h.gesture === 'fist') return true;
+    const r = this.gun._reach(h);
+    return !!r && Math.max(r.index, r.middle) < CONFIG.GUN.FIRE_REACH;
+  }
+
   _recenterGesture(now) {
     const both = this.hands.hands.every((h) => this._isPalm(h));
     if (!both) { this._bothPalmAt = 0; this._recentered = false; return; }
@@ -977,9 +1036,9 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> (4 dedos esticados) para a câmera. Abaixe a mão para parar.',
-      aim: 'Mostre a mão <b>meio aberta</b> ou <b>apontando</b> para frente. Aparece o laser e a mão fica <b>vermelha</b> = pronta.',
-      shoot: 'Cubra o zumbi de treino com a mão e <b>feche a mão ✊</b>. A mão fica <b>cinza</b>; abra de novo para atirar outra vez.',
+      walk: 'Mão <b>AZUL</b> (esquerda): mostre e <b>aponte para onde quer ir</b>. Feche a mão ou abaixe para parar.',
+      aim: 'Mão <b>VERMELHA</b> (direita): mostre para a câmera. Aparece o laser.',
+      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> em cima do zumbi. Atira sozinho; a <b>barra</b> mostra a recarga.',
     };
     const g = this.gun.state;
     this.coach.update({

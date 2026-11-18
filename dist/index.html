@@ -282,7 +282,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v17',
+  VERSION: 'v18',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -428,12 +428,16 @@ const CONFIG = {
   // ---- Arma de mão (pistolinha) ----
   GUN: {
     // 'punho' = fechar a mão atira (funciona de qualquer ângulo) · 'polegar' = pistolinha + abaixar o polegar (antigo)
-    MODE: 'punho',
+    // v18 'auto' = mão VERMELHA faz a pistolinha e atira sozinha a cada recarga (barra)
+    MODE: 'auto',
+    PISTOL_INDEX: 1.5,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
+    PISTOL_MIDDLE: 1.4,     // (auto) médio mais perto que isso = dobrado
+    PISTOL_HOLD_MS: 200,    // (auto) pistolinha firme esse tempo antes do 1º tiro (a mira assenta)
     FIRE_REACH: 1.3,        // (punho) indicador e médio mais perto do pulso que isso (em palmos) = mão fechada = tiro
     ARM_REACH: 1.5,         // (punho) abrir a mão além disso engatilha de novo
     OPEN_REACH: 1.75,       // (punho) acima disso nos dois dedos = mão aberta (anda, não mira)
     AIM_LAG_MS: 90,         // o tiro usa a mira de um instante antes de fechar a mão
-    RELOAD_MS: 450,         // depois do tiro a mão fica cinza só esse tempo e volta a ficar vermelha
+    RELOAD_MS: 800,         // recarga entre um tiro e outro (a barra enche nesse tempo)
     THUMB_UP_K: 0.92,       // polegar "levantado" = thumbOut acima de limiar × isto (engatilha)
     THUMB_DOWN_K: 0.8,      // polegar "abaixado" = abaixo de limiar × isto (atira)
     SHAPE_SLACK: 0.1,       // folga no formato da pistolinha (maior = reconhece mais fácil)
@@ -479,6 +483,14 @@ const CONFIG = {
     RECENTER_HOLD_MS: 1500, // durante o jogo: as duas mãos abertas esse tempo = recentrar
   },
   PROFILE_KEYS: ['cacador-sinal-calib-v1', 'cacador-sinal-vr-v1', 'cacador-sinal-opcoes-v1'],
+
+  // ---- Mãos com papéis (v18) ----
+  ROLES: {
+    ON: true,               // mão AZUL anda (para onde aponta), mão VERMELHA atira
+    WALK_COLOR: 0x2f7bff,
+    GUN_COLOR: 0xe02424,
+    WALK_GRACE_MS: 400,     // continua andando esse tempo se a mão azul "piscar"
+  },
 
   // ---- Jogador ----
   PLAYER: {
@@ -2293,6 +2305,109 @@ class Gun {
     this.tracer.visible = false;
     scene.add(this.tracer);
     this._fxUntil = 0;
+
+    // v18: barra de recarga em cima da mão vermelha (presa à câmera)
+    this.bar = new THREE.Group();
+    const bm = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, depthWrite: false, transparent: true });
+    this.barBg = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), bm(0x111111));
+    this.barBg.material.opacity = 0.7;
+    this.barFill = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), bm(0x5be37d));
+    this.barFill.geometry.translate(0.5, 0, 0);
+    this.barBg.renderOrder = 45; this.barFill.renderOrder = 46;
+    this.bar.add(this.barBg, this.barFill);
+    this.bar.visible = false;
+    camera.add(this.bar);
+    this.pistol = false;
+    this._pistolSince = 0;
+    this._pistolSeen = -1e9;
+  }
+
+  // v18: pistolinha pelos ângulos 3D da mão: indicador esticado (longe do
+  // pulso) e médio dobrado (perto do pulso). Vale também o gesto 'gun'.
+  _isPistol(h, thr) {
+    if (!h || !h.visible || !h.wlm) return false;
+    if (h.gesture === 'gun') return true;
+    const r = this._reach(h);
+    if (!r) return false;
+    const f = h.features;
+    const idxStraight = !f || f.straight[0] > thr.ext[0] - 0.12;
+    return r.index > G.PISTOL_INDEX && r.middle < G.PISTOL_MIDDLE && r.index - r.middle > 0.35 && idxStraight;
+  }
+
+  // Modo 'auto' (v18): só a mão VERMELHA (papel 'gun') mira. Pistolinha
+  // segurada = atira sozinho; recarrega RELOAD_MS (barra) e atira de novo.
+  _updateAuto(now, hands, thr, fresh, manualFire, findHit) {
+    const cur = hands.find((h) => h.role === 'gun' && h.visible) || null;
+    this.side = cur ? cur.side : null;
+    // pistolinha com tolerância (se "piscar" por um instante, continua)
+    let pistolNow = false;
+    if (cur && cur.present) pistolNow = this._isPistol(cur, thr);
+    if (pistolNow) {
+      this._pistolSeen = now;
+      if (!this.pistol) { this.pistol = true; this._pistolSince = now; this.hooks.onReady && this.hooks.onReady(); }
+    } else if (this.pistol && (!cur || now - this._pistolSeen > G.GRACE_MS)) this.pistol = false;
+    const reloadK = Math.min(1, (now - this.lastShot) / G.RELOAD_MS);
+    this.state = !cur ? 'off' : reloadK < 1 ? 'reload' : 'ready';
+    this.aiming = !!cur;
+    if (cur) {
+      const P = cur.worldPts;
+      this.camera.getWorldPosition(this._o);
+      this._k.copy(P[5]).add(P[9]).multiplyScalar(0.5);
+      this._d.subVectors(this._k, this._o).normalize();
+      this._sd.lerp(this._d, 0.5).normalize();
+      if (this._sd.lengthSq() < 0.5) this._sd.copy(this._d);
+      this._tip.copy(P[8]);
+      this._hist = this._hist || [];
+      this._hist.push({ t: now, d: this._sd.clone() });
+      while (this._hist.length > 2 && now - this._hist[1].t > G.AIM_LAG_MS) this._hist.shift();
+      if (this.pistol && reloadK >= 1 && now - this._pistolSince >= G.PISTOL_HOLD_MS) this._fire(now, cur, findHit);
+    } else if (manualFire !== undefined) {
+      this.camera.getWorldPosition(this._o);
+      this.camera.getWorldDirection(this._sd);
+      this._tip.copy(this._o).addScaledVector(this._sd, 0.4);
+      this._tip.y -= 0.15;
+    }
+    if (manualFire && now - this.lastShot >= G.RELOAD_MS) this._fire(now, null, findHit);
+    this._drawAim(now, findHit, !!(cur && this.pistol));
+    // barra: em cima da mão vermelha
+    this.bar.visible = !!cur;
+    if (cur) {
+      const P = cur.camPts;
+      let top = P[0];
+      for (const p of P) if (p.y > top.y) top = p;
+      const k = Math.min(1, (now - this.lastShot) / G.RELOAD_MS);
+      const w = 0.07, hgt = 0.009;
+      this.bar.position.set(P[9].x, top.y + 0.03, P[9].z);
+      this.barBg.scale.set(w + 0.004, hgt + 0.004, 1);
+      this.barFill.position.x = -w / 2;
+      this.barFill.scale.set(Math.max(0.001, w * k), hgt, 1);
+      this.barFill.material.color.setHex(k < 1 ? 0xffb020 : this.pistol ? 0xff3030 : 0x5be37d);
+    }
+  }
+
+  _drawAim(now, findHit, hot) {
+    const show = this.aiming;
+    this.laser.visible = show;
+    this.dot.visible = show;
+    if (show) {
+      const hit = findHit(this._o, this._sd, false);
+      const dist = hit ? hit.dist : G.RANGE;
+      const end = this._k.copy(this._o).addScaledVector(this._sd, dist);
+      const col = hot ? 0xff2a2a : 0xff8a8a;
+      this.laserMat.color.setHex(col);
+      this.laserMat.opacity = hot ? 0.85 : 0.35;
+      this.dotMat.color.setHex(hit && hit.zombie ? 0xffee00 : col);
+      const a = this.laser.geometry.attributes.position;
+      a.setXYZ(0, this._tip.x, this._tip.y, this._tip.z);
+      a.setXYZ(1, end.x, end.y, end.z);
+      a.needsUpdate = true;
+      this.dot.position.copy(end);
+      this.dot.scale.setScalar(0.012 * Math.max(1, dist) + 0.01);
+    }
+    const fx = now < this._fxUntil;
+    this.flash.visible = fx && now < this._fxUntil - 60;
+    this.tracer.visible = fx;
+    if (fx) this.tracer.material.opacity = (this._fxUntil - now) / 110;
   }
 
   get ready() { return this.state === 'ready'; }
@@ -2337,6 +2452,7 @@ class Gun {
   // hands: lista de mãos · fresh: houve detecção nova neste quadro
   // manualFire: botão/tecla de tiro · targets(): lista de alvos para a mira
   update(now, hands, thr, fresh, manualFire, findHit) {
+    if (G.MODE === 'auto') return this._updateAuto(now, hands, thr, fresh, manualFire, findHit);
     // escolhe a mão da arma: a que está em pistolinha (prefere a mesma de antes)
     let hand = null;
     for (const h of hands) if (this._shape(h, thr) && (!hand || h.side === this.side)) hand = h;
@@ -2418,7 +2534,7 @@ class Gun {
     if (fx) this.tracer.material.opacity = (this._fxUntil - now) / 110;
   }
 
-  _fire(now, hand, findHit, lagged = false) {
+  _fire(now, hand, findHit, lagged = G.MODE === 'auto' && !!hand) {
     if (lagged && this._hist && this._hist.length) this._sd.copy(this._hist[0].d);
     this.lastShot = now;
     this.state = 'reload';
@@ -2442,6 +2558,8 @@ class Gun {
     this.state = 'off';
     this.side = null;
     this._hist = [];
+    this.bar.visible = false;
+    this.pistol = false;
   }
 }
 
@@ -2452,9 +2570,9 @@ class Gun {
 // Aparece no canto (HTML) e, no óculos, num painel pequeno preso à visão (3D).
 
 const COACH_STEPS = [
-  { id: 'walk', icon: '✋', text: 'Mão aberta = andar' },
-  { id: 'aim', icon: '👉', text: 'Aponte = mirar' },
-  { id: 'shoot', icon: '✊', text: 'Feche a mão = BANG' },
+  { id: 'walk', icon: '🔵', text: 'Mão azul: aponte = anda' },
+  { id: 'aim', icon: '🔴', text: 'Mão vermelha = mira' },
+  { id: 'shoot', icon: '👉', text: 'Pistolinha = atira' },
 ];
 
 class Coach {
@@ -2490,7 +2608,7 @@ class Coach {
       const cls = [st.done[s.id] ? 'done' : '', st.cur === s.id ? 'cur' : '', st.active[s.id] ? 'act' : ''].join(' ');
       return `<div class="row ${cls}"><span class="ic">${s.icon}</span><span>${s.text}</span>${st.done[s.id] ? '<span class="ok">✔</span>' : ''}</div>`;
     }).join('');
-    const gun = st.gun === 'ready' ? '<span class="gun ready">● arma pronta</span>' : st.gun === 'reload' ? '<span class="gun reload">● recarregando… abra a mão</span>' : '';
+    const gun = st.gun === 'ready' ? '<span class="gun ready">● arma pronta</span>' : st.gun === 'reload' ? '<span class="gun reload">● recarregando… (barra)</span>' : '';
     this.el.innerHTML = `${st.title ? `<div class="title">${st.title}</div>` : ''}${rows}${gun}${st.note ? `<div class="note">${st.note}</div>` : ''}`;
     if (st.stereo) this._draw(st);
   }
@@ -3139,6 +3257,7 @@ class HandView {
   update() {
     const h = this.hand;
     this.group.visible = h.visible;
+    this.band.visible = !CONFIG.ROLES.ON; // com papéis, a cor da mão inteira já diz quem é quem
     if (!h.visible) return;
     const P = h.camPts;
 
@@ -3661,6 +3780,7 @@ class Runner {
     this.useSwing = false;    // modo 'correr' (balanço/corrida parada)
     this.maxSpeed = R.WALK_SPEED;
     this.manualSource = 'botão';
+    this.dir = null;          // v18: direção de andar (mão azul); null = para onde olha
     // histórico de movimento das mãos para detectar "vai e volta"
     this._hist = { left: [], right: [] };
     this._prev = { left: null, right: null };
@@ -3764,7 +3884,7 @@ class Runner {
     this.speed += Math.sign(target - this.speed) * Math.min(Math.abs(target - this.speed), rate * dt);
 
     if (this.speed > 0.01) {
-      this.camera.getWorldDirection(this._fwd);
+      if (this.dir) this._fwd.copy(this.dir); else this.camera.getWorldDirection(this._fwd);
       this._fwd.y = 0;
       if (this._fwd.lengthSq() < 1e-6) return;
       this._fwd.normalize();
@@ -4513,7 +4633,7 @@ class CalibrationFlow {
     }
     const html = `
       <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
-      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>✋ mão aberta = andar</b>, <b>👉 apontar = mirar</b> e <b>✊ fechar a mão = atirar</b>.</p>
+      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🔵 mão azul (esquerda) = anda para onde aponta</b> e <b>🔴 mão vermelha (direita): pistolinha 👉 = atira</b> (atira sozinho; a barra mostra a recarga).</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Calibração salva: toque em <b>▶ Jogar no óculos</b>, ponha o celular no óculos e pronto. Começa sozinho em ' + CONFIG.LOBBY.COUNTDOWN_S + ' s (ou mostre a ✋ mão aberta). No jogo, <b>as duas mãos abertas</b> recentram a visão.</p>' : '<p class="small">Dica: calibre uma vez; depois é só um toque para jogar no óculos.</p>'}
@@ -4542,7 +4662,7 @@ class CalibrationFlow {
   nextPlayer() {
     const feira = this.app.options.feira;
     const html = `
-      <p><b>Próximo jogador!</b> Elimine os zumbis da escola. <b>✋ Mão aberta</b> anda, <b>👉 apontar</b> mira e <b>✊ fechar a mão</b> atira.</p>
+      <p><b>Próximo jogador!</b> Elimine os zumbis da escola. <b>🔵 Mão azul</b> anda para onde aponta e a <b>🔴 mão vermelha</b> faz a pistolinha 👉 para atirar.</p>
       <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis</b>.` : ''}
       A mão fica <b>vermelha</b> quando a arma está pronta e <b>cinza</b> enquanto recarrega. A setinha no alto mostra o zumbi mais perto.</p>
       ${this._optionsHtml()}
@@ -4737,7 +4857,7 @@ class CalibrationFlow {
     const calib = this.app.calib;
     const set = (side) => { calib.locomotion = side; this.stepPose(0); };
     this._show('3. Mão de locomoção', `
-      <p>No jogo, qualquer mão pode <b>andar</b> (palma aberta) ou <b>atirar</b> (apontar e fechar a mão ✊). A escolha aqui só define a mão principal da calibração.</p>
+      <p>No jogo, qualquer mão pode <b>andar</b> (palma aberta) ou <b>atirar</b>. No jogo, a mão escolhida aqui fica <b>azul e anda</b>; a outra fica <b>vermelha e atira</b>. A escolha aqui só define a mão principal da calibração.</p>
       <p>Qual mão você quer usar para <b>andar</b>?</p>
       <p class="small">Teste com o celular na mão: use a mão livre para tudo — dá para trocar depois recalibrando.</p>`, [
       { label: 'Esquerda anda (padrão)', cls: calib.locomotion === 'left' ? 'primary' : '', onClick: () => set('left') },
@@ -5339,6 +5459,8 @@ class App {
     this.lastPalm = -1e9;
     this._fx = [];
     this._hv = new THREE.Vector3();
+    this._eyeP = new THREE.Vector3();
+    this._walkDir = new THREE.Vector3(0, 0, -1);
     this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
@@ -6018,8 +6140,34 @@ class App {
     const loco = this.hands.get(this.locoSide());
     const inter = this.hands.get(this.interSide());
 
-    // 3) locomoção: correr (padrão) ou teleporte
-    if (active && this.locoMode !== 'teleporte') {
+    // 3) locomoção. v18: mão AZUL anda para onde aponta; mão VERMELHA é a arma
+    if (CONFIG.ROLES.ON) this._assignRoles();
+    if (active && CONFIG.ROLES.ON) {
+      let manual = 0;
+      this.runner.manualSource = 'botão';
+      if (input.run || input.move.f > 0) manual = 1;
+      if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
+      const w = this.hands.hands.find((h) => h.role === 'walk' && h.visible);
+      if (w && !this._isFistLike(w)) {
+        // direção: do olho até a mão azul, no plano do chão
+        this.camera.getWorldPosition(this._eyeP);
+        this._hv.copy(w.worldPts[5]).add(w.worldPts[9]).multiplyScalar(0.5).sub(this._eyeP);
+        this._hv.y = 0;
+        if (this._hv.lengthSq() > 1e-6) {
+          this._hv.normalize();
+          if (now - this.lastPalm > CONFIG.ROLES.WALK_GRACE_MS) this._walkDir.copy(this._hv);
+          else this._walkDir.lerp(this._hv, 0.25).normalize();
+          this.lastPalm = now;
+        }
+      }
+      const handWalk = now - this.lastPalm < CONFIG.ROLES.WALK_GRACE_MS;
+      if (handWalk) { manual = 1; this.runner.manualSource = 'mão azul'; }
+      this.runner.dir = handWalk ? this._walkDir : null;
+      this.runner.useSwing = false;
+      this.runner.maxSpeed = CONFIG.RUN.WALK_SPEED;
+      this.runner.update(now, dt, this.hands.hands, manual, false);
+      this.teleport.hide();
+    } else if (active && this.locoMode !== 'teleporte') {
       let manual = 0;
       this.runner.manualSource = 'botão';
       if (input.run || input.move.f > 0) manual = 1;
@@ -6064,7 +6212,13 @@ class App {
     }
     // durante o jogo: as DUAS mãos abertas paradas = recentrar a visão
     if (active) this._recenterGesture(now);
-    for (const v of this.handViews) { v.tint = this.gun.tintFor(v.hand.side, now); v.update(); }
+    for (const v of this.handViews) {
+      if (CONFIG.ROLES.ON) {
+        const r = v.hand.role;
+        v.tint = r === 'walk' ? CONFIG.ROLES.WALK_COLOR : r === 'gun' ? (this.gun.state === 'reload' ? 0x8e1b1b : CONFIG.ROLES.GUN_COLOR) : null;
+      } else v.tint = this.gun.tintFor(v.hand.side, now);
+      v.update();
+    }
     this._updateFx(dt);
 
     // 5) tempo
@@ -6136,6 +6290,31 @@ class App {
     return list;
   }
 
+  // v18: quem é quem. Com as duas mãos, a da esquerda (na imagem) anda e a da
+  // direita atira (ou o contrário, se a calibração escolheu a direita para
+  // andar). Com uma mão só, ela ganha o papel pelo lado em que apareceu e
+  // fica com ele enquanto não sumir.
+  _assignRoles() {
+    const walkLeft = this.calib.locomotion !== 'right';
+    const vis = this.hands.hands.filter((h) => h.visible);
+    for (const h of this.hands.hands) if (!h.visible) h.role = null;
+    if (vis.length === 2) {
+      const [a, b] = vis[0].camPts[9].x <= vis[1].camPts[9].x ? vis : [vis[1], vis[0]];
+      a.role = walkLeft ? 'walk' : 'gun';
+      b.role = walkLeft ? 'gun' : 'walk';
+    } else if (vis.length === 1 && !vis[0].role) {
+      const onLeft = vis[0].camPts[9].x < 0;
+      vis[0].role = onLeft === walkLeft ? 'walk' : 'gun';
+    }
+  }
+
+  // mão fechada (para a mão azul: fechar = parar de andar)
+  _isFistLike(h) {
+    if (h.gesture === 'fist') return true;
+    const r = this.gun._reach(h);
+    return !!r && Math.max(r.index, r.middle) < CONFIG.GUN.FIRE_REACH;
+  }
+
   _recenterGesture(now) {
     const both = this.hands.hands.every((h) => this._isPalm(h));
     if (!both) { this._bothPalmAt = 0; this._recentered = false; return; }
@@ -6198,9 +6377,9 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> (4 dedos esticados) para a câmera. Abaixe a mão para parar.',
-      aim: 'Mostre a mão <b>meio aberta</b> ou <b>apontando</b> para frente. Aparece o laser e a mão fica <b>vermelha</b> = pronta.',
-      shoot: 'Cubra o zumbi de treino com a mão e <b>feche a mão ✊</b>. A mão fica <b>cinza</b>; abra de novo para atirar outra vez.',
+      walk: 'Mão <b>AZUL</b> (esquerda): mostre e <b>aponte para onde quer ir</b>. Feche a mão ou abaixe para parar.',
+      aim: 'Mão <b>VERMELHA</b> (direita): mostre para a câmera. Aparece o laser.',
+      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> em cima do zumbi. Atira sozinho; a <b>barra</b> mostra a recarga.',
     };
     const g = this.gun.state;
     this.coach.update({

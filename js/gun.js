@@ -55,6 +55,109 @@ export class Gun {
     this.tracer.visible = false;
     scene.add(this.tracer);
     this._fxUntil = 0;
+
+    // v18: barra de recarga em cima da mão vermelha (presa à câmera)
+    this.bar = new THREE.Group();
+    const bm = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, depthWrite: false, transparent: true });
+    this.barBg = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), bm(0x111111));
+    this.barBg.material.opacity = 0.7;
+    this.barFill = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), bm(0x5be37d));
+    this.barFill.geometry.translate(0.5, 0, 0);
+    this.barBg.renderOrder = 45; this.barFill.renderOrder = 46;
+    this.bar.add(this.barBg, this.barFill);
+    this.bar.visible = false;
+    camera.add(this.bar);
+    this.pistol = false;
+    this._pistolSince = 0;
+    this._pistolSeen = -1e9;
+  }
+
+  // v18: pistolinha pelos ângulos 3D da mão: indicador esticado (longe do
+  // pulso) e médio dobrado (perto do pulso). Vale também o gesto 'gun'.
+  _isPistol(h, thr) {
+    if (!h || !h.visible || !h.wlm) return false;
+    if (h.gesture === 'gun') return true;
+    const r = this._reach(h);
+    if (!r) return false;
+    const f = h.features;
+    const idxStraight = !f || f.straight[0] > thr.ext[0] - 0.12;
+    return r.index > G.PISTOL_INDEX && r.middle < G.PISTOL_MIDDLE && r.index - r.middle > 0.35 && idxStraight;
+  }
+
+  // Modo 'auto' (v18): só a mão VERMELHA (papel 'gun') mira. Pistolinha
+  // segurada = atira sozinho; recarrega RELOAD_MS (barra) e atira de novo.
+  _updateAuto(now, hands, thr, fresh, manualFire, findHit) {
+    const cur = hands.find((h) => h.role === 'gun' && h.visible) || null;
+    this.side = cur ? cur.side : null;
+    // pistolinha com tolerância (se "piscar" por um instante, continua)
+    let pistolNow = false;
+    if (cur && cur.present) pistolNow = this._isPistol(cur, thr);
+    if (pistolNow) {
+      this._pistolSeen = now;
+      if (!this.pistol) { this.pistol = true; this._pistolSince = now; this.hooks.onReady && this.hooks.onReady(); }
+    } else if (this.pistol && (!cur || now - this._pistolSeen > G.GRACE_MS)) this.pistol = false;
+    const reloadK = Math.min(1, (now - this.lastShot) / G.RELOAD_MS);
+    this.state = !cur ? 'off' : reloadK < 1 ? 'reload' : 'ready';
+    this.aiming = !!cur;
+    if (cur) {
+      const P = cur.worldPts;
+      this.camera.getWorldPosition(this._o);
+      this._k.copy(P[5]).add(P[9]).multiplyScalar(0.5);
+      this._d.subVectors(this._k, this._o).normalize();
+      this._sd.lerp(this._d, 0.5).normalize();
+      if (this._sd.lengthSq() < 0.5) this._sd.copy(this._d);
+      this._tip.copy(P[8]);
+      this._hist = this._hist || [];
+      this._hist.push({ t: now, d: this._sd.clone() });
+      while (this._hist.length > 2 && now - this._hist[1].t > G.AIM_LAG_MS) this._hist.shift();
+      if (this.pistol && reloadK >= 1 && now - this._pistolSince >= G.PISTOL_HOLD_MS) this._fire(now, cur, findHit);
+    } else if (manualFire !== undefined) {
+      this.camera.getWorldPosition(this._o);
+      this.camera.getWorldDirection(this._sd);
+      this._tip.copy(this._o).addScaledVector(this._sd, 0.4);
+      this._tip.y -= 0.15;
+    }
+    if (manualFire && now - this.lastShot >= G.RELOAD_MS) this._fire(now, null, findHit);
+    this._drawAim(now, findHit, !!(cur && this.pistol));
+    // barra: em cima da mão vermelha
+    this.bar.visible = !!cur;
+    if (cur) {
+      const P = cur.camPts;
+      let top = P[0];
+      for (const p of P) if (p.y > top.y) top = p;
+      const k = Math.min(1, (now - this.lastShot) / G.RELOAD_MS);
+      const w = 0.07, hgt = 0.009;
+      this.bar.position.set(P[9].x, top.y + 0.03, P[9].z);
+      this.barBg.scale.set(w + 0.004, hgt + 0.004, 1);
+      this.barFill.position.x = -w / 2;
+      this.barFill.scale.set(Math.max(0.001, w * k), hgt, 1);
+      this.barFill.material.color.setHex(k < 1 ? 0xffb020 : this.pistol ? 0xff3030 : 0x5be37d);
+    }
+  }
+
+  _drawAim(now, findHit, hot) {
+    const show = this.aiming;
+    this.laser.visible = show;
+    this.dot.visible = show;
+    if (show) {
+      const hit = findHit(this._o, this._sd, false);
+      const dist = hit ? hit.dist : G.RANGE;
+      const end = this._k.copy(this._o).addScaledVector(this._sd, dist);
+      const col = hot ? 0xff2a2a : 0xff8a8a;
+      this.laserMat.color.setHex(col);
+      this.laserMat.opacity = hot ? 0.85 : 0.35;
+      this.dotMat.color.setHex(hit && hit.zombie ? 0xffee00 : col);
+      const a = this.laser.geometry.attributes.position;
+      a.setXYZ(0, this._tip.x, this._tip.y, this._tip.z);
+      a.setXYZ(1, end.x, end.y, end.z);
+      a.needsUpdate = true;
+      this.dot.position.copy(end);
+      this.dot.scale.setScalar(0.012 * Math.max(1, dist) + 0.01);
+    }
+    const fx = now < this._fxUntil;
+    this.flash.visible = fx && now < this._fxUntil - 60;
+    this.tracer.visible = fx;
+    if (fx) this.tracer.material.opacity = (this._fxUntil - now) / 110;
   }
 
   get ready() { return this.state === 'ready'; }
@@ -99,6 +202,7 @@ export class Gun {
   // hands: lista de mãos · fresh: houve detecção nova neste quadro
   // manualFire: botão/tecla de tiro · targets(): lista de alvos para a mira
   update(now, hands, thr, fresh, manualFire, findHit) {
+    if (G.MODE === 'auto') return this._updateAuto(now, hands, thr, fresh, manualFire, findHit);
     // escolhe a mão da arma: a que está em pistolinha (prefere a mesma de antes)
     let hand = null;
     for (const h of hands) if (this._shape(h, thr) && (!hand || h.side === this.side)) hand = h;
@@ -180,7 +284,7 @@ export class Gun {
     if (fx) this.tracer.material.opacity = (this._fxUntil - now) / 110;
   }
 
-  _fire(now, hand, findHit, lagged = false) {
+  _fire(now, hand, findHit, lagged = G.MODE === 'auto' && !!hand) {
     if (lagged && this._hist && this._hist.length) this._sd.copy(this._hist[0].d);
     this.lastShot = now;
     this.state = 'reload';
@@ -204,5 +308,7 @@ export class Gun {
     this.state = 'off';
     this.side = null;
     this._hist = [];
+    this.bar.visible = false;
+    this.pistol = false;
   }
 }

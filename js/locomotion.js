@@ -26,6 +26,7 @@ export class Runner {
     this.useSwing = false;    // modo 'correr' (balanço/corrida parada)
     this.maxSpeed = R.WALK_SPEED;
     this.manualSource = 'botão';
+    this.dir = null;          // v18: direção de andar (mão azul); null = para onde olha
     // histórico de movimento das mãos para detectar "vai e volta"
     this._hist = { left: [], right: [] };
     this._prev = { left: null, right: null };
@@ -129,7 +130,7 @@ export class Runner {
     this.speed += Math.sign(target - this.speed) * Math.min(Math.abs(target - this.speed), rate * dt);
 
     if (this.speed > 0.01) {
-      this.camera.getWorldDirection(this._fwd);
+      if (this.dir) this._fwd.copy(this.dir); else this.camera.getWorldDirection(this._fwd);
       this._fwd.y = 0;
       if (this._fwd.lengthSq() < 1e-6) return;
       this._fwd.normalize();
