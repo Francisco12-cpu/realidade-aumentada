@@ -3,6 +3,7 @@
 import { CONFIG } from './config.js';
 import { computeFeatures, classify, averageFeatures, thresholdsFromPoses, GESTURE_LABELS } from './gestures.js';
 import { defaultVrSettings, saveVrSettings } from './vr.js';
+import { rankingTable, clearToday } from './ranking.js';
 
 // ---------------------------------------------------------------------
 // Armazenamento (localStorage, sempre com try/catch)
@@ -142,6 +143,7 @@ export class CalibrationFlow {
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Existe uma calibração salva neste aparelho.</p>' : ''}
       ${this._optionsHtml()}
+      <p class="small" id="map-status">${this.app.mapText}</p>
       <p class="small" id="offline"></p>
       <p class="small">Dica: o botão 🐞 mostra o painel de depuração (FPS, gestos, prévia da câmera).</p>`;
     const btns = [];
@@ -153,6 +155,7 @@ export class CalibrationFlow {
       btns.push({ label: 'Começar', cls: 'primary', onClick: () => this._startFresh() });
     }
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
+    btns.push({ label: '🏆 Ranking do dia', onClick: () => this.showRanking(() => this.welcome()) });
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show(`Caçador de Sinal — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
     this._wireOptions(() => this.welcome());
@@ -167,6 +170,7 @@ export class CalibrationFlow {
       <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.FEIRA.TARGETS.length} caixas</b>.` : ''}
       Siga o <b>bipe</b>: quanto mais rápido, mais perto. Perto da caixa ela solta <b>faíscas</b>.</p>
       ${this._optionsHtml()}
+      <p class="small" id="map-status">${this.app.mapText}</p>
       <p class="small" id="offline"></p>`;
     const ready = this.app.devicesReady;
     const go = (next) => {
@@ -177,11 +181,28 @@ export class CalibrationFlow {
     this._show('👤 Próximo jogador', html, [
       { label: 'Tutorial rápido →', cls: 'primary', onClick: () => go('tutorial') },
       { label: 'Direto para a partida', onClick: () => go('game') },
+      { label: '🏆 Ranking do dia', onClick: () => this.showRanking(() => this.nextPlayer()) },
       { label: 'Recalibrar (mão diferente)', onClick: () => this.app.recalibrate() },
       { label: 'Tela inicial', onClick: () => this.welcome() },
     ]);
     this._wireOptions(() => this.nextPlayer());
     this._checkOffline();
+  }
+
+  // Ranking do dia (só deste celular). Apagar pede dois toques, sem janela de confirmação.
+  showRanking(back) {
+    const feira = this.app.options.feira;
+    let armed = false;
+    this._show(`🏆 Ranking de hoje${feira ? ' (modo feira)' : ''}`, `
+      <div id="rank-table">${rankingTable(feira)}</div>
+      <p class="small">Pontos: 100 por caixa consertada + 2 por segundo que sobrou (quando conserta todas). Fica guardado só neste celular.</p>`, [
+      { label: '← Voltar', cls: 'primary', onClick: back },
+      { label: '🗑 Apagar ranking de hoje', onClick: (btn) => {
+        if (!armed) { armed = true; btn.textContent = 'Toque de novo para apagar'; setTimeout(() => { armed = false; btn.textContent = '🗑 Apagar ranking de hoje'; }, 3000); return; }
+        clearToday(feira);
+        this.showRanking(back);
+      } },
+    ]);
   }
 
   // Botões liga/desliga das opções (som, vibração, vinheta, modo feira).

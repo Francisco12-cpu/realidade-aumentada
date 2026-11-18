@@ -41,7 +41,7 @@ TYPES = {
     '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
     '.mjs': 'text/javascript; charset=utf-8', '.cjs': 'text/javascript; charset=utf-8',
     '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.wasm': 'application/wasm',
-    '.task': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg',
+    '.task': 'application/octet-stream', '.glb': 'model/gltf-binary', '.png': 'image/png', '.jpg': 'image/jpeg',
     '.svg': 'image/svg+xml', '.md': 'text/plain; charset=utf-8', '.ico': 'image/x-icon',
 }
 TEXT_REWRITE = ('.html', '.js')
@@ -49,6 +49,8 @@ TEXT_REWRITE = ('.html', '.js')
 # arquivos que o jogo usa (para baixar tudo de uma vez com --baixar)
 PRELOAD = [
     'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+    'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+    'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs',
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.cjs',
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm/vision_wasm_internal.js',

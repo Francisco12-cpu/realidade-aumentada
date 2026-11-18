@@ -155,11 +155,35 @@ body.mode-teleporte #btn-run { display: none; }
 .opts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
 .opts .opt { min-height: 40px; padding: 8px 12px; font-size: 14px; }
 .opts .opt.on { background: var(--btn-on); border-color: var(--accent); }
+
+/* ---------- Aviso de mão / luz ---------- */
+#hand-hint {
+  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  max-width: min(92vw, 520px); padding: 10px 16px; border-radius: 14px; z-index: 6; pointer-events: none;
+  background: rgba(255, 196, 0, 0.92); color: #1d1400; font-weight: 600; text-align: center;
+  opacity: 0; transition: opacity 0.25s;
+}
+#hand-hint.show { opacity: 1; }
+body.stereo #hand-hint { display: none; }
+
+/* ---------- Placar / ranking ---------- */
+.score { font-size: 16px; }
+.name-row { display: flex; gap: 8px; margin: 8px 0; }
+.name-row input {
+  flex: 1; min-width: 0; font: inherit; color: var(--text); background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 12px; padding: 8px 12px;
+  user-select: text; -webkit-user-select: text; touch-action: manipulation;
+}
+table.rank { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+table.rank th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; }
+table.rank td { padding: 5px 6px; border-top: 1px solid rgba(255,255,255,0.08); }
+table.rank tr.me td { background: rgba(0, 229, 255, 0.18); font-weight: 600; }
 </style>
   <script type="importmap">
   {
     "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
       "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
     }
   }
@@ -210,6 +234,7 @@ body.mode-teleporte #btn-run { display: none; }
   <!-- Calibração / tutorial / fim -->
   <div id="overlay" hidden></div>
   <div id="toast"></div>
+  <div id="hand-hint"></div>
   <div id="rotate-hint">📱↔ Vire o celular deitado para usar o óculos</div>
 
   <noscript>Este protótipo precisa de JavaScript.</noscript>
@@ -231,7 +256,7 @@ const CONFIG = {
   GAME_TIME_S: 360,         // duração da partida (6 min)
 
   // ---- Locomoção ----
-  VERSION: 'v8',
+  VERSION: 'v10',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -341,6 +366,10 @@ const CONFIG = {
     TOUCH_DIST: 0.30,       // ponta do indicador até a superfície da caixa (m)
     FALLBACK_TOUCH_DIST: 3.0, // botão "Tocar": abre caixa até essa distância
     WIRES_PER_BOX: 3,
+    // dificuldade crescente: fios da 1ª, 2ª, 3ª... caixa consertada.
+    // Com mais de 4 fios as cores se repetem (qualquer anel da mesma cor serve).
+    WIRE_LEVELS: [3, 3, 4, 4, 5, 5],
+    RANDOM_SPOTS: true,     // sorteia o lugar de cada caixa a cada partida
     PANEL_DIST: 0.55,       // painel aparece a essa distância da câmera
     PANEL_DROP: 0.15,       // inclina o painel um pouco abaixo do olhar (rad)
     GRAB_SCREEN_PX: 75,     // raio (px na tela) para pegar um fio
@@ -363,10 +392,32 @@ const CONFIG = {
     HIGH_FPS: 56,
   },
 
+  // ---- Mapa: escola de verdade (modelo 3D original) ----
+  MAP: {
+    USE_SCHOOL: true,       // false = volta para o mapa de blocos
+    // procura o modelo nesses endereços (o 2º é para o arquivo único em dist/)
+    URLS: ['models/escola.glb', '../models/escola.glb'],
+    SPAWN: [38.5, 0, -60.25], // onde o jogador começa: no corredor coberto do portão (muro oeste)
+    SPAWN_YAW: -Math.PI / 2, // olhando para dentro da escola (leste, +x)
+    CELL: 0.25,             // tamanho da célula da grade de colisão (m)
+    CHAO_MAX: 1.3,          // superfícies horizontais até essa altura contam como chão
+    DEGRAU: 0.36,           // maior degrau que dá para subir andando (m)
+    PAREDE_DE: 0.35,        // parede só bloqueia entre essa altura...
+    PAREDE_ATE: 1.75,       // ...e essa (acima do chão)
+    RAIO_JOGADOR: 0.3,
+    AREAS: 6,               // áreas com pontos de sinal (1 caixa por área na partida)
+    LUGARES_POR_AREA: 4,    // lugares possíveis em cada área (sorteio)
+    DIST_MIN: 3,            // distância mínima entre lugares (m)
+    LONGE_DO_INICIO: 8,     // nenhum ponto a menos disso do início (m)
+    FOG_NEAR: 25,
+    FOG_FAR: 75,
+  },
+
   // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----
   FEIRA: {
     GAME_TIME_S: 180,       // partida de 3 min
-    TARGETS: ['sala-vermelha', 'cantina-teto', 'quadra', 'biblioteca'], // só 4 caixas
+    TARGETS: ['sala-vermelha', 'cantina', 'quadra', 'biblioteca'], // só 4 caixas
+    WIRE_LEVELS: [3, 3, 4, 5], // fios de cada caixa, na ordem em que são abertas
     AUTO_RETURN_S: 25,      // depois do fim, volta sozinho para "próximo jogador"
     TUTORIAL_SPAWN: [0, 0, 7.2], // tutorial começa do lado do pedestal (sem passo de andar)
   },
@@ -390,6 +441,15 @@ const CONFIG = {
     DIST: 5,                // começa a soltar faíscas a essa distância (m)
     COUNT: 18,
   },
+
+  // ---- Aviso de mão / luz ----
+  HAND_HINT: {
+    NO_HAND_MS: 3000,       // sem ver nenhuma mão por esse tempo -> "mostre a mão"
+    DARK: 38,               // brilho médio da câmera (0..255) abaixo disso -> "pouca luz"
+  },
+
+  // ---- Ranking do dia (guardado no celular) ----
+  RANKING: { SIZE: 10, NAME_MAX: 14 },
 
   STORAGE_KEY: 'cacador-sinal-calib-v1',
   OPTIONS_KEY: 'cacador-sinal-opcoes-v1',
@@ -551,6 +611,425 @@ class Sfx {
   resetDetector() { this.nextBeep = 0; }
 }
 
+// ===== js/ranking.js =====
+// Placar e ranking do dia, guardados só neste celular (localStorage).
+// Pontos = 100 por caixa consertada + 2 por segundo que sobrou (só se consertou tudo).
+
+const KEY = 'cacador-sinal-ranking-v1';
+
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function loadAll() {
+  try { return JSON.parse(localStorage.getItem(KEY) || '[]') || []; } catch (e) { return []; }
+}
+
+function saveAll(list) {
+  try { localStorage.setItem(KEY, JSON.stringify(list.slice(-300))); return true; } catch (e) { return false; }
+}
+
+function score(fixed, win, timeLeft) {
+  return fixed * 100 + (win ? Math.max(0, Math.ceil(timeLeft)) * 2 : 0);
+}
+
+// Guarda uma partida e devolve o registro (com id) e a posição no ranking do dia.
+function addResult({ fixed, total, used, timeLeft, win, feira }) {
+  const list = loadAll();
+  const date = today();
+  const n = list.filter((r) => r.date === date && r.feira === feira).length + 1;
+  const rec = {
+    id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+    name: `Jogador ${n}`,
+    fixed, total, used: Math.round(used), win, feira, date,
+    points: score(fixed, win, timeLeft),
+  };
+  list.push(rec);
+  saveAll(list);
+  return { rec, place: topToday(feira, 1000).findIndex((r) => r.id === rec.id) + 1 };
+}
+
+function rename(id, name) {
+  const list = loadAll();
+  const r = list.find((x) => x.id === id);
+  if (!r) return;
+  r.name = String(name).trim().slice(0, CONFIG.RANKING.NAME_MAX) || r.name;
+  saveAll(list);
+}
+
+// Melhores do dia: mais pontos, depois menos tempo.
+function topToday(feira, n = CONFIG.RANKING.SIZE) {
+  const date = today();
+  return loadAll()
+    .filter((r) => r.date === date && r.feira === feira)
+    .sort((a, b) => b.points - a.points || a.used - b.used)
+    .slice(0, n);
+}
+
+function clearToday(feira) {
+  const date = today();
+  saveAll(loadAll().filter((r) => !(r.date === date && r.feira === feira)));
+}
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+function fmt(s) { return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+
+function rankingTable(feira, highlightId = null) {
+  const top = topToday(feira);
+  if (!top.length) return '<p class="small">Ninguém jogou hoje ainda. Seja o primeiro!</p>';
+  const rows = top.map((r, i) => `<tr class="${r.id === highlightId ? 'me' : ''}">
+      <td>${['🥇', '🥈', '🥉'][i] || i + 1}</td><td>${esc(r.name)}</td><td>${r.points}</td>
+      <td>${r.fixed}/${r.total}</td><td>${fmt(r.used)}</td></tr>`).join('');
+  return `<table class="rank"><thead><tr><th></th><th>Nome</th><th>Pontos</th><th>Caixas</th><th>Tempo</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// ===== js/handhint.js =====
+// Aviso quando o jogo não vê a mão: "mostre a mão" ou "pouca luz".
+// Mede o brilho da câmera numa imagem pequenininha (32x24), duas vezes por segundo.
+
+const HH = CONFIG.HAND_HINT;
+
+class HandHint {
+  constructor(app) {
+    this.app = app;
+    this.el = document.getElementById('hand-hint');
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = 32;
+    this.canvas.height = 24;
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+    this.brightness = null;   // 0..255 (média da imagem)
+    this.lastSeen = performance.now();
+    this.lastMeasure = 0;
+    this.shown = '';
+    this.lastHudToast = 0;
+  }
+
+  _measure() {
+    const v = this.app.hands.video;
+    if (!v || !v.videoWidth || v.readyState < 2) return;
+    try {
+      this.ctx.drawImage(v, 0, 0, 32, 24);
+      const d = this.ctx.getImageData(0, 0, 32, 24).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      this.brightness = sum / (d.length / 4);
+    } catch (e) { this.brightness = null; }
+  }
+
+  // Chamar todo quadro. active = tutorial ou partida.
+  update(now, active) {
+    const app = this.app;
+    const tracking = !!(app.hands.landmarker && app.hands.stream);
+    if (app.hands.hands.some((h) => h.visible)) this.lastSeen = now;
+    if (!active || !tracking) { this._set(''); this.lastSeen = now; return; }
+    if (now - this.lastMeasure > 500) { this.lastMeasure = now; this._measure(); }
+    let msg = '';
+    const lost = now - this.lastSeen;
+    if (lost > 1500 && this.brightness != null && this.brightness < HH.DARK) {
+      msg = '💡 Pouca luz ou câmera tapada: vá para um lugar mais claro e deixe a câmera de trás livre.';
+    } else if (lost > HH.NO_HAND_MS) {
+      msg = app.stereo || app.xrActive
+        ? '✋ Mostre a mão na frente do celular (a tampa da câmera do óculos precisa estar aberta)'
+        : '✋ Mostre a mão para a câmera de trás do celular';
+    }
+    this._set(msg);
+    // no óculos o aviso em HTML não aparece: manda para o painel 3D de vez em quando
+    if (msg && (app.stereo || app.xrActive) && now - this.lastHudToast > 3000) {
+      this.lastHudToast = now;
+      app.hud3d.toast(msg.replace(/\(.*\)/, '').trim());
+    }
+  }
+
+  _set(msg) {
+    if (msg === this.shown || !this.el) return;
+    this.shown = msg;
+    this.el.textContent = msg;
+    this.el.classList.toggle('show', !!msg);
+  }
+}
+
+// ===== js/mapa.js =====
+// Mapa da escola de verdade: carrega o modelo 3D original (models/escola.glb)
+// e monta, a partir dos próprios triângulos dele, uma grade de colisão:
+//  - chão: superfícies quase horizontais até CHAO_MAX de altura (calçada,
+//    piso, degraus). Mesas e balcões viram "chão alto" e bloqueiam pelo degrau.
+//  - parede: superfícies inclinadas/verticais, guardadas por faixa de altura
+//    (assim uma verga em cima da porta não bloqueia a passagem).
+//  - coberto: tem laje/telhado em cima (usado para escolher pontos dentro das salas).
+// Os pontos de sinal (caixas) são escolhidos sozinhos: lugares alcançáveis a pé,
+// encostados em parede, bem espalhados, agrupados em áreas.
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const M = CONFIG.MAP;
+const BAND = 0.15;          // altura de cada faixa da parede (m)
+const NB = 32;              // faixas (32 bits)
+
+function loadSchoolModel(onProgress) {
+  return new Promise((resolve, reject) => {
+    const loader = new GLTFLoader();
+    const urls = M.URLS.slice();
+    const tryNext = () => {
+      const url = urls.shift();
+      if (!url) { reject(new Error('modelo da escola não encontrado')); return; }
+      loader.load(url, (g) => resolve(g.scene), (e) => {
+        if (e.total) onProgress && onProgress(e.loaded / e.total);
+      }, () => tryNext());
+    };
+    tryNext();
+  });
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+class CollisionGrid {
+  // root: modelo já na posição final (matrixWorld atualizada)
+  static async build(root, onProgress) {
+    const g = new CollisionGrid();
+    const box = new THREE.Box3().setFromObject(root);
+    const C = M.CELL;
+    g.cell = C;
+    g.x0 = box.min.x - 1; g.z0 = box.min.z - 1;
+    g.W = Math.ceil((box.max.x - box.min.x + 2) / C);
+    g.H = Math.ceil((box.max.z - box.min.z + 2) / C);
+    g.Y0 = box.min.y - 0.2;
+    const N = g.W * g.H;
+    g.floor = new Float32Array(N).fill(-Infinity);
+    g.wall = new Uint32Array(N);
+    g.wallY0 = new Float32Array(N).fill(Infinity); // faixa 0 da parede começa no chão da célula
+    g.covered = new Uint8Array(N);
+
+    const meshes = [];
+    root.traverse((o) => { if (o.isMesh && o.geometry && o.geometry.attributes.position) meshes.push(o); });
+    let total = 0;
+    for (const m of meshes) total += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+
+    // 1ª passada: chão e "coberto"; 2ª passada: paredes (precisa do chão de cada célula)
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), n = new THREE.Vector3();
+    const walls = [];
+    let done = 0;
+    for (const m of meshes) {
+      const pos = m.geometry.attributes.position, idx = m.geometry.index;
+      const mw = m.matrixWorld;
+      const cnt = idx ? idx.count : pos.count;
+      const wp = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        a.fromBufferAttribute(pos, i).applyMatrix4(mw);
+        wp[i * 3] = a.x; wp[i * 3 + 1] = a.y; wp[i * 3 + 2] = a.z;
+      }
+      for (let t = 0; t < cnt; t += 3) {
+        const i0 = idx ? idx.getX(t) : t, i1 = idx ? idx.getX(t + 1) : t + 1, i2 = idx ? idx.getX(t + 2) : t + 2;
+        a.fromArray(wp, i0 * 3); b.fromArray(wp, i1 * 3); c.fromArray(wp, i2 * 3);
+        n.crossVectors(e1.subVectors(b, a), e2.subVectors(c, a));
+        const len = n.length();
+        if (len < 1e-9) continue;
+        const ny = Math.abs(n.y) / len;
+        const minY = Math.min(a.y, b.y, c.y), maxY = Math.max(a.y, b.y, c.y);
+        if (ny > 0.75) {
+          if (maxY <= M.CHAO_MAX) g._raster(a, b, c, C * 0.7, (k, y) => { if (y > g.floor[k]) g.floor[k] = y; });
+          else if (minY > 2.0) g._raster(a, b, c, C, (k) => { g.covered[k] = 1; });
+        }
+        if (ny < 0.75 && minY < M.CHAO_MAX + 2.2) walls.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+      }
+      done += cnt / 3;
+      onProgress && onProgress(0.5 * done / total);
+      await tick();
+    }
+    // paredes: faixas de altura relativas ao chão da célula
+    const nw = walls.length / 9;
+    for (let w = 0; w < nw; w++) {
+      a.fromArray(walls, w * 9); b.fromArray(walls, w * 9 + 3); c.fromArray(walls, w * 9 + 6);
+      g._raster(a, b, c, C * 0.45, (k, y) => {
+        const f = g.floor[k] === -Infinity ? 0 : g.floor[k];
+        const band = Math.floor((y - f) / BAND);
+        if (band >= 0 && band < NB) g.wall[k] |= (1 << band);
+      });
+      if ((w & 8191) === 0) { onProgress && onProgress(0.5 + 0.5 * w / nw); await tick(); }
+    }
+    // máscara das faixas que bloqueiam (joelho até a cabeça)
+    let mask = 0;
+    for (let i = 0; i < NB; i++) {
+      const y0 = i * BAND, y1 = y0 + BAND;
+      if (y1 > M.PAREDE_DE && y0 < M.PAREDE_ATE) mask |= (1 << i);
+    }
+    g.mask = mask >>> 0;
+    g.refY = 0;
+    onProgress && onProgress(1);
+    return g;
+  }
+
+  // Amostra pontos no triângulo (espaçamento ~step) e chama fn(célula, y).
+  _raster(a, b, c, step, fn) {
+    const lab = a.distanceTo(b), lac = a.distanceTo(c), lbc = b.distanceTo(c);
+    const nu = Math.max(1, Math.ceil(Math.max(lab, lac, lbc) / step));
+    for (let i = 0; i <= nu; i++) {
+      for (let j = 0; j <= nu - i; j++) {
+        const u = i / nu, v = j / nu, w = 1 - u - v;
+        const x = a.x * w + b.x * u + c.x * v;
+        const y = a.y * w + b.y * u + c.y * v;
+        const z = a.z * w + b.z * u + c.z * v;
+        const k = this.key(x, z);
+        if (k >= 0) fn(k, y);
+      }
+    }
+  }
+
+  key(x, z) {
+    const i = Math.floor((x - this.x0) / this.cell), j = Math.floor((z - this.z0) / this.cell);
+    if (i < 0 || j < 0 || i >= this.W || j >= this.H) return -1;
+    return j * this.W + i;
+  }
+
+  floorAt(x, z) {
+    const k = this.key(x, z);
+    return k < 0 || this.floor[k] === -Infinity ? null : this.floor[k];
+  }
+
+  // célula onde dá para ficar em pé vindo da altura fromY
+  _cellOk(k, fromY) {
+    if (k < 0) return false;
+    const f = this.floor[k];
+    if (f === -Infinity || Math.abs(f - fromY) > M.DEGRAU) return false;
+    return (this.wall[k] & this.mask) === 0;
+  }
+
+  isFree(x, z, r, fromY = this.refY) {
+    const C = this.cell, n = Math.ceil(r / C);
+    const ci = Math.floor((x - this.x0) / C), cj = Math.floor((z - this.z0) / C);
+    for (let dj = -n; dj <= n; dj++) {
+      for (let di = -n; di <= n; di++) {
+        const i = ci + di, j = cj + dj;
+        // só as células que encostam no círculo do jogador
+        const cx = this.x0 + (i + 0.5) * C, cz = this.z0 + (j + 0.5) * C;
+        if (Math.hypot(cx - x, cz - z) > r + C * 0.5) continue;
+        if (i < 0 || j < 0 || i >= this.W || j >= this.H) return false;
+        if (!this._cellOk(j * this.W + i, fromY)) return false;
+      }
+    }
+    return true;
+  }
+
+  // primeiro ponto onde o segmento a->b bate em parede ou entra no chão
+  segmentHit(a, b) {
+    const len = a.distanceTo(b);
+    const steps = Math.max(1, Math.ceil(len / 0.1));
+    const p = new THREE.Vector3();
+    for (let s = 1; s <= steps; s++) {
+      p.lerpVectors(a, b, s / steps);
+      const k = this.key(p.x, p.z);
+      if (k < 0) return { point: p.clone() };
+      const f = this.floor[k] === -Infinity ? 0 : this.floor[k];
+      const band = Math.floor((p.y - f) / BAND);
+      if (p.y < f - 0.05) return { point: p.clone() };
+      if (band >= 0 && band < NB && (this.wall[k] & (1 << band))) return { point: p.clone() };
+    }
+    return null;
+  }
+
+  // Células alcançáveis a pé a partir de (x, z): busca em largura.
+  reachable(x, z, r) {
+    const N = this.W * this.H;
+    const seen = new Uint8Array(N);
+    const fy = new Float32Array(N);
+    const start = this.key(x, z);
+    if (start < 0) return seen;
+    const q = new Int32Array(N);
+    let h = 0, t = 0;
+    q[t++] = start; seen[start] = 1; fy[start] = this.floor[start] === -Infinity ? 0 : this.floor[start];
+    while (h < t) {
+      const k = q[h++];
+      const i = k % this.W, j = (k / this.W) | 0;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i + di, nj = j + dj;
+        if (ni < 0 || nj < 0 || ni >= this.W || nj >= this.H) continue;
+        const nk = nj * this.W + ni;
+        if (seen[nk]) continue;
+        const cx = this.x0 + (ni + 0.5) * this.cell, cz = this.z0 + (nj + 0.5) * this.cell;
+        if (!this.isFree(cx, cz, r, fy[k])) continue;
+        seen[nk] = 1; fy[nk] = this.floor[nk]; q[t++] = nk;
+      }
+    }
+    return seen;
+  }
+
+  // perto de parede (distância em células)?
+  nearWall(k, dist) {
+    const i = k % this.W, j = (k / this.W) | 0;
+    for (let dj = -dist; dj <= dist; dj++) {
+      for (let di = -dist; di <= dist; di++) {
+        const ni = i + di, nj = j + dj;
+        if (ni < 0 || nj < 0 || ni >= this.W || nj >= this.H) continue;
+        if (this.wall[nj * this.W + ni] & this.mask) return true;
+      }
+    }
+    return false;
+  }
+}
+
+// Escolhe os pontos de sinal: alcançáveis, encostados em parede, de preferência
+// cobertos (dentro das salas/corredores), espalhados. Agrupa em AREAS áreas,
+// cada uma com alguns lugares (a partida sorteia um lugar por área).
+function autoTargets(grid, spawn, boxHalf) {
+  const seen = grid.reachable(spawn.x, spawn.z, M.RAIO_JOGADOR);
+  const cand = [];
+  const C = grid.cell;
+  for (let k = 0; k < seen.length; k++) {
+    if (!seen[k]) continue;
+    const i = k % grid.W, j = (k / grid.W) | 0;
+    if ((i + j) % 2) continue; // metade das células já basta
+    const x = grid.x0 + (i + 0.5) * C, z = grid.z0 + (j + 0.5) * C;
+    if (Math.hypot(x - spawn.x, z - spawn.z) < M.LONGE_DO_INICIO) continue;
+    if (!grid.nearWall(k, 3)) continue;
+    // a caixa precisa caber: livre num raio pequeno
+    if (!grid.isFree(x, z, 0.3, grid.floor[k])) continue;
+    cand.push({ x, z, y: grid.floor[k], covered: grid.covered[k] });
+  }
+  // prefere lugares cobertos (dentro); se tiver poucos, usa todos
+  const inside = cand.filter((p) => p.covered);
+  const pool = inside.length > 60 ? inside : cand;
+  // espalha: escolhe o mais longe dos já escolhidos (farthest point)
+  const spots = [];
+  if (pool.length) {
+    let best = pool[Math.floor(pool.length / 2)];
+    spots.push(best);
+    const dmin = new Float32Array(pool.length).fill(Infinity);
+    while (spots.length < M.AREAS * M.LUGARES_POR_AREA) {
+      let bi = -1, bd = -1;
+      for (let p = 0; p < pool.length; p++) {
+        const d = Math.hypot(pool[p].x - best.x, pool[p].z - best.z);
+        if (d < dmin[p]) dmin[p] = d;
+        if (dmin[p] > bd) { bd = dmin[p]; bi = p; }
+      }
+      if (bi < 0 || bd < M.DIST_MIN) break;
+      best = pool[bi];
+      spots.push(best);
+    }
+  }
+  // agrupa em áreas: k-means simples (começa pelos primeiros, que já estão espalhados)
+  const K = Math.min(M.AREAS, spots.length);
+  let centers = spots.slice(0, K).map((p) => ({ x: p.x, z: p.z }));
+  let groups = [];
+  for (let it = 0; it < 12; it++) {
+    groups = centers.map(() => []);
+    for (const p of spots) {
+      let bi = 0, bd = Infinity;
+      centers.forEach((c, ci) => { const d = Math.hypot(c.x - p.x, c.z - p.z); if (d < bd) { bd = d; bi = ci; } });
+      groups[bi].push(p);
+    }
+    centers = groups.map((g, gi) => (g.length ? { x: g.reduce((s, p) => s + p.x, 0) / g.length, z: g.reduce((s, p) => s + p.z, 0) / g.length } : centers[gi]));
+  }
+  // áreas em ordem de distância do início (área 1 = mais perto)
+  const areas = groups.filter((g) => g.length).map((g, gi) => ({ g, d: Math.hypot(centers[gi].x - spawn.x, centers[gi].z - spawn.z) }))
+    .sort((p, q) => p.d - q.d);
+  return areas.map(({ g }, ai) => ({
+    id: `area-${ai + 1}`,
+    name: `área ${ai + 1}`,
+    spots: g.map((p) => ({ pos: [p.x, p.y + boxHalf, p.z], normal: [0, 1, 0] })),
+  }));
+}
+
 // ===== js/filters.js =====
 // Filtro One Euro (Casiez et al. 2012): suaviza tremor quando a mão está
 // parada e reduz atraso quando ela se move rápido.
@@ -666,16 +1145,113 @@ const BLOCKS = [
 // Árvores (tronco com colisão + copa só visual): [x, z]
 const TREES = [[-5, 9], [5, 9], [-6.5, 3], [-11, 11], [-15, 8], [4.5, 13], [16.5, -4]];
 
-// Pontos de sinal. normal = face exposta (por onde a caixa "abre").
+// Pontos de sinal: um por lugar da escola. A cada partida a caixa de cada
+// lugar é sorteada entre os "spots" (o primeiro é o lugar padrão).
+// normal = face exposta (por onde a caixa "abre").
+const BH = BOX_SIZE / 2;
+const UP = [0, 1, 0];
 const TARGET_DEFS = [
-  { id: 'tutorial', tutorial: true, pos: [0, 0.78 + BOX_SIZE / 2, 6.5], normal: [0, 1, 0], wires: 1 },
-  { id: 'sala-vermelha', pos: [-12, BOX_SIZE / 2, -10], normal: [0, 1, 0] },
-  { id: 'laboratorio-parede', pos: [-4.85 + BOX_SIZE / 2, 1.4, -10.5], normal: [1, 0, 0] },
-  { id: 'sala-verde', pos: [13, BOX_SIZE / 2, -13.5], normal: [0, 1, 0] },
-  { id: 'cantina-teto', pos: [11, 2.5 - BOX_SIZE / 2, -0.5], normal: [0, -1, 0] },
-  { id: 'quadra', pos: [-15.8, BOX_SIZE / 2, 4], normal: [0, 1, 0] },
-  { id: 'biblioteca', pos: [12.5, BOX_SIZE / 2, 9], normal: [0, 1, 0] },
+  { id: 'tutorial', name: 'pedestal', tutorial: true, wires: 1, spots: [{ pos: [0, 0.78 + BH, 6.5], normal: UP }] },
+  { id: 'sala-vermelha', name: 'sala vermelha', spots: [
+    { pos: [-12, BH, -10], normal: UP },
+    { pos: [-12, 0.75 + BH, -12.15], normal: UP },          // em cima da mesa
+    { pos: [-9, 1.3, -15 + BH], normal: [0, 0, 1] },         // na parede do fundo
+    { pos: [-6.4, BH, -13.8], normal: UP },                 // canto
+  ] },
+  { id: 'laboratorio', name: 'laboratório', spots: [
+    { pos: [-4.85 + BH, 1.4, -10.5], normal: [1, 0, 0] },   // parede oeste
+    { pos: [4.85 - BH, 1.4, -12], normal: [-1, 0, 0] },     // parede leste
+    { pos: [1.5, 0.9 + BH, -13.3], normal: UP },            // em cima da bancada
+    { pos: [-2.6, 0.75 + BH, -10.6], normal: UP },          // em cima da mesinha
+  ] },
+  { id: 'sala-verde', name: 'sala verde', spots: [
+    { pos: [13, BH, -13.5], normal: UP },
+    { pos: [8, 0.75 + BH, -12.15], normal: UP },            // em cima da mesa
+    { pos: [15 - BH, 1.2, -11], normal: [-1, 0, 0] },       // parede leste
+    { pos: [6.3, BH, -14.2], normal: UP },
+  ] },
+  { id: 'cantina', name: 'cantina', spots: [
+    { pos: [11, 2.5 - BH, -0.5], normal: [0, -1, 0] },      // no teto
+    { pos: [9.5, 2.5 - BH, 1.4], normal: [0, -1, 0] },      // no teto, perto da coluna
+    { pos: [8.6, 1.1 + BH, -1], normal: UP },               // em cima do balcão
+    { pos: [12.2, 0.75 + BH, -2.2], normal: UP },           // em cima da mesa
+  ] },
+  { id: 'quadra', name: 'quadra', spots: [
+    { pos: [-15.8, BH, 4], normal: UP },
+    { pos: [-9, BH, -4], normal: UP },
+    { pos: [-12.55, BH, 0], normal: UP },                   // no círculo do meio
+    { pos: [-16.4, BH, 0], normal: UP },                    // embaixo da trave
+  ] },
+  { id: 'biblioteca', name: 'biblioteca', spots: [
+    { pos: [12.5, BH, 9], normal: UP },
+    { pos: [12, 2 + BH, 6.55], normal: UP },                // em cima da estante
+    { pos: [15 - BH, 1.2, 9], normal: [-1, 0, 0] },         // parede do fundo
+    { pos: [14, BH, 10.6], normal: UP },
+  ] },
 ];
+
+// Troca o mapa de blocos pela escola de verdade (modelo 3D original).
+// onStatus(texto, fração 0..1). Se falhar, o mapa de blocos continua.
+async function loadSchool(world, scene, onStatus = () => {}) {
+  const model = await loadSchoolModel((f) => onStatus('Baixando a escola', f * 0.7));
+  onStatus('Montando a escola', 0.7);
+  model.name = 'escola';
+  scene.add(model);
+  model.updateMatrixWorld(true);
+  const grid = await CollisionGrid.build(model, (f) => onStatus('Calculando paredes e chão', 0.7 + f * 0.28));
+  const S = CONFIG.MAP;
+  const spawn = new THREE.Vector3(S.SPAWN[0], 0, S.SPAWN[2]);
+  spawn.y = grid.floorAt(spawn.x, spawn.z) ?? 0;
+  // pontos de sinal escolhidos sozinhos + caixa do tutorial na frente do início
+  const defs = autoTargets(grid, spawn, BH);
+  const tut = tutorialSpot(grid, spawn);
+  defs.unshift({ id: 'tutorial', name: 'início', tutorial: true, wires: 1, spots: [{ pos: [tut.x, tut.y + BH, tut.z], normal: [0, 1, 0] }] });
+
+  scene.remove(world.deco);
+  world.deco.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  world.blocks.length = 0;
+  world.school = true;
+  world.model = model;
+  world.grid = grid;
+  world.spawn = spawn;
+  world.targetDefs = defs;
+  // modo feira: o tutorial começa a 1,1 m da caixa (sem passo de andar)
+  const yaw = S.SPAWN_YAW;
+  world.tutorialSpawn = new THREE.Vector3(tut.x + Math.sin(yaw) * 1.1, tut.y, tut.z + Math.cos(yaw) * 1.1);
+  world.feiraTargets = defs.filter((d) => !d.tutorial).slice(0, CONFIG.FEIRA.TARGETS.length).map((d) => d.id);
+  world.isFree = (x, z, r, fromY) => grid.isFree(x, z, r, fromY);
+  world.segmentHit = (a, b) => grid.segmentHit(a, b);
+  world.floorAt = (x, z) => grid.floorAt(x, z);
+  scene.fog = new THREE.Fog(0xcfe2f2, S.FOG_NEAR, S.FOG_FAR);
+  placeTargets(world, scene, false);
+  onStatus('Escola pronta', 1);
+  return world;
+}
+
+// Lugar da caixa do tutorial: chão livre a ~2,5 m na frente do início.
+function tutorialSpot(grid, spawn) {
+  const yaw = CONFIG.MAP.SPAWN_YAW;
+  for (let d = 2.5; d > 0.8; d -= 0.25) {
+    for (const off of [0, 0.4, -0.4, 0.8, -0.8]) {
+      const x = spawn.x - Math.sin(yaw + off) * d, z = spawn.z - Math.cos(yaw + off) * d;
+      const f = grid.floorAt(x, z);
+      if (f != null && Math.abs(f - spawn.y) < 0.3 && grid.isFree(x, z, 0.3, f)) return { x, y: f, z };
+    }
+  }
+  return { x: spawn.x, y: spawn.y, z: spawn.z - 2 };
+}
+
+// Cria (ou recria) as caixas. random = sorteia um spot por lugar.
+function placeTargets(world, scene, random = false) {
+  for (const t of world.targets) {
+    scene.remove(t.group);
+    t.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  }
+  world.targets = (world.targetDefs || TARGET_DEFS).map((def) => {
+    const spot = random ? def.spots[Math.floor(Math.random() * def.spots.length)] : def.spots[0];
+    return createTarget(scene, { ...def, pos: spot.pos, normal: spot.normal });
+  });
+}
 
 const tmpRay = new THREE.Ray();
 const tmpV = new THREE.Vector3();
@@ -700,50 +1276,55 @@ function buildWorld(scene) {
   scene.add(sky);
   scene.userData.sky = sky;
 
+  // tudo do mapa de blocos fica neste grupo (sai quando a escola de verdade carrega)
+  const deco = new THREE.Group();
+  deco.name = 'mapa-de-blocos';
+  scene.add(deco);
+
   // Chão: piso claro com rejunte e leve variação (textura gerada no código)
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(40, 40),
     new THREE.MeshLambertMaterial({ map: makeFloorTexture(40) }),
   );
   ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
+  deco.add(ground);
   // caminhos (cinza-claro) ligando as áreas
   const roadMat = new THREE.MeshLambertMaterial({ color: 0xd9dcdf });
   for (const [w, d, x, z] of [[3, 23, 0, 3.5], [34, 2.4, 0, -6.2], [6, 2.4, 6, 1], [2.4, 6, -5.6, 1]]) {
     const road = new THREE.Mesh(new THREE.PlaneGeometry(w, d), roadMat);
     road.rotation.x = -Math.PI / 2;
     road.position.set(x, 0.004, z);
-    scene.add(road);
+    deco.add(road);
   }
   // quadra: piso verde com linhas brancas
   const court = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 10), new THREE.MeshLambertMaterial({ color: 0x3f9b5b }));
   court.rotation.x = -Math.PI / 2;
   court.position.set(-12.55, 0.006, 0);
-  scene.add(court);
+  deco.add(court);
   const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   for (const [w, d, x, z] of [[9.2, 0.08, -12.55, 4.8], [9.2, 0.08, -12.55, -4.8], [0.08, 9.6, -17.15, 0], [0.08, 9.6, -7.95, 0], [0.08, 9.6, -12.55, 0]]) {
     const l = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineMat);
     l.rotation.x = -Math.PI / 2;
     l.position.set(x, 0.008, z);
-    scene.add(l);
+    deco.add(l);
   }
   const ring = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.23, 40), lineMat);
   ring.rotation.x = -Math.PI / 2;
   ring.position.set(-12.55, 0.008, 0);
-  scene.add(ring);
+  deco.add(ring);
   // bandeira no mastro
   const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.7), new THREE.MeshLambertMaterial({ color: 0x00a3ad, side: THREE.DoubleSide }));
   flag.position.set(0.63, 4.55, -3);
-  scene.add(flag);
+  deco.add(flag);
   scene.userData.flag = flag;
 
-  const shadowTex = makeShadowTexture();
+  const shadowTex = getShadowTexture();
   const addShadow = (cx, cz, w, d, opacity = 0.55) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
       new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity, depthWrite: false }));
     m.rotation.x = -Math.PI / 2;
     m.position.set(cx, 0.008, cz);
-    scene.add(m);
+    deco.add(m);
   };
 
   const blocks = [];
@@ -752,7 +1333,7 @@ function buildWorld(scene) {
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
     mesh.scale.set(x1 - x0, y1 - y0, z1 - z0);
     mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-    scene.add(mesh);
+    deco.add(mesh);
     blocks.push({ mesh, box: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)) });
     // sombra de contato: escurece o chão em volta da base do bloco
     if (y0 === 0) addShadow((x0 + x1) / 2, (z0 + z1) / 2, (x1 - x0) + 0.9, (z1 - z0) + 0.9);
@@ -766,20 +1347,23 @@ function buildWorld(scene) {
     const trunk = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x7b5233 }));
     trunk.scale.set(0.3, 1.8, 0.3);
     trunk.position.set(x, 0.9, z);
-    scene.add(trunk);
+    deco.add(trunk);
     blocks.push({ mesh: trunk, box: new THREE.Box3(new THREE.Vector3(x - 0.15, 0, z - 0.15), new THREE.Vector3(x + 0.15, 1.8, z + 0.15)) });
     const crown = new THREE.Mesh(leafGeo, leafMat);
     crown.position.set(x, 2.5, z);
     crown.scale.set(1, 0.9, 1);
-    scene.add(crown);
+    deco.add(crown);
     addShadow(x, z, 2.4, 2.4, 0.45);
   }
 
   const world = {
     blocks,
+    deco,
     targets: [],
     spawn: new THREE.Vector3(0, 0, 10),
     bounds: 19.5,
+    school: false,
+    floorAt() { return 0; },
 
     // Primeiro bloco atingido pelo segmento a->b (ou null).
     segmentHit(a, b) {
@@ -810,10 +1394,7 @@ function buildWorld(scene) {
     },
   };
 
-  for (const def of TARGET_DEFS) {
-    world.targets.push(createTarget(scene, def));
-    if (def.pos[1] < 0.5) addShadow(def.pos[0], def.pos[2], BOX_SIZE + 0.5, BOX_SIZE + 0.5, 0.6);
-  }
+  placeTargets(world, scene, false);
   return world;
 }
 
@@ -867,10 +1448,20 @@ function createTarget(scene, def) {
   glow.visible = false;
   group.add(glow);
 
+  // sombra no chão (só para caixa no chão): vai junto com a caixa quando ela é sorteada
+  if (def.normal[1] > 0.5) {
+    const sh = new THREE.Mesh(new THREE.PlaneGeometry(BOX_SIZE + 0.5, BOX_SIZE + 0.5),
+      new THREE.MeshBasicMaterial({ map: getShadowTexture(), transparent: true, opacity: 0.6, depthWrite: false }));
+    sh.rotation.x = -Math.PI / 2;
+    sh.position.y = 0.008 - BOX_SIZE / 2; // no apoio (chão, mesa, estante)
+    group.add(sh);
+  }
+
   const center = new THREE.Vector3().fromArray(def.pos);
   const half = BOX_SIZE / 2;
   return {
     id: def.id,
+    name: def.name || def.id,
     tutorial: !!def.tutorial,
     wires: def.wires || CONFIG.INTERACTION.WIRES_PER_BOX,
     group, body, lid, led, signal, normal, lidClosed,
@@ -992,6 +1583,9 @@ function makeFloorTexture(tiles) {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+let shadowTexCache = null;
+function getShadowTexture() { return shadowTexCache || (shadowTexCache = makeShadowTexture()); }
 
 // Sombra suave (centro escuro, bordas transparentes).
 function makeShadowTexture() {
@@ -2373,7 +2967,9 @@ class Interaction {
   }
 
   _buildPanel(target) {
-    const n = target.wires;
+    // quantos fios: a caixa define (tutorial = 1) ou o jogo decide pela dificuldade
+    const n = this.hooks.wireCount ? this.hooks.wireCount(target) : target.wires;
+    target.panelWires = n;
     const group = new THREE.Group();
     // posição: na frente do jogador, olhando para ele
     // na direção do olhar, com inclinação limitada (nem no chão, nem no teto)
@@ -2395,10 +2991,11 @@ class Interaction {
     const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(PANEL_W, PANEL_H)), new THREE.LineBasicMaterial({ color: 0x00e5ff }));
     group.add(frame);
 
-    const colors = WIRE_COLORS.slice(0, n).map((c, i) => ({ c, i }));
+    // mais de 4 fios: as cores se repetem
+    const colors = Array.from({ length: n }, (_, k) => ({ c: WIRE_COLORS[k % WIRE_COLORS.length], i: k % WIRE_COLORS.length }));
     const socketOrder = shuffle(colors.slice());
     if (n > 1 && socketOrder.every((s, k) => s.i === k)) socketOrder.push(socketOrder.shift()); // nunca alinhado
-    const rowY = (k) => (n === 1 ? 0 : PANEL_H * 0.32 - (k * PANEL_H * 0.64) / (n - 1));
+    const rowY = (k) => (n === 1 ? 0 : PANEL_H * 0.36 - (k * PANEL_H * 0.72) / (n - 1));
 
     const plugs = [], sockets = [];
     const plugGeo = new THREE.SphereGeometry(0.02, 14, 10);
@@ -2548,7 +3145,12 @@ class Interaction {
       const d = Math.hypot(s.x - ps.x, s.y - ps.y);
       if (d < bestD) { bestD = d; best = sk; }
     }
-    if (best && best.color === plug.color && !P.sockets.some((o) => o === best && o.used)) {
+    // cores repetidas: se o anel mais perto já está ocupado, vale outro livre da mesma cor ali perto
+    if (best && best.used && best.color === plug.color) {
+      const alt = P.sockets.find((o) => !o.used && o.color === plug.color && Math.hypot(this._toScreen(o.pos, s, w, h).x - ps.x, s.y - ps.y) < I.SNAP_SCREEN_PX);
+      if (alt) best = alt;
+    }
+    if (best && best.color === plug.color && !best.used) {
       plug.connected = true;
       best.used = true;
       plug.mesh.position.copy(best.pos).setZ(0.02);
@@ -2936,6 +3538,7 @@ class CalibrationFlow {
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Existe uma calibração salva neste aparelho.</p>' : ''}
       ${this._optionsHtml()}
+      <p class="small" id="map-status">${this.app.mapText}</p>
       <p class="small" id="offline"></p>
       <p class="small">Dica: o botão 🐞 mostra o painel de depuração (FPS, gestos, prévia da câmera).</p>`;
     const btns = [];
@@ -2947,6 +3550,7 @@ class CalibrationFlow {
       btns.push({ label: 'Começar', cls: 'primary', onClick: () => this._startFresh() });
     }
     btns.push({ label: 'Sem câmera (só botões)', onClick: () => this._startNoCamera() });
+    btns.push({ label: '🏆 Ranking do dia', onClick: () => this.showRanking(() => this.welcome()) });
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show(`Caçador de Sinal — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
     this._wireOptions(() => this.welcome());
@@ -2961,6 +3565,7 @@ class CalibrationFlow {
       <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.FEIRA.TARGETS.length} caixas</b>.` : ''}
       Siga o <b>bipe</b>: quanto mais rápido, mais perto. Perto da caixa ela solta <b>faíscas</b>.</p>
       ${this._optionsHtml()}
+      <p class="small" id="map-status">${this.app.mapText}</p>
       <p class="small" id="offline"></p>`;
     const ready = this.app.devicesReady;
     const go = (next) => {
@@ -2971,11 +3576,28 @@ class CalibrationFlow {
     this._show('👤 Próximo jogador', html, [
       { label: 'Tutorial rápido →', cls: 'primary', onClick: () => go('tutorial') },
       { label: 'Direto para a partida', onClick: () => go('game') },
+      { label: '🏆 Ranking do dia', onClick: () => this.showRanking(() => this.nextPlayer()) },
       { label: 'Recalibrar (mão diferente)', onClick: () => this.app.recalibrate() },
       { label: 'Tela inicial', onClick: () => this.welcome() },
     ]);
     this._wireOptions(() => this.nextPlayer());
     this._checkOffline();
+  }
+
+  // Ranking do dia (só deste celular). Apagar pede dois toques, sem janela de confirmação.
+  showRanking(back) {
+    const feira = this.app.options.feira;
+    let armed = false;
+    this._show(`🏆 Ranking de hoje${feira ? ' (modo feira)' : ''}`, `
+      <div id="rank-table">${rankingTable(feira)}</div>
+      <p class="small">Pontos: 100 por caixa consertada + 2 por segundo que sobrou (quando conserta todas). Fica guardado só neste celular.</p>`, [
+      { label: '← Voltar', cls: 'primary', onClick: back },
+      { label: '🗑 Apagar ranking de hoje', onClick: (btn) => {
+        if (!armed) { armed = true; btn.textContent = 'Toque de novo para apagar'; setTimeout(() => { armed = false; btn.textContent = '🗑 Apagar ranking de hoje'; }, 3000); return; }
+        clearToday(feira);
+        this.showRanking(back);
+      } },
+    ]);
   }
 
   // Botões liga/desliga das opções (som, vibração, vinheta, modo feira).
@@ -3543,6 +4165,11 @@ class App {
 
     this.world = buildWorld(this.scene);
     this.rig.position.copy(this.world.spawn);
+    this.floorY = this.rig.position.y;
+    // a escola de verdade carrega em segundo plano; até lá vale o mapa de blocos
+    this.mapDone = !CONFIG.MAP.USE_SCHOOL;
+    this.mapText = this.mapDone ? '' : 'Carregando a escola…';
+    this.mapPromise = this.mapDone ? Promise.resolve() : this._loadSchool();
     this.orientation = new OrientationController(this.camera);
     this.hands = new HandTracker(this.calib);
     this.handViews = [new HandView(this.camera, this.hands.left), new HandView(this.camera, this.hands.right)];
@@ -3556,15 +4183,18 @@ class App {
       onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.teleport && d > 2) { this.tutorial.teleport = true; this._refreshTutorial(); } },
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
-      onOpen: () => {
+      onOpen: (t) => {
         this.sfx.open();
-        this.toast('Caixa aberta! Conecte os fios.');
+        const n = t.panelWires || t.wires;
+        this.toast(n >= 5 ? `Caixa difícil: ${n} fios, com cores repetidas!` : `Caixa aberta! Conecte ${n === 1 ? 'o fio' : `os ${n} fios`}.`);
         if (this.state === 'tutorial' && !this.tutorial.touch) { this.tutorial.touch = true; this._refreshTutorial(); }
       },
       onWire: (ok, why) => { this.sfx.wire(ok); this.toast(ok ? 'Fio conectado ✔' : `Não encaixou (${why})`); },
       onGrab: () => this.sfx.grab(),
+      wireCount: (t) => this._wireCount(t),
       onFixed: () => this._onFixed(),
     });
+    this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
 
@@ -3636,6 +4266,35 @@ class App {
     } catch (e) { /* opcional: sem permissão ou bateria fraca */ }
   }
 
+  // Carrega o modelo da escola e troca o mapa. Nunca rejeita: se der errado,
+  // o jogo continua no mapa de blocos.
+  async _loadSchool() {
+    const setText = (t) => {
+      this.mapText = t;
+      const el = document.getElementById('map-status');
+      if (el) el.innerHTML = t;
+    };
+    try {
+      await loadSchool(this.world, this.scene, (msg, f) => setText(`🏫 ${msg}… ${Math.round(f * 100)}%`));
+      this.rig.rotation.y = CONFIG.MAP.SPAWN_YAW;
+      if (this.state === 'boot' || this.state === 'calibration') { this.rig.position.copy(this.world.spawn); this.floorY = this.world.spawn.y; }
+      this.applyOptions();
+      setText('<span class="ok">🏫 Escola carregada.</span>');
+    } catch (e) {
+      console.warn('Escola não carregou, usando o mapa de blocos', e);
+      setText(`<span class="bad">🏫 A escola não carregou (${e.message || e}). Usando o mapa de blocos.</span>`);
+    }
+    this.mapDone = true;
+  }
+
+  // Se a escola ainda está carregando, mostra o progresso e chama again() no fim.
+  _waitMap(again) {
+    if (this.mapDone) return false;
+    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (17 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
+    this.mapPromise.then(again);
+    return true;
+  }
+
   // ---------------------------------------------------------------
   // Opções (som, vibração, vinheta, modo feira)
   // ---------------------------------------------------------------
@@ -3648,7 +4307,8 @@ class App {
   applyOptions() {
     const feira = this.options.feira;
     document.body.classList.toggle('feira', feira);
-    for (const t of this.world.targets) t.off = feira && !t.tutorial && !CONFIG.FEIRA.TARGETS.includes(t.id);
+    const feiraIds = this.world.feiraTargets || CONFIG.FEIRA.TARGETS;
+    for (const t of this.world.targets) t.off = feira && !t.tutorial && !feiraIds.includes(t.id);
     const b = document.getElementById('btn-sound');
     if (b) { b.textContent = this.options.sound ? '🔊' : '🔇'; b.classList.toggle('on', this.options.sound); }
   }
@@ -3667,17 +4327,19 @@ class App {
     this.teleport.lastJump = -1e9;
     this.teleport.jumps = 0;
     this.rig.position.copy(this.world.spawn);
+    this.floorY = this.world.spawn.y;
     this.recenter();
   }
 
   startTutorial() {
+    if (this._waitMap(() => this.startTutorial())) return;
     this.state = 'tutorial';
     this._resetWorld();
     this.interaction.mode = 'tutorial';
     this.tutorial = { teleport: false, touch: false, wire: false };
     if (this.options.feira) {
       // modo feira: começa do lado do pedestal, sem o passo de andar
-      this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
+      if (this.world.tutorialSpawn) { this.rig.position.copy(this.world.tutorialSpawn); this.floorY = this.rig.position.y; } else this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
       this.tutorial.teleport = true;
     }
     this._refreshTutorial();
@@ -3687,9 +4349,12 @@ class App {
   _refreshTutorial() { if (this.state === 'tutorial') this.calibration.showTutorial(this.tutorial); }
 
   startGame() {
+    if (this._waitMap(() => this.startGame())) return;
     this.calibration.hide();
     this.state = 'playing';
     this._resetWorld();
+    // cada partida sorteia onde fica a caixa de cada lugar
+    if (CONFIG.INTERACTION.RANDOM_SPOTS) { placeTargets(this.world, this.scene, true); this.applyOptions(); }
     this.interaction.mode = 'game';
     this.timeLeft = this.gameTime();
     this._alarmDone = false;
@@ -3700,6 +4365,14 @@ class App {
   }
 
   _gameTargets() { return this.world.targets.filter((t) => !t.tutorial && !t.off); }
+
+  // Dificuldade crescente: a caixa que você abre agora tem mais fios que a anterior.
+  _wireCount(t) {
+    if (t.tutorial) return t.wires;
+    const levels = this.options.feira ? CONFIG.FEIRA.WIRE_LEVELS : CONFIG.INTERACTION.WIRE_LEVELS;
+    const fixed = this._gameTargets().filter((x) => x.state === 'fixed').length;
+    return levels[Math.min(fixed, levels.length - 1)];
+  }
 
   _onFixed() {
     this.sfx.fixed();
@@ -3723,19 +4396,35 @@ class App {
     document.body.classList.remove('playing');
     const all = this._gameTargets();
     const fixed = all.filter((t) => t.state === 'fixed').length;
-    const used = (performance.now() - this.gameStart) / 1000;
+    const used = Math.min((performance.now() - this.gameStart) / 1000, this.gameTime());
     setTimeout(() => (win ? this.sfx.win() : this.sfx.lose()), 350);
     const c = this.calibration;
     const feira = this.options.feira;
+    const { rec, place } = addResult({ fixed, total: all.length, used, timeLeft: this.timeLeft, win, feira });
     c._show(win ? '🎉 Rede restaurada!' : '⏰ O tempo acabou', `
       <p>${win ? 'Você consertou todos os pontos de sinal.' : 'A rede caiu antes de você consertar tudo.'}</p>
-      <p>Caixas consertadas: <b>${fixed}/${all.length}</b><br>Tempo: <b>${fmtTime(Math.min(used, this.gameTime()))}</b></p>
+      <p class="score"><b>${rec.points}</b> pontos · caixas <b>${fixed}/${all.length}</b> · tempo <b>${fmtTime(used)}</b>
+      ${place ? `<br>${place === 1 ? '🏆 <b>Melhor do dia!</b>' : `Você ficou em <b>${place}º</b> hoje.`}` : ''}</p>
+      <div class="name-row"><input id="rank-name" maxlength="${CONFIG.RANKING.NAME_MAX}" placeholder="Seu nome" autocomplete="off" enterkeyhint="done"><button id="rank-save">Salvar nome</button></div>
+      <div id="rank-table">${rankingTable(feira, rec.id)}</div>
       ${feira ? '<p class="small" id="auto-return"></p>' : ''}`, [
       { label: '👤 Próximo jogador', cls: feira ? 'primary' : '', onClick: () => this.nextPlayer() },
       { label: '🔁 Jogar de novo', cls: feira ? '' : 'primary', onClick: () => this.startGame() },
       { label: 'Tutorial', onClick: () => this.startTutorial() },
       { label: 'Recalibrar', onClick: () => this.recalibrate() },
     ]);
+    // nome no ranking (opcional)
+    const input = document.getElementById('rank-name');
+    const saveName = () => {
+      if (!input.value.trim()) return;
+      rename(rec.id, input.value);
+      document.getElementById('rank-table').innerHTML = rankingTable(feira, rec.id);
+      input.blur();
+      this.toast('Nome salvo no ranking');
+    };
+    document.getElementById('rank-save').addEventListener('click', (e) => { e.stopPropagation(); saveName(); });
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') saveName(); });
+    input.addEventListener('focus', () => { clearInterval(this._autoT); const a = document.getElementById('auto-return'); if (a) a.textContent = ''; });
     if (feira) {
       // modo feira: volta sozinho para a tela do próximo jogador
       let left = CONFIG.FEIRA.AUTO_RETURN_S;
@@ -3934,6 +4623,7 @@ class App {
       this.orientation.update();
     }
     if (this.locoMode !== 'correr' && (input.move.f || input.move.r)) this._debugWalk(dt, input.move);
+    this._followFloor(dt);
     this.rig.updateMatrixWorld(true);
 
     // 2) mãos + gestos
@@ -3987,12 +4677,26 @@ class App {
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
     }
     this._updateVignette(dt);
+    this.handHint.update(now, active);
     this._updateHud(active);
 
     // 6) render
     this._render();
     this.debug.frame(now, dtMs);
     this._adaptQuality(now);
+  }
+
+  // Na escola o chão tem degraus e rampas: o jogador acompanha a altura do piso.
+  _followFloor(dt) {
+    if (!this.world.school) return;
+    const p = this.rig.position;
+    const f = this.world.floorAt(p.x, p.z);
+    if (f != null) {
+      this.world.grid.refY = f;
+      const dy = f - this.floorY;
+      this.floorY += Math.abs(dy) > 0.6 ? dy : dy * Math.min(1, dt * 12);
+    }
+    p.y = this.floorY;
   }
 
   // Vinheta de conforto: escurece as bordas da visão enquanto anda (menos enjoo).
@@ -4036,7 +4740,7 @@ class App {
     fwd.y = 0; fwd.normalize();
     const nx = this.rig.position.x + (fwd.x * move.f - fwd.z * move.r) * 2 * dt;
     const nz = this.rig.position.z + (fwd.z * move.f + fwd.x * move.r) * 2 * dt;
-    if (this.world.isFree(nx, nz, 0.25)) this.rig.position.set(nx, 0, nz);
+    if (this.world.isFree(nx, nz, 0.25)) { this.rig.position.x = nx; this.rig.position.z = nz; }
   }
 
   _updateHud(active) {

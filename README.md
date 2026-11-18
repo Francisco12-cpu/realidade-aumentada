@@ -8,7 +8,7 @@ Protótipo para a feira de ciências. A ideia é **testar as mecânicas**, não 
 - teleporte;
 - tocar caixas e arrastar fios.
 
-O mapa é só um monte de blocos coloridos, e as **caixas pretas** são os pontos de sinal.
+O mapa é a **escola de verdade**: o modelo 3D original do Centro Educa Mais José Mariano Muniz (`models/escola.glb`, exportado do SketchUp, sem nenhuma melhoria). As **caixas pretas** são os pontos de sinal. Se o modelo não carregar, o jogo usa o mapa antigo de blocos coloridos.
 
 Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregados por CDN. Não tem etapa de build.
 
@@ -29,10 +29,29 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
 
 Ligue o botão **🎪 Modo feira** na tela inicial (fica salvo no celular), ou abra o link com `?feira` no final.
 
-- Partida de **3 minutos** com **4 caixas** (sala vermelha, teto da cantina, quadra e biblioteca).
+- Partida de **3 minutos** com **4 caixas** (sala vermelha, cantina, quadra e biblioteca).
 - O tutorial começa do lado do pedestal: só tocar a caixa e ligar o fio.
 - No fim da partida aparece **👤 Próximo jogador**, e depois de 25 s o jogo volta sozinho para essa tela. A calibração e as permissões continuam valendo.
 - Os números ficam em `CONFIG.FEIRA` (`js/config.js`).
+
+## Mapa da escola
+
+- O modelo fica em `models/escola.glb` (17 MB, 205 mil triângulos). Na primeira vez ele baixa com barra de progresso. Depois o `sw.js` guarda o modelo e ele abre sem internet.
+- **Colisão automática** (`js/mapa.js`): o jogo lê os triângulos do próprio modelo e monta uma grade de 25 cm.
+  - Superfícies horizontais baixas viram chão. Degraus de até 36 cm dá para subir; mesas e balcões bloqueiam.
+  - Superfícies verticais viram parede, mas só entre 35 cm e 1,75 m acima do chão (assim o vão da porta passa).
+  - Também marca o que é coberto, que é usado para escolher pontos dentro dos prédios.
+- **Pontos de sinal automáticos:** o jogo procura lugares aonde dá para chegar a pé a partir do portão, encostados em parede e de preferência cobertos, bem espalhados. Depois agrupa esses lugares em 6 áreas com 4 lugares cada, e cada partida sorteia 1 lugar por área. A área 1 é a mais perto do portão. O modo feira usa as áreas 1 a 4.
+- **Início:** logo depois do portão do muro oeste, olhando para dentro (`MAP.SPAWN`, `MAP.SPAWN_YAW`).
+- Todos os números ficam em `CONFIG.MAP` (`js/config.js`). Para voltar ao mapa de blocos: `MAP.USE_SCHOOL = false`.
+- Próximo passo: otimizar o modelo no Blender (menos triângulos e texturas menores, para rodar melhor no celular e no óculos).
+
+## Placar, sorteio e dificuldade
+
+- **Placar e ranking do dia:** no fim da partida aparecem os pontos (100 por caixa consertada + 2 por segundo que sobrou, quando conserta todas) e a posição no dia. O jogador pode digitar o nome. O botão **🏆 Ranking do dia** mostra o top 10, que fica guardado só no celular (modo feira e modo normal têm rankings separados). Para apagar, toque duas vezes em *Apagar ranking de hoje*.
+- **Caixas sorteadas:** a cada partida, cada área sorteia 1 entre 4 lugares. Na escola os lugares são escolhidos sozinhos (veja acima); no mapa de blocos ficam em `TARGET_DEFS` (`js/scene.js`). Para desligar: `INTERACTION.RANDOM_SPOTS = false`.
+- **Dificuldade crescente:** a 1ª e a 2ª caixa têm 3 fios, a 3ª e a 4ª têm 4, e as últimas têm 5, com cores repetidas (qualquer anel da mesma cor serve). No modo feira: 3, 3, 4, 5. Ajuste em `INTERACTION.WIRE_LEVELS` e `FEIRA.WIRE_LEVELS`.
+- **Aviso de mão:** se o jogo não vê nenhuma mão por 3 s, aparece *"✋ Mostre a mão para a câmera de trás"*. Se a imagem da câmera está escura, aparece *"💡 Pouca luz ou câmera tapada"*. No óculos, o aviso vai para o painel 3D. Ajuste em `HAND_HINT`.
 
 ## Som, vibração e conforto
 
@@ -155,8 +174,12 @@ sw.js               service worker: link sempre na versão mais nova + funciona 
 js/config.js        todos os números ajustáveis
 js/options.js       opções do jogador (som, vibração, vinheta, modo feira)
 js/audio.js         sons (Web Audio) e vibração
+js/ranking.js       placar e ranking do dia (localStorage)
+js/handhint.js      aviso "mostre a mão" / "pouca luz"
 js/main.js          loop, estados do jogo (calibração → tutorial → partida → fim), HUD
-js/scene.js         mapa de blocos e caixas pretas
+js/scene.js         mapa de blocos, troca para a escola e caixas pretas
+js/mapa.js          carrega models/escola.glb, grade de colisão e pontos de sinal automáticos
+models/escola.glb   modelo 3D original da escola
 js/orientation.js   rotação do celular → câmera (RelativeOrientationSensor / deviceorientation)
 js/hands.js         MediaPipe, esquerda/direita estável, profundidade, suavização, esqueleto 3D
 js/filters.js       filtro One Euro
@@ -177,6 +200,6 @@ js/debug.js         painel de depuração, botões e teclado
 
 ## Fora do escopo agora
 
-- Modelo 3D da escola.
+- Otimizar o modelo da escola no Blender.
 - Um minigame por sala.
 - Multiplayer e controles externos.

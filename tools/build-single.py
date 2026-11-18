@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ORDER = ['config', 'options', 'audio', 'filters', 'scene', 'orientation', 'hands', 'gestures',
+ORDER = ['config', 'options', 'audio', 'ranking', 'handhint', 'mapa', 'filters', 'scene', 'orientation', 'hands', 'gestures',
          'teleport', 'locomotion', 'interaction', 'vr', 'calibration', 'debug', 'main']
 
 # todo arquivo de js/ precisa estar na lista (senão o arquivo único quebra)

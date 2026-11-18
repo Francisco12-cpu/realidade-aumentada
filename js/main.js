@@ -2,7 +2,7 @@
 // Estados: boot -> calibration -> tutorial -> playing -> ended
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { buildWorld, animateTargets } from './scene.js';
+import { buildWorld, animateTargets, placeTargets, loadSchool } from './scene.js';
 import { OrientationController } from './orientation.js';
 import { HandTracker, HandView } from './hands.js';
 import { updateHandGesture } from './gestures.js';
@@ -14,6 +14,8 @@ import { DebugUI } from './debug.js';
 import { VRView, HUD3D, loadVrSettings, makeTestPattern } from './vr.js';
 import { Sfx } from './audio.js';
 import { loadOptions, saveOptions } from './options.js';
+import { HandHint } from './handhint.js';
+import { addResult, rename, rankingTable } from './ranking.js';
 
 class App {
   constructor() {
@@ -61,6 +63,11 @@ class App {
 
     this.world = buildWorld(this.scene);
     this.rig.position.copy(this.world.spawn);
+    this.floorY = this.rig.position.y;
+    // a escola de verdade carrega em segundo plano; até lá vale o mapa de blocos
+    this.mapDone = !CONFIG.MAP.USE_SCHOOL;
+    this.mapText = this.mapDone ? '' : 'Carregando a escola…';
+    this.mapPromise = this.mapDone ? Promise.resolve() : this._loadSchool();
     this.orientation = new OrientationController(this.camera);
     this.hands = new HandTracker(this.calib);
     this.handViews = [new HandView(this.camera, this.hands.left), new HandView(this.camera, this.hands.right)];
@@ -74,15 +81,18 @@ class App {
       onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.teleport && d > 2) { this.tutorial.teleport = true; this._refreshTutorial(); } },
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
-      onOpen: () => {
+      onOpen: (t) => {
         this.sfx.open();
-        this.toast('Caixa aberta! Conecte os fios.');
+        const n = t.panelWires || t.wires;
+        this.toast(n >= 5 ? `Caixa difícil: ${n} fios, com cores repetidas!` : `Caixa aberta! Conecte ${n === 1 ? 'o fio' : `os ${n} fios`}.`);
         if (this.state === 'tutorial' && !this.tutorial.touch) { this.tutorial.touch = true; this._refreshTutorial(); }
       },
       onWire: (ok, why) => { this.sfx.wire(ok); this.toast(ok ? 'Fio conectado ✔' : `Não encaixou (${why})`); },
       onGrab: () => this.sfx.grab(),
+      wireCount: (t) => this._wireCount(t),
       onFixed: () => this._onFixed(),
     });
+    this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
 
@@ -154,6 +164,35 @@ class App {
     } catch (e) { /* opcional: sem permissão ou bateria fraca */ }
   }
 
+  // Carrega o modelo da escola e troca o mapa. Nunca rejeita: se der errado,
+  // o jogo continua no mapa de blocos.
+  async _loadSchool() {
+    const setText = (t) => {
+      this.mapText = t;
+      const el = document.getElementById('map-status');
+      if (el) el.innerHTML = t;
+    };
+    try {
+      await loadSchool(this.world, this.scene, (msg, f) => setText(`🏫 ${msg}… ${Math.round(f * 100)}%`));
+      this.rig.rotation.y = CONFIG.MAP.SPAWN_YAW;
+      if (this.state === 'boot' || this.state === 'calibration') { this.rig.position.copy(this.world.spawn); this.floorY = this.world.spawn.y; }
+      this.applyOptions();
+      setText('<span class="ok">🏫 Escola carregada.</span>');
+    } catch (e) {
+      console.warn('Escola não carregou, usando o mapa de blocos', e);
+      setText(`<span class="bad">🏫 A escola não carregou (${e.message || e}). Usando o mapa de blocos.</span>`);
+    }
+    this.mapDone = true;
+  }
+
+  // Se a escola ainda está carregando, mostra o progresso e chama again() no fim.
+  _waitMap(again) {
+    if (this.mapDone) return false;
+    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (17 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
+    this.mapPromise.then(again);
+    return true;
+  }
+
   // ---------------------------------------------------------------
   // Opções (som, vibração, vinheta, modo feira)
   // ---------------------------------------------------------------
@@ -166,7 +205,8 @@ class App {
   applyOptions() {
     const feira = this.options.feira;
     document.body.classList.toggle('feira', feira);
-    for (const t of this.world.targets) t.off = feira && !t.tutorial && !CONFIG.FEIRA.TARGETS.includes(t.id);
+    const feiraIds = this.world.feiraTargets || CONFIG.FEIRA.TARGETS;
+    for (const t of this.world.targets) t.off = feira && !t.tutorial && !feiraIds.includes(t.id);
     const b = document.getElementById('btn-sound');
     if (b) { b.textContent = this.options.sound ? '🔊' : '🔇'; b.classList.toggle('on', this.options.sound); }
   }
@@ -185,17 +225,19 @@ class App {
     this.teleport.lastJump = -1e9;
     this.teleport.jumps = 0;
     this.rig.position.copy(this.world.spawn);
+    this.floorY = this.world.spawn.y;
     this.recenter();
   }
 
   startTutorial() {
+    if (this._waitMap(() => this.startTutorial())) return;
     this.state = 'tutorial';
     this._resetWorld();
     this.interaction.mode = 'tutorial';
     this.tutorial = { teleport: false, touch: false, wire: false };
     if (this.options.feira) {
       // modo feira: começa do lado do pedestal, sem o passo de andar
-      this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
+      if (this.world.tutorialSpawn) { this.rig.position.copy(this.world.tutorialSpawn); this.floorY = this.rig.position.y; } else this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
       this.tutorial.teleport = true;
     }
     this._refreshTutorial();
@@ -205,9 +247,12 @@ class App {
   _refreshTutorial() { if (this.state === 'tutorial') this.calibration.showTutorial(this.tutorial); }
 
   startGame() {
+    if (this._waitMap(() => this.startGame())) return;
     this.calibration.hide();
     this.state = 'playing';
     this._resetWorld();
+    // cada partida sorteia onde fica a caixa de cada lugar
+    if (CONFIG.INTERACTION.RANDOM_SPOTS) { placeTargets(this.world, this.scene, true); this.applyOptions(); }
     this.interaction.mode = 'game';
     this.timeLeft = this.gameTime();
     this._alarmDone = false;
@@ -218,6 +263,14 @@ class App {
   }
 
   _gameTargets() { return this.world.targets.filter((t) => !t.tutorial && !t.off); }
+
+  // Dificuldade crescente: a caixa que você abre agora tem mais fios que a anterior.
+  _wireCount(t) {
+    if (t.tutorial) return t.wires;
+    const levels = this.options.feira ? CONFIG.FEIRA.WIRE_LEVELS : CONFIG.INTERACTION.WIRE_LEVELS;
+    const fixed = this._gameTargets().filter((x) => x.state === 'fixed').length;
+    return levels[Math.min(fixed, levels.length - 1)];
+  }
 
   _onFixed() {
     this.sfx.fixed();
@@ -241,19 +294,35 @@ class App {
     document.body.classList.remove('playing');
     const all = this._gameTargets();
     const fixed = all.filter((t) => t.state === 'fixed').length;
-    const used = (performance.now() - this.gameStart) / 1000;
+    const used = Math.min((performance.now() - this.gameStart) / 1000, this.gameTime());
     setTimeout(() => (win ? this.sfx.win() : this.sfx.lose()), 350);
     const c = this.calibration;
     const feira = this.options.feira;
+    const { rec, place } = addResult({ fixed, total: all.length, used, timeLeft: this.timeLeft, win, feira });
     c._show(win ? '🎉 Rede restaurada!' : '⏰ O tempo acabou', `
       <p>${win ? 'Você consertou todos os pontos de sinal.' : 'A rede caiu antes de você consertar tudo.'}</p>
-      <p>Caixas consertadas: <b>${fixed}/${all.length}</b><br>Tempo: <b>${fmtTime(Math.min(used, this.gameTime()))}</b></p>
+      <p class="score"><b>${rec.points}</b> pontos · caixas <b>${fixed}/${all.length}</b> · tempo <b>${fmtTime(used)}</b>
+      ${place ? `<br>${place === 1 ? '🏆 <b>Melhor do dia!</b>' : `Você ficou em <b>${place}º</b> hoje.`}` : ''}</p>
+      <div class="name-row"><input id="rank-name" maxlength="${CONFIG.RANKING.NAME_MAX}" placeholder="Seu nome" autocomplete="off" enterkeyhint="done"><button id="rank-save">Salvar nome</button></div>
+      <div id="rank-table">${rankingTable(feira, rec.id)}</div>
       ${feira ? '<p class="small" id="auto-return"></p>' : ''}`, [
       { label: '👤 Próximo jogador', cls: feira ? 'primary' : '', onClick: () => this.nextPlayer() },
       { label: '🔁 Jogar de novo', cls: feira ? '' : 'primary', onClick: () => this.startGame() },
       { label: 'Tutorial', onClick: () => this.startTutorial() },
       { label: 'Recalibrar', onClick: () => this.recalibrate() },
     ]);
+    // nome no ranking (opcional)
+    const input = document.getElementById('rank-name');
+    const saveName = () => {
+      if (!input.value.trim()) return;
+      rename(rec.id, input.value);
+      document.getElementById('rank-table').innerHTML = rankingTable(feira, rec.id);
+      input.blur();
+      this.toast('Nome salvo no ranking');
+    };
+    document.getElementById('rank-save').addEventListener('click', (e) => { e.stopPropagation(); saveName(); });
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') saveName(); });
+    input.addEventListener('focus', () => { clearInterval(this._autoT); const a = document.getElementById('auto-return'); if (a) a.textContent = ''; });
     if (feira) {
       // modo feira: volta sozinho para a tela do próximo jogador
       let left = CONFIG.FEIRA.AUTO_RETURN_S;
@@ -452,6 +521,7 @@ class App {
       this.orientation.update();
     }
     if (this.locoMode !== 'correr' && (input.move.f || input.move.r)) this._debugWalk(dt, input.move);
+    this._followFloor(dt);
     this.rig.updateMatrixWorld(true);
 
     // 2) mãos + gestos
@@ -505,12 +575,26 @@ class App {
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
     }
     this._updateVignette(dt);
+    this.handHint.update(now, active);
     this._updateHud(active);
 
     // 6) render
     this._render();
     this.debug.frame(now, dtMs);
     this._adaptQuality(now);
+  }
+
+  // Na escola o chão tem degraus e rampas: o jogador acompanha a altura do piso.
+  _followFloor(dt) {
+    if (!this.world.school) return;
+    const p = this.rig.position;
+    const f = this.world.floorAt(p.x, p.z);
+    if (f != null) {
+      this.world.grid.refY = f;
+      const dy = f - this.floorY;
+      this.floorY += Math.abs(dy) > 0.6 ? dy : dy * Math.min(1, dt * 12);
+    }
+    p.y = this.floorY;
   }
 
   // Vinheta de conforto: escurece as bordas da visão enquanto anda (menos enjoo).
@@ -554,7 +638,7 @@ class App {
     fwd.y = 0; fwd.normalize();
     const nx = this.rig.position.x + (fwd.x * move.f - fwd.z * move.r) * 2 * dt;
     const nz = this.rig.position.z + (fwd.z * move.f + fwd.x * move.r) * 2 * dt;
-    if (this.world.isFree(nx, nz, 0.25)) this.rig.position.set(nx, 0, nz);
+    if (this.world.isFree(nx, nz, 0.25)) { this.rig.position.x = nx; this.rig.position.z = nz; }
   }
 
   _updateHud(active) {

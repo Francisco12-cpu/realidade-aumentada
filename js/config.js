@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 360,         // duração da partida (6 min)
 
   // ---- Locomoção ----
-  VERSION: 'v8',
+  VERSION: 'v10',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -123,6 +123,10 @@ export const CONFIG = {
     TOUCH_DIST: 0.30,       // ponta do indicador até a superfície da caixa (m)
     FALLBACK_TOUCH_DIST: 3.0, // botão "Tocar": abre caixa até essa distância
     WIRES_PER_BOX: 3,
+    // dificuldade crescente: fios da 1ª, 2ª, 3ª... caixa consertada.
+    // Com mais de 4 fios as cores se repetem (qualquer anel da mesma cor serve).
+    WIRE_LEVELS: [3, 3, 4, 4, 5, 5],
+    RANDOM_SPOTS: true,     // sorteia o lugar de cada caixa a cada partida
     PANEL_DIST: 0.55,       // painel aparece a essa distância da câmera
     PANEL_DROP: 0.15,       // inclina o painel um pouco abaixo do olhar (rad)
     GRAB_SCREEN_PX: 75,     // raio (px na tela) para pegar um fio
@@ -145,10 +149,32 @@ export const CONFIG = {
     HIGH_FPS: 56,
   },
 
+  // ---- Mapa: escola de verdade (modelo 3D original) ----
+  MAP: {
+    USE_SCHOOL: true,       // false = volta para o mapa de blocos
+    // procura o modelo nesses endereços (o 2º é para o arquivo único em dist/)
+    URLS: ['models/escola.glb', '../models/escola.glb'],
+    SPAWN: [38.5, 0, -60.25], // onde o jogador começa: no corredor coberto do portão (muro oeste)
+    SPAWN_YAW: -Math.PI / 2, // olhando para dentro da escola (leste, +x)
+    CELL: 0.25,             // tamanho da célula da grade de colisão (m)
+    CHAO_MAX: 1.3,          // superfícies horizontais até essa altura contam como chão
+    DEGRAU: 0.36,           // maior degrau que dá para subir andando (m)
+    PAREDE_DE: 0.35,        // parede só bloqueia entre essa altura...
+    PAREDE_ATE: 1.75,       // ...e essa (acima do chão)
+    RAIO_JOGADOR: 0.3,
+    AREAS: 6,               // áreas com pontos de sinal (1 caixa por área na partida)
+    LUGARES_POR_AREA: 4,    // lugares possíveis em cada área (sorteio)
+    DIST_MIN: 3,            // distância mínima entre lugares (m)
+    LONGE_DO_INICIO: 8,     // nenhum ponto a menos disso do início (m)
+    FOG_NEAR: 25,
+    FOG_FAR: 75,
+  },
+
   // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----
   FEIRA: {
     GAME_TIME_S: 180,       // partida de 3 min
-    TARGETS: ['sala-vermelha', 'cantina-teto', 'quadra', 'biblioteca'], // só 4 caixas
+    TARGETS: ['sala-vermelha', 'cantina', 'quadra', 'biblioteca'], // só 4 caixas
+    WIRE_LEVELS: [3, 3, 4, 5], // fios de cada caixa, na ordem em que são abertas
     AUTO_RETURN_S: 25,      // depois do fim, volta sozinho para "próximo jogador"
     TUTORIAL_SPAWN: [0, 0, 7.2], // tutorial começa do lado do pedestal (sem passo de andar)
   },
@@ -172,6 +198,15 @@ export const CONFIG = {
     DIST: 5,                // começa a soltar faíscas a essa distância (m)
     COUNT: 18,
   },
+
+  // ---- Aviso de mão / luz ----
+  HAND_HINT: {
+    NO_HAND_MS: 3000,       // sem ver nenhuma mão por esse tempo -> "mostre a mão"
+    DARK: 38,               // brilho médio da câmera (0..255) abaixo disso -> "pouca luz"
+  },
+
+  // ---- Ranking do dia (guardado no celular) ----
+  RANKING: { SIZE: 10, NAME_MAX: 14 },
 
   STORAGE_KEY: 'cacador-sinal-calib-v1',
   OPTIONS_KEY: 'cacador-sinal-opcoes-v1',

@@ -14,6 +14,8 @@ const CDN = /(^|\.)cdn\.jsdelivr\.net$|(^|\.)storage\.googleapis\.com$/;
 const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
 const LIBS = [
   'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
   `${MP}/vision_bundle.mjs`,
   `${MP}/vision_bundle.cjs`,
   `${MP}/wasm/vision_wasm_internal.js`,
@@ -24,8 +26,8 @@ const LIBS = [
 ];
 // arquivos do site (no dist/ só existe o index.html: os outros falham e são ignorados)
 const SITE = [
-  './', 'index.html', 'css/style.css',
-  'js/main.js', 'js/config.js', 'js/options.js', 'js/audio.js', 'js/scene.js', 'js/orientation.js',
+  './', 'index.html', 'css/style.css', 'models/escola.glb', '../models/escola.glb',
+  'js/main.js', 'js/config.js', 'js/options.js', 'js/audio.js', 'js/handhint.js', 'js/ranking.js', 'js/mapa.js', 'js/scene.js', 'js/orientation.js',
   'js/hands.js', 'js/filters.js', 'js/gestures.js', 'js/teleport.js', 'js/locomotion.js',
   'js/interaction.js', 'js/calibration.js', 'js/debug.js', 'js/vr.js',
 ];
