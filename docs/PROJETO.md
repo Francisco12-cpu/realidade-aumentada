@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v15, 18/11/2026)
+# Escola Zumbi: estado do projeto (v16, 18/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -13,8 +13,10 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | Gesto | O que faz |
 |---|---|
 | ✋ **mão aberta** (4 dedos esticados) | anda para onde você está olhando; abaixe a mão para parar |
-| 👉 **pistolinha** (indicador esticado, médio dobrado) | aparece o laser; mão **vermelha** = pronta |
-| 👍⬇ **abaixar o polegar** | **atira**; a mão fica **cinza** por 0,45 s e volta a ficar vermelha sozinha |
+| 👉 **apontar** (mão meio aberta ou apontando, sem ser a palma toda aberta) | aparece o laser; mão **vermelha** = pronta |
+| ✊ **fechar a mão** | **atira**; a mão fica **cinza** por 0,45 s. Abra a mão de novo para atirar outra vez |
+
+> Desde a v16 o gatilho é **fechar a mão**. Na pistolinha antiga a mão aponta para frente, para longe da câmera: o indicador e o polegar ficavam escondidos e o tiro falhava. O modo antigo continua em `GUN.MODE: 'polegar'`.
 
 - **Jogar no óculos com um toque (v14):** depois de calibrar uma vez, toque em **▶ Jogar no óculos** e ponha o celular no óculos. Na lente aparece uma contagem de 10 s; o jogo recentra sozinho e começa. Com a **✋ mão aberta parada 1,5 s**, começa na hora.
   - No fim da partida, a **mão aberta** joga de novo, sem tirar o óculos. No modo feira, o jogo volta sozinho para o "próximo jogador", que também começa com a mão aberta.
@@ -48,6 +50,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v16 | #14 | Atirar fechando a mão (✊); mão virtual no mesmo ângulo e distância da mão de verdade (`HANDS.MAP_MODE: 'real'`), menos tremida e some menos; óculos vai direto para o modo próprio quando o VR do Chrome não existe (tela cheia volta a funcionar); câmera liga sozinha ao abrir se já foi liberada |
 | v14+v15 | #14 | Jogar no óculos com um toque (contagem, mão aberta para começar ou jogar de novo, recentrar com as duas mãos, perfil copiar/colar, `?auto`). Mais FPS: escola em blocos de 24 m, detalhes longe somem, imagem das mãos menor se o FPS cair |
 
 ---
@@ -74,7 +77,8 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | O que | Onde |
 |---|---|
 | Quantidade de zumbis, ondas, velocidade, visão, mordida | `ZOMBIES` (`COUNT`, `START_COUNT`, `FIRST_WAVE_S`, `WAVE_EVERY_S`, `WAVE_SIZE`, `SPEED_MIN/MAX`, `SIGHT`, `ATTACK_S`, `HP`) |
-| Gatilho da arma (sensibilidade do polegar) | `GUN.THUMB_DOWN_K` (atira) e `GUN.THUMB_UP_K` (engatilha) |
+| Gatilho da arma (mão fechada) | `GUN.FIRE_REACH` (atira), `GUN.ARM_REACH` (engatilha), `GUN.OPEN_REACH` (mão aberta = anda). Modo antigo: `GUN.MODE: 'polegar'` com `THUMB_DOWN_K`/`THUMB_UP_K` |
+| Posição da mão no óculos | `HANDS.MAP_MODE`, `HANDS.CAM_FOV_LONG` (ângulo da câmera, 64°), `REAL_NEAR`/`REAL_FAR` |
 | Folga no formato da pistolinha | `GUN.SHAPE_SLACK` |
 | Tempo cinza depois do tiro | `GUN.RELOAD_MS` |
 | Vidas do jogador / andar | `PLAYER.HP`, `PLAYER.PALM_FINGERS`, `PLAYER.WALK_GRACE_MS`, `PLAYER.NO_WALK_AFTER_GUN_MS` |

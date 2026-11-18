@@ -365,14 +365,26 @@ export class HandTracker {
 
     const tSec = nowMs / 1000;
     // 1) posição na tela e profundidade: filtros separados (a profundidade é o mais tremido)
-    const ndc = this.mapUV(lm[9].x, lm[9].y, camera);
-    this._p.set(ndc.x, ndc.y, 0);
-    hand.anchorFilter.filter(this._p, tSec);
     hand.rawDepthF = hand.depthFilter.filter(hand.rawDepth, tSec);
-    const d = this.depthFromRaw(hand.rawDepthF);
-    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-    const tanH = tanV * camera.aspect;
-    const ax = this._p.x * d * tanH, ay = this._p.y * d * tanV, az = -d;
+    let ax, ay, az;
+    if (H.MAP_MODE === 'real') {
+      // v16: a mão virtual fica no MESMO ângulo da mão de verdade (ângulo de
+      // visão da câmera do celular), e a distância vem do tamanho real da mão
+      // na imagem. No óculos ela aparece onde a sua mão está.
+      const tanL = Math.tan(THREE.MathUtils.degToRad(H.CAM_FOV_LONG) / 2);
+      this._p.set((lm[9].x - 0.5) * 2 * tanL * (vw / m), -(lm[9].y - 0.5) * 2 * tanL * (vh / m), 0);
+      hand.anchorFilter.filter(this._p, tSec);
+      const d = THREE.MathUtils.clamp(hand.rawDepthF / (2 * tanL), H.REAL_NEAR, H.REAL_FAR);
+      ax = this._p.x * d; ay = this._p.y * d; az = -d;
+    } else {
+      const ndc = this.mapUV(lm[9].x, lm[9].y, camera);
+      this._p.set(ndc.x, ndc.y, 0);
+      hand.anchorFilter.filter(this._p, tSec);
+      const d = this.depthFromRaw(hand.rawDepthF);
+      const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+      const tanH = tanV * camera.aspect;
+      ax = this._p.x * d * tanH; ay = this._p.y * d * tanV; az = -d;
+    }
     // 2) forma da mão (dedos) relativa ao centro, com filtro mais leve
     const s = H.HAND_SCALE;
     for (let i = 0; i < 21; i++) {

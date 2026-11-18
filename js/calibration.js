@@ -152,7 +152,7 @@ export class CalibrationFlow {
     }
     const html = `
       <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
-      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>✋ mão aberta = andar</b>, <b>👉 pistolinha = mirar</b> e <b>abaixar o polegar = atirar</b>.</p>
+      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>✋ mão aberta = andar</b>, <b>👉 apontar = mirar</b> e <b>✊ fechar a mão = atirar</b>.</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Calibração salva: toque em <b>▶ Jogar no óculos</b>, ponha o celular no óculos e pronto. Começa sozinho em ' + CONFIG.LOBBY.COUNTDOWN_S + ' s (ou mostre a ✋ mão aberta). No jogo, <b>as duas mãos abertas</b> recentram a visão.</p>' : '<p class="small">Dica: calibre uma vez; depois é só um toque para jogar no óculos.</p>'}
@@ -181,7 +181,7 @@ export class CalibrationFlow {
   nextPlayer() {
     const feira = this.app.options.feira;
     const html = `
-      <p><b>Próximo jogador!</b> Elimine os zumbis da escola. <b>✋ Mão aberta</b> anda, <b>👉 pistolinha</b> mira e <b>abaixar o polegar</b> atira.</p>
+      <p><b>Próximo jogador!</b> Elimine os zumbis da escola. <b>✋ Mão aberta</b> anda, <b>👉 apontar</b> mira e <b>✊ fechar a mão</b> atira.</p>
       <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis</b>.` : ''}
       A mão fica <b>vermelha</b> quando a arma está pronta e <b>cinza</b> enquanto recarrega. A setinha no alto mostra o zumbi mais perto.</p>
       ${this._optionsHtml()}
@@ -376,7 +376,7 @@ export class CalibrationFlow {
     const calib = this.app.calib;
     const set = (side) => { calib.locomotion = side; this.stepPose(0); };
     this._show('3. Mão de locomoção', `
-      <p>No jogo, qualquer mão pode <b>andar</b> (palma aberta) ou <b>atirar</b> (pistolinha + abaixar o polegar). A escolha aqui só define a mão principal da calibração.</p>
+      <p>No jogo, qualquer mão pode <b>andar</b> (palma aberta) ou <b>atirar</b> (apontar e fechar a mão ✊). A escolha aqui só define a mão principal da calibração.</p>
       <p>Qual mão você quer usar para <b>andar</b>?</p>
       <p class="small">Teste com o celular na mão: use a mão livre para tudo — dá para trocar depois recalibrando.</p>`, [
       { label: 'Esquerda anda (padrão)', cls: calib.locomotion === 'left' ? 'primary' : '', onClick: () => set('left') },

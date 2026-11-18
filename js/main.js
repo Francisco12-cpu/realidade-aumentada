@@ -50,12 +50,14 @@ class App {
     // a pistolinha agora é a arma: o teleporte (que usava a pistolinha) vira 'palma'
     this.locoMode = CONFIG.LOCOMOTION === 'teleporte' ? 'palma' : CONFIG.LOCOMOTION;
     document.body.classList.add(`mode-${this.locoMode}`);
-    this.xrSupported = false;
+    this.xrSupported = undefined; // undefined = ainda não sabe · true/false depois da pergunta ao Chrome
     this.xrActive = false;
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType('local');
     if (navigator.xr && navigator.xr.isSessionSupported) {
-      navigator.xr.isSessionSupported('immersive-vr').then((ok) => { this.xrSupported = ok; }).catch(() => {});
+      navigator.xr.isSessionSupported('immersive-vr').then((ok) => { this.xrSupported = ok; }).catch(() => { this.xrSupported = false; });
+    } else {
+      this.xrSupported = false;
     }
     this.vrSettings = loadVrSettings();
     this.vr = new VRView(this.renderer, this.vrSettings);
@@ -136,6 +138,7 @@ class App {
     this._last = performance.now();
     this.renderer.setAnimationLoop(() => this._loop());
     this.calibration.welcome();
+    this._preloadP = this._preloadDevices();
     window.__app = this; // para depuração no console / testes
     registerServiceWorker();
   }
@@ -157,6 +160,8 @@ class App {
       this.sensorsReady = true;
       this.requestWakeLock();
     }
+    // a pré-carga (abriu o jogo com a câmera já liberada) pode estar no meio
+    if (withCamera && this._preloadP) { onStatus('Ligando câmera e mãos…'); await this._preloadP; }
     if (!withCamera || this.hands.landmarker) { this.devicesReady = true; return true; }
     try {
       onStatus('Pedindo acesso à câmera traseira…');
@@ -176,6 +181,19 @@ class App {
     onStatus(`Pronto (${this.hands.delegate}).`);
     this.devicesReady = true;
     return true;
+  }
+
+  // v16: com calibração salva e a câmera já liberada antes, liga câmera e
+  // mãos logo ao abrir. Assim o toque em "Jogar no óculos" só entra no óculos.
+  async _preloadDevices() {
+    try {
+      if (!loadCalib() || !navigator.permissions) return;
+      const p = await navigator.permissions.query({ name: 'camera' });
+      if (p.state !== 'granted' || this.hands.stream) return;
+      await this.hands.startCamera();
+      await this.hands.loadModel(() => {});
+      if (this.state === 'boot') this.toast('📷 Câmera e mãos prontas');
+    } catch (e) { /* sem problema: liga no toque */ }
   }
 
   // Mantém a tela acesa. O Chrome solta a trava quando a aba sai da frente,
@@ -291,7 +309,7 @@ class App {
   // Mão aberta para andar: o gesto 'palma' ou, com folga, 3 dos 4 dedos esticados.
   _isPalm(h) {
     if (!h.visible) return false;
-    if (h.gesture === 'open') return true;
+    if (h.gesture === 'open' || (CONFIG.GUN.MODE === 'punho' && this.gun._isOpen(h))) return true;
     const f = h.features;
     if (!f || h.gesture === 'fist' || h.gesture === 'pinch') return false;
     const thr = this.calib.thresholds;
@@ -585,9 +603,10 @@ class App {
   toggleVR() {
     if (this.xrActive) { this.renderer.xr.getSession().end(); return; }
     if (this.stereo) { this.setStereo(false); return; }
-    // sempre tenta primeiro o modo VR do Chrome (igual ao teste-xr.html);
-    // o modo próprio só entra se ele não existir ou falhar
-    if (navigator.xr && this.vrSettings.engine !== 'proprio') this.startXR();
+    // modo VR do Chrome só se ele disse que funciona (ou ainda não respondeu);
+    // senão vai direto para o modo próprio, ainda dentro do toque, para a
+    // tela cheia funcionar (o navegador só deixa com um toque)
+    if (navigator.xr && this.vrSettings.engine !== 'proprio' && this.xrSupported !== false) this.startXR();
     else {
       if (!navigator.xr) this.toast('Este navegador não tem o modo VR do Chrome — usando o modo próprio');
       this.setStereo(true);
@@ -609,6 +628,7 @@ class App {
       setTimeout(() => this.recenter(), 800);
     }).catch((e) => {
       console.warn('WebXR falhou, usando o modo próprio', e);
+      this.xrSupported = false; // na próxima vez vai direto para o modo próprio
       this.toast(`VR do Chrome não abriu (${e.message || e.name || e}) — usando o modo próprio`);
       this.setStereo(true);
     });
@@ -647,7 +667,7 @@ class App {
       } catch (e) { /* nem todo navegador deixa travar: o aviso "vire o celular" ajuda */ }
       this.showVrUi(4000);
       setTimeout(() => this.recenter(), 900);
-      this.hud3d.toast('Modo óculos — toque na tela para opções');
+      this.hud3d.toast(document.fullscreenElement ? 'Modo óculos — toque na tela para opções' : 'Toque na tela para tela cheia');
     } else {
       try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* */ }
       document.body.classList.remove('vr-ui', 'vr-adjust');
@@ -706,7 +726,16 @@ class App {
   _wireCanvasPointers() {
     const c = this.canvas;
     c.addEventListener('pointerdown', (e) => {
-      if (this.stereo && !document.body.classList.contains('vr-adjust')) { this.showVrUi(); return; }
+      if (this.stereo && !document.body.classList.contains('vr-adjust')) {
+        // sem tela cheia (o navegador recusou): o toque na tela tenta de novo
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+            .then(() => (screen.orientation && screen.orientation.lock ? screen.orientation.lock('landscape') : null))
+            .then(() => this.resize()).catch(() => {});
+        }
+        this.showVrUi();
+        return;
+      }
       c.setPointerCapture(e.pointerId);
       this.mouse.set(e.pointerId, { id: `m${e.pointerId}`, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, down: true, lx: e.clientX, ly: e.clientY });
     });
@@ -941,8 +970,8 @@ class App {
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
       walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> (4 dedos esticados) para a câmera. Abaixe a mão para parar.',
-      aim: 'Faça a <b>pistolinha</b>: indicador esticado, polegar para cima. A mão fica <b>vermelha</b> = pronta.',
-      shoot: 'Cubra o zumbi de treino com a mão e <b>abaixe o polegar</b>. A mão fica <b>cinza</b> até recarregar.',
+      aim: 'Mostre a mão <b>meio aberta</b> ou <b>apontando</b> para frente. Aparece o laser e a mão fica <b>vermelha</b> = pronta.',
+      shoot: 'Cubra o zumbi de treino com a mão e <b>feche a mão ✊</b>. A mão fica <b>cinza</b>; abra de novo para atirar outra vez.',
     };
     const g = this.gun.state;
     this.coach.update({

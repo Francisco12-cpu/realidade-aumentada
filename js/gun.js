@@ -60,16 +60,35 @@ export class Gun {
   get ready() { return this.state === 'ready'; }
   reloadLeft(now) { return Math.max(0, G.RELOAD_MS - (now - this.lastShot)); }
 
+  // v16 (modo 'punho'): o quanto a mão está fechada, pelas pontas do indicador
+  // e do médio até o pulso (em "palmos"). Aberta ~1,9 · fechada ~1,0.
+  // Funciona de qualquer ângulo, inclusive com a mão apontando para frente
+  // (de costas para a câmera), onde a pistolinha e o polegar falhavam.
+  _reach(h) {
+    const w = h.wlm;
+    if (!w) return null;
+    const d = (a, b) => Math.hypot(w[a].x - w[b].x, w[a].y - w[b].y, w[a].z - w[b].z);
+    const palm = Math.max(d(0, 9), 1e-4);
+    return { index: d(8, 0) / palm, middle: d(12, 0) / palm };
+  }
+
   // Pistolinha pelo formato da mão (independe do polegar, que é o gatilho).
   _shape(h, thr) {
     const f = h.features;
     if (!h.visible || !f) return false;
+    if (G.MODE === 'punho') return h.gesture !== 'open' && !this._isOpen(h);
     const k = G.SHAPE_SLACK;
     // indicador esticado e médio dobrado (anelar e mínimo não importam)
     return f.straight[0] > thr.ext[0] - k && f.straight[1] < thr.ext[1] + k * 0.5 && f.straight[0] - f.straight[1] > 0.12;
   }
 
   isGunHand(h, thr) { return this._shape(h, thr); }
+
+  // mão aberta (todos os dedos longe do pulso) = é a mão de andar, não a arma
+  _isOpen(h) {
+    const r = this._reach(h);
+    return !!r && r.index > G.OPEN_REACH && r.middle > G.OPEN_REACH;
+  }
 
   // Cor da mão: vermelho = pronta · cinza = recarregando · null = normal
   tintFor(side, now) {
@@ -98,7 +117,15 @@ export class Gun {
         this.state = 'ready';
         this.hooks.onReady && this.hooks.onReady();
       }
-      if (fresh && cur.features) {
+      if (G.MODE === 'punho' && fresh && cur.present) {
+        // fechar a mão = tiro; abrir um pouco (apontar) = engatilha de novo
+        const r = this._reach(cur);
+        if (r) {
+          const k = Math.max(r.index, r.middle);
+          if (k > G.ARM_REACH) this._armed = true;
+          else if (k < G.FIRE_REACH && this._armed && this.state === 'ready') this._fire(now, cur, findHit, true);
+        }
+      } else if (fresh && cur.features) {
         const t = cur.features.thumbOut;
         if (t > thr.thumbOut * G.THUMB_UP_K) this._armed = true;
         else if (t < thr.thumbOut * G.THUMB_DOWN_K && this._armed && this.state === 'ready' && hand) this._fire(now, cur, findHit);
@@ -114,6 +141,10 @@ export class Gun {
       this._d.subVectors(this._k, this._o).normalize();
       this._sd.lerp(this._d, 0.5).normalize();
       if (this._sd.lengthSq() < 0.5) this._sd.copy(this._d);
+      // guarda a mira de um instante atrás: ao fechar a mão ela mexe um pouco
+      this._hist = this._hist || [];
+      this._hist.push({ t: now, d: this._sd.clone() });
+      while (this._hist.length > 2 && now - this._hist[1].t > G.AIM_LAG_MS) this._hist.shift();
       this._tip.copy(P[8]);
     } else if (manualFire !== undefined) {
       // sem mão: mira no centro da visão (botão 🔫 / tecla espaço)
@@ -149,7 +180,8 @@ export class Gun {
     if (fx) this.tracer.material.opacity = (this._fxUntil - now) / 110;
   }
 
-  _fire(now, hand, findHit) {
+  _fire(now, hand, findHit, lagged = false) {
+    if (lagged && this._hist && this._hist.length) this._sd.copy(this._hist[0].d);
     this.lastShot = now;
     this.state = 'reload';
     this._armed = false;
@@ -171,5 +203,6 @@ export class Gun {
     this.laser.visible = this.dot.visible = this.flash.visible = this.tracer.visible = false;
     this.state = 'off';
     this.side = null;
+    this._hist = [];
   }
 }
