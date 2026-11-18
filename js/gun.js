@@ -70,7 +70,20 @@ export class Gun {
     this.pistol = false;
     this._pistolSince = 0;
     this._pistolSeen = -1e9;
+
+    // v21: mira da CABEÇA = ponto no meio da visão (anel + pontinho)
+    this.reticle = new THREE.Group();
+    const rm = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, depthWrite: false, transparent: true });
+    this.retRing = new THREE.Mesh(new THREE.RingGeometry(0.022, 0.03, 28), rm(0xffffff));
+    this.retDot = new THREE.Mesh(new THREE.CircleGeometry(0.006, 12), rm(0xffffff));
+    this.retRing.renderOrder = 47; this.retDot.renderOrder = 47;
+    this.reticle.add(this.retRing, this.retDot);
+    this.reticle.position.set(0, 0, -1.5);
+    this.reticle.visible = false;
+    camera.add(this.reticle);
   }
+
+  get headAim() { return G.AIM === 'cabeca'; }
 
   // v18: pistolinha pelos ângulos 3D da mão: indicador esticado (longe do
   // pulso) e médio dobrado (perto do pulso). Vale também o gesto 'gun'.
@@ -81,12 +94,13 @@ export class Gun {
     if (!r) return false;
     const f = h.features;
     const idxStraight = !f || f.straight[0] > thr.ext[0] - 0.12;
-    return r.index > G.PISTOL_INDEX && r.middle < G.PISTOL_MIDDLE && r.index - r.middle > 0.35 && idxStraight;
+    return r.index > G.PISTOL_INDEX && r.middle < G.PISTOL_MIDDLE && r.index - r.middle > G.PISTOL_GAP && idxStraight;
   }
 
   // Modo 'auto' (v18): só a mão VERMELHA (papel 'gun') mira. Pistolinha
   // segurada = atira sozinho; recarrega RELOAD_MS (barra) e atira de novo.
   _updateAuto(now, hands, thr, fresh, manualFire, findHit) {
+    if (this.headAim) return this._updateHead(now, hands, thr, manualFire, findHit);
     const cur = hands.find((h) => h.role === 'gun' && h.visible) || null;
     this.side = cur ? cur.side : null;
     // pistolinha com tolerância (se "piscar" por um instante, continua)
@@ -136,6 +150,51 @@ export class Gun {
       this.barFill.scale.set(Math.max(0.001, w * k), hgt, 1);
       this.barFill.material.color.setHex(k < 1 ? 0xffb020 : this.pistol ? 0xff3030 : 0x5be37d);
     }
+  }
+
+  // v21 (AIM 'cabeca'): olha para o zumbi = mira; QUALQUER mão fazendo a
+  // pistolinha atira sozinha a cada recarga. A barra fica embaixo da mira.
+  _updateHead(now, hands, thr, manualFire, findHit) {
+    // mão fazendo a pistolinha agora (prefere a mesma de antes)
+    let ph = null;
+    for (const h of hands) if (h.visible && h.present && this._isPistol(h, thr) && (!ph || h.side === this.side)) ph = h;
+    if (ph) {
+      this.side = ph.side;
+      this._pistolSeen = now;
+      if (!this.pistol) { this.pistol = true; this._pistolSince = now; this.hooks.onReady && this.hooks.onReady(); }
+    } else if (this.pistol && now - this._pistolSeen > G.GRACE_MS) { this.pistol = false; this.side = null; }
+    const cur = this.pistol ? hands.find((h) => h.side === this.side && h.visible) || null : null;
+    const reloadK = Math.min(1, (now - this.lastShot) / G.RELOAD_MS);
+    this.state = !this.pistol ? 'off' : reloadK < 1 ? 'reload' : 'ready';
+    this.aiming = this.pistol;
+    // mira = centro da visão
+    this.camera.getWorldPosition(this._o);
+    this.camera.getWorldDirection(this._sd);
+    if (cur) this._tip.copy(cur.worldPts[8]); else this._tip.copy(this._o).addScaledVector(this._sd, 0.4).setY(this._o.y - 0.15);
+    if (this.pistol && reloadK >= 1 && now - this._pistolSince >= G.PISTOL_HOLD_MS) this._fire(now, null, findHit);
+    if (manualFire && now - this.lastShot >= G.RELOAD_MS) this._fire(now, null, findHit);
+    // mira: amarela em cima de zumbi, vermelha com a pistolinha, branca parada
+    const hit = findHit(this._o, this._sd, false);
+    const onZ = !!(hit && hit.zombie);
+    const col = onZ ? 0xffe14d : this.pistol ? 0xff3030 : 0xffffff;
+    this.retRing.material.color.setHex(col);
+    this.retDot.material.color.setHex(col);
+    this.retRing.scale.setScalar(onZ ? 1.25 : 1);
+    this.reticle.visible = true;
+    this.laser.visible = false;
+    this.dot.visible = false;
+    // barra de recarga embaixo da mira
+    this.bar.visible = true;
+    const w = 0.09, hgt = 0.01;
+    this.bar.position.set(0, -0.06, -1.5);
+    this.barBg.scale.set(w + 0.005, hgt + 0.005, 1);
+    this.barFill.position.x = -w / 2;
+    this.barFill.scale.set(Math.max(0.001, w * reloadK), hgt, 1);
+    this.barFill.material.color.setHex(reloadK < 1 ? 0xffb020 : this.pistol ? 0xff3030 : 0x5be37d);
+    const fx = now < this._fxUntil;
+    this.flash.visible = fx && now < this._fxUntil - 60;
+    this.tracer.visible = fx;
+    if (fx) this.tracer.material.opacity = (this._fxUntil - now) / 110;
   }
 
   _drawAim(now, findHit, hot) {
@@ -312,6 +371,7 @@ export class Gun {
     this.side = null;
     this._hist = [];
     this.bar.visible = false;
+    this.reticle.visible = false;
     this.pistol = false;
   }
 }

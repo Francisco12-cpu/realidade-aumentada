@@ -320,7 +320,7 @@ class App {
   // Mão aberta para andar: o gesto 'palma' ou, com folga, 3 dos 4 dedos esticados.
   _isPalm(h) {
     if (!h.visible) return false;
-    if (h.gesture === 'open' || (CONFIG.GUN.MODE === 'punho' && this.gun._isOpen(h))) return true;
+    if (h.gesture === 'open' || this.gun._isOpen(h)) return true; // dedos longe do pulso (3D) também vale
     const f = h.features;
     if (!f || h.gesture === 'fist' || h.gesture === 'pinch') return false;
     const thr = this.calib.thresholds;
@@ -803,8 +803,24 @@ class App {
     const inter = this.hands.get(this.interSide());
 
     // 3) locomoção. v18: mão AZUL anda para onde aponta; mão VERMELHA é a arma
-    if (CONFIG.ROLES.ON) this._assignRoles();
-    if (active && CONFIG.ROLES.ON) {
+    const headAim = CONFIG.GUN.AIM === 'cabeca';
+    if (CONFIG.ROLES.ON && !headAim) this._assignRoles();
+    if (active && headAim) {
+      // v21: ✋ palma aberta (qualquer mão que não esteja na pistolinha) = anda para onde olha
+      let manual = 0;
+      this.runner.manualSource = 'botão';
+      if (input.run || input.move.f > 0) manual = 1;
+      if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
+      const thr = this.calib.thresholds;
+      const palm = this.hands.hands.find((h) => this._isPalm(h) && !this.gun._isPistol(h, thr) && !(this.gun.pistol && h.side === this.gun.side));
+      if (palm) this.lastPalm = now;
+      if (now - this.lastPalm < CONFIG.PLAYER.WALK_GRACE_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
+      this.runner.dir = null;
+      this.runner.useSwing = false;
+      this.runner.maxSpeed = CONFIG.RUN.WALK_SPEED;
+      this.runner.update(now, dt, this.hands.hands, manual, false);
+      this.teleport.hide();
+    } else if (active && CONFIG.ROLES.ON) {
       let manual = 0;
       this.runner.manualSource = 'botão';
       if (input.run || input.move.f > 0) manual = 1;
@@ -879,7 +895,13 @@ class App {
     // durante o jogo: as DUAS mãos abertas paradas = recentrar a visão
     if (active) this._recenterGesture(now);
     for (const v of this.handViews) {
-      if (CONFIG.ROLES.ON) {
+      if (CONFIG.GUN.AIM === 'cabeca') {
+        // a cor mostra o que a mão está fazendo: vermelha = pistolinha, azul = palma (andando)
+        const h = v.hand, thr = this.calib.thresholds;
+        const gunNow = this.gun.pistol && h.side === this.gun.side;
+        v.tint = gunNow ? (this.gun.state === 'reload' ? 0x8e1b1b : CONFIG.ROLES.GUN_COLOR)
+          : this._isPalm(h) ? CONFIG.ROLES.WALK_COLOR : null;
+      } else if (CONFIG.ROLES.ON) {
         const r = v.hand.role;
         v.tint = r === 'walk' ? CONFIG.ROLES.WALK_COLOR : r === 'gun' ? (this.gun.state === 'reload' ? 0x8e1b1b : CONFIG.ROLES.GUN_COLOR) : null;
       } else v.tint = this.gun.tintFor(v.hand.side, now);
@@ -1095,9 +1117,9 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Mão <b>AZUL</b> (lado esquerdo): <b>aponte 👉 para onde quer ir</b> (ou ✋ palma aberta = anda para onde olha). Mão relaxada ou fechada = parada. De perto, <b>socos e tapas</b> 👊.',
-      aim: 'Mão <b>VERMELHA</b> (direita): mostre para a câmera. Aparece o laser.',
-      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> apontando o dedo para o zumbi. Atira sozinho; a <b>barra</b> mostra a recarga. Ou chegue perto e dê <b>3 socos</b> 👊 rápidos.',
+      walk: 'Mostre a <b>palma aberta ✋</b> para a câmera: a mão fica <b>azul</b> e você anda para onde <b>olha</b>. Abaixe ou feche a mão para parar.',
+      aim: 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela). Faça a <b>pistolinha 👉</b> com a outra mão: ela fica <b>vermelha</b>.',
+      shoot: 'Olhando para o zumbi, segure a <b>pistolinha 👉</b>: atira sozinho; a <b>barra</b> embaixo da mira mostra a recarga. De perto, <b>socos</b> 👊 também valem.',
     };
     const g = this.gun.state;
     this.coach.update({

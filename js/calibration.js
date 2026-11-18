@@ -152,7 +152,7 @@ export class CalibrationFlow {
     }
     const html = `
       <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
-      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🔵 mão azul (lado esquerdo): aponte 👉 = anda para onde o dedo aponta</b> (mão relaxada = parada) e <b>🔴 mão vermelha (direita): pistolinha 👉 = atira</b> (atira sozinho; a barra mostra a recarga).</p>
+      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🎯 olhe para o zumbi = mira</b> (ponto no meio da visão), <b>👉 pistolinha = atira</b> sozinho a cada recarga (barra) e <b>✋ palma aberta = anda</b> para onde você olha.</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Calibração salva: toque em <b>▶ Jogar no óculos</b>, ponha o celular no óculos e pronto. Começa sozinho em ' + CONFIG.LOBBY.COUNTDOWN_S + ' s (ou mostre a ✋ mão aberta). No jogo, <b>as duas mãos abertas</b> recentram a visão.</p>' : '<p class="small">Dica: calibre uma vez; depois é só um toque para jogar no óculos.</p>'}
@@ -181,7 +181,7 @@ export class CalibrationFlow {
   nextPlayer() {
     const feira = this.app.options.feira;
     const html = `
-      <p><b>Próximo jogador!</b> Elimine os zumbis da escola. <b>🔵 Mão azul</b> anda para onde aponta e a <b>🔴 mão vermelha</b> faz a pistolinha 👉 para atirar.</p>
+      <p><b>Próximo jogador!</b> Elimine os zumbis da escola. <b>🎯 Olhe</b> para o zumbi, faça a <b>👉 pistolinha</b> para atirar e mostre a <b>✋ palma aberta</b> para andar.</p>
       <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis</b>.` : ''}
       A mão fica <b>vermelha</b> quando a arma está pronta e <b>cinza</b> enquanto recarrega. A setinha no alto mostra o zumbi mais perto.</p>
       ${this._optionsHtml()}

@@ -5,8 +5,8 @@
 import * as THREE from 'three';
 
 export const COACH_STEPS = [
-  { id: 'walk', icon: '🔵', text: 'Azul: aponte 👉 = anda' },
-  { id: 'aim', icon: '🔴', text: 'Mão vermelha = mira' },
+  { id: 'walk', icon: '✋', text: 'Palma aberta = anda' },
+  { id: 'aim', icon: '🎯', text: 'Olhe para o zumbi = mira' },
   { id: 'shoot', icon: '👉', text: 'Pistolinha = atira' },
 ];
 
