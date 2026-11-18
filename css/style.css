@@ -74,7 +74,13 @@ button:disabled { opacity: 0.5; }
 #preview canvas { position: absolute; inset: 0; height: 100%; }
 body.sheet-bottom #preview, body.sheet-bottom #debug { top: calc(34px + env(safe-area-inset-top)); bottom: auto; max-height: 24vh; }
 /* vídeo continua tocando (MediaPipe precisa) mas fica invisível */
-#preview.offscreen { width: 2px; height: 2px; opacity: 0.01; border: 0; }
+/* v23: o vídeo fica ATRÁS do jogo (no canto, coberto pela imagem 3D): o
+   navegador acha que ele está visível e não pausa (no Android ele pausava o
+   vídeo escondido e a mão sumia) */
+#gl { z-index: 1; }
+#preview.offscreen { left: 0; top: 0; bottom: auto; width: 160px; max-width: none; height: 120px; opacity: 1; border: 0; border-radius: 0; z-index: 0; }
+#preview.offscreen video { width: 100%; height: 100%; object-fit: cover; }
+#preview.offscreen canvas { display: none; }
 
 .ok { color: var(--ok); }
 .bad { color: var(--bad); }
@@ -117,7 +123,7 @@ body.sheet-bottom #preview, body.sheet-bottom #debug { top: calc(34px + env(safe
 /* ---------- Modo óculos ---------- */
 #btn-vradjust { display: none; }
 body.stereo #btn-vradjust { display: inline-block; }
-body.stereo #hud, body.stereo #debug, body.stereo #preview, body.stereo #toast { display: none !important; }
+body.stereo #hud, body.stereo #debug, body.stereo #preview:not(.offscreen), body.stereo #toast { display: none !important; }
 body.stereo #overlay { display: none; }
 body.stereo #fps { opacity: 0.5; }
 /* botões escondidos no óculos; um toque na tela mostra */

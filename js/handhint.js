@@ -40,6 +40,9 @@ export class HandHint {
     if (now - this.lastMeasure > 500) { this.lastMeasure = now; this._measure(); }
     let msg = '';
     const lost = now - this.lastSeen;
+    if (lost > 1500 && app.hands.stalled && !app.hands._ic) {
+      msg = '📷 A câmera parou: toque na tela para religar.';
+    } else
     if (lost > 1500 && this.brightness != null && this.brightness < HH.DARK) {
       msg = '💡 Pouca luz ou câmera tapada: vá para um lugar mais claro e deixe a câmera de trás livre.';
     } else if (lost > HH.NO_HAND_MS) {
