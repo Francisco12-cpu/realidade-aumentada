@@ -102,11 +102,14 @@ export class Gun {
     if (cur) {
       const P = cur.worldPts;
       this.camera.getWorldPosition(this._o);
-      this._k.copy(P[5]).add(P[9]).multiplyScalar(0.5);
-      this._d.subVectors(this._k, this._o).normalize();
-      this._sd.lerp(this._d, 0.5).normalize();
+      // v20: mira para onde o DEDO aponta (com um pouco da direção olho→mão)
+      if (this.aimFn) this.aimFn(cur, this._d);
+      else { this._k.copy(P[5]).add(P[9]).multiplyScalar(0.5); this._d.subVectors(this._k, this._o).normalize(); }
+      this._sd.lerp(this._d, G.AIM_SMOOTH).normalize();
       if (this._sd.lengthSq() < 0.5) this._sd.copy(this._d);
       this._tip.copy(P[8]);
+      // o raio sai da ponta do dedo (o tiro vai para onde o laser mostra)
+      this._o.copy(P[8]);
       this._hist = this._hist || [];
       this._hist.push({ t: now, d: this._sd.clone() });
       while (this._hist.length > 2 && now - this._hist[1].t > G.AIM_LAG_MS) this._hist.shift();

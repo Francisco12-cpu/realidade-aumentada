@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v19, 18/11/2026)
+# Escola Zumbi: estado do projeto (v20, 18/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -12,12 +12,12 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 
 | Mão | O que faz |
 |---|---|
-| 🔵 **mão AZUL** (a da esquerda; dá para trocar na calibração) | **anda para onde ela aponta** (do olho até a mão). Fechar a mão ou abaixar = para |
-| 🔴 **mão VERMELHA** (a da direita) | mostra o laser. Fazendo a **pistolinha 👉** (indicador esticado, médio dobrado), **atira sozinha**; a **barra** em cima da mão enche em 0,8 s e atira de novo enquanto a pistolinha continuar |
+| 🔵 **mão AZUL** (a da esquerda; dá para trocar na calibração) | 👉 **apontar = anda para onde o dedo aponta** · ✋ palma aberta = anda para onde você olha · mão relaxada ou fechada = **parada** |
+| 🔴 **mão VERMELHA** (a da direita) | mostra o laser. Fazendo a **pistolinha 👉** (indicador esticado, médio dobrado), **atira sozinha para onde o dedo aponta**; a **barra** em cima da mão enche em 0,8 s e atira de novo enquanto a pistolinha continuar |
 
-| 👊 **qualquer mão encostando no zumbi com força** | **soco ou tapa**: estrela de pancada, som, vibração e o zumbi é empurrado para trás. São **10 socos** para derrubar (3 no zumbi de treino). Deixar a mão parada encostada não bate: é preciso afastar a mão e golpear de novo |
+| 👊 **soco ou tapa rápido** (a mão anda 15 cm em 0,2 s) com um zumbi a até 1,25 m, na direção da mão | **golpe**: estrela de pancada, som, vibração e o zumbi é empurrado para trás. São **10 socos** para derrubar (3 no zumbi de treino). A mão parada não bate: depois de um golpe ela precisa parar antes do próximo |
 
-> Desde a v18 cada mão tem um papel fixo. Com as duas mãos na câmera, a da esquerda na imagem é a azul. Com uma mão só, ela fica com o papel do lado em que apareceu. Modos antigos: `ROLES.ON: false` com `GUN.MODE: 'punho'` ou `'polegar'`.
+> Desde a v18 cada mão tem um papel fixo. Desde a v20, o **lado da visão** decide: a mão do lado esquerdo é a azul e a do direito é a vermelha. Perto do meio, a mão mantém a cor que tinha. A mesma mão detectada duas vezes vira uma só, e a cópia que ficava parada quando a mão "pulava" de lado some na hora. Modos antigos: `ROLES.ON: false` com `GUN.MODE: 'punho'` ou `'polegar'`.
 
 > Desde a v16 o gatilho é **fechar a mão**. Na pistolinha antiga a mão aponta para frente, para longe da câmera: o indicador e o polegar ficavam escondidos e o tiro falhava. O modo antigo continua em `GUN.MODE: 'polegar'`.
 
@@ -53,6 +53,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v20 | #18 | Mão não troca mais de cor nem aparece dobrada; azul só anda apontando (ou palma); tiro vai para onde o dedo aponta; socos medidos pelo movimento da mão (não precisa alcançar o zumbi) |
 | v19 | #17 | Socos e tapas: encostar a mão no zumbi com velocidade = golpe (10 para derrubar), efeito de pancada, empurrão; mão parada encostada não dá dano |
 | v18 | #16 | Mão azul anda para onde aponta, mão vermelha atira sozinha com a pistolinha, barra de recarga em cima da mão (0,8 s) |
 | v17 | #15 | Conserto: na v16 a câmera ligava sozinha ao abrir, e o Chrome do Android pausava o vídeo escondido (a mão nunca aparecia). Agora só o detector carrega ao abrir; a câmera liga no toque, e um vigia dá play de novo se o vídeo parar |
@@ -83,8 +84,8 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | O que | Onde |
 |---|---|
 | Quantidade de zumbis, ondas, velocidade, visão, mordida | `ZOMBIES` (`COUNT`, `START_COUNT`, `FIRST_WAVE_S`, `WAVE_EVERY_S`, `WAVE_SIZE`, `SPEED_MIN/MAX`, `SIGHT`, `ATTACK_S`, `HP`) |
-| Socos e tapas | `MELEE` (`PUNCHES`, `MIN_SPEED`, `RELEASE_DIST`, `COOLDOWN_MS`, `KNOCK_SPEED`, `STAGGER_S`) |
-| Papéis e cores das mãos | `ROLES` (`ON`, `WALK_COLOR`, `GUN_COLOR`, `WALK_GRACE_MS`) |
+| Socos e tapas | `MELEE` (`PUNCHES`, `MIN_DIST`, `REARM_DIST`, `WINDOW_MS`, `RANGE`, `ANGLE_DEG`, `COOLDOWN_MS`, `KNOCK_SPEED`, `STAGGER_S`) |
+| Papéis e cores das mãos | `ROLES` (`ON`, `WALK_COLOR`, `GUN_COLOR`, `WALK_GRACE_MS`, `FINGER_BLEND`, `CENTER_SLACK`) · mira: `GUN.FINGER_BLEND`, `GUN.AIM_SMOOTH` · mão dobrada: `HANDS.DUP_DIST`, `HANDS.GHOST_DIST` |
 | Pistolinha automática | `GUN.MODE: 'auto'`, `PISTOL_INDEX`, `PISTOL_MIDDLE`, `PISTOL_HOLD_MS`, `RELOAD_MS` (recarga) |
 | Gatilho da arma (mão fechada) | `GUN.FIRE_REACH` (atira), `GUN.ARM_REACH` (engatilha), `GUN.OPEN_REACH` (mão aberta = anda). Modo antigo: `GUN.MODE: 'polegar'` com `THUMB_DOWN_K`/`THUMB_UP_K` |
 | Posição da mão no óculos | `HANDS.MAP_MODE`, `HANDS.CAM_FOV_LONG` (ângulo da câmera, 64°), `REAL_NEAR`/`REAL_FAR` |

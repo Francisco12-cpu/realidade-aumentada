@@ -282,7 +282,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v19',
+  VERSION: 'v20',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -344,6 +344,8 @@ const CONFIG = {
     // vem invertido, então por padrão invertemos. A calibração confirma.
     FLIP_HANDEDNESS: true,
     LOST_GRACE_MS: 500,         // segura a mão na tela por esse tempo se sumir
+    DUP_DIST: 0.08,             // duas detecções mais perto que isso (fração da imagem) = a mesma mão
+    GHOST_DIST: 0.15,           // mão "pulou" de lado: a cópia antiga perto disso some na hora
     // 'real' = mão no mesmo ângulo e distância da mão de verdade (v16) · 'tela' = imagem esticada na tela (antigo)
     MAP_MODE: 'real',
     CAM_FOV_LONG: 64,           // ângulo de visão da câmera traseira no lado maior da imagem (graus)
@@ -433,6 +435,8 @@ const CONFIG = {
     PISTOL_INDEX: 1.5,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
     PISTOL_MIDDLE: 1.4,     // (auto) médio mais perto que isso = dobrado
     PISTOL_HOLD_MS: 200,    // (auto) pistolinha firme esse tempo antes do 1º tiro (a mira assenta)
+    FINGER_BLEND: 0.65,     // mira: 1 = só para onde o dedo aponta · 0 = só do olho até a mão
+    AIM_SMOOTH: 0.35,       // suavização da mira por quadro (menor = mais firme, mais lenta)
     FIRE_REACH: 1.3,        // (punho) indicador e médio mais perto do pulso que isso (em palmos) = mão fechada = tiro
     ARM_REACH: 1.5,         // (punho) abrir a mão além disso engatilha de novo
     OPEN_REACH: 1.75,       // (punho) acima disso nos dois dedos = mão aberta (anda, não mira)
@@ -465,7 +469,7 @@ const CONFIG = {
     SHOT_ALERT: 20,         // tiro acorda os zumbis até essa distância
     ATTACK_DIST: 0.95,
     ATTACK_S: 1.3,          // tempo entre ataques
-    ASSIST_DEG: 4,          // ajuda de mira (graus)
+    ASSIST_DEG: 7,          // ajuda de mira (graus)
     MIN_DIST_START: 25,     // os primeiros nascem pelo menos a essa distância da porta
     SPREAD: 12,             // distância entre zumbis ao espalhar
     FLOW_RADIUS: 45,        // raio do caminho calculado em volta do jogador (m)
@@ -490,6 +494,8 @@ const CONFIG = {
     WALK_COLOR: 0x2f7bff,
     GUN_COLOR: 0xe02424,
     WALK_GRACE_MS: 400,     // continua andando esse tempo se a mão azul "piscar"
+    FINGER_BLEND: 0.7,      // andar apontando: 1 = só o dedo · 0 = só do olho até a mão
+    CENTER_SLACK: 0.12,     // uma mão só perto do meio da visão mantém a cor que tinha
   },
 
   // ---- Soco / tapa (v19): encostar a mão no zumbi com força ----
@@ -497,9 +503,12 @@ const CONFIG = {
     ON: true,
     PUNCHES: 10,            // socos para derrubar um zumbi (o tiro continua matando rápido)
     DUMMY_PUNCHES: 3,       // zumbi de treino
-    MIN_SPEED: 0.5,         // a mão precisa chegar com essa velocidade (m/s): encostar parado não bate
-    RELEASE_DIST: 0.1,      // depois do golpe, afaste a mão isso (m) do zumbi para poder bater de novo
-    COOLDOWN_MS: 250,       // tempo mínimo entre golpes da mesma mão
+    MIN_DIST: 0.15,         // golpe = a mão anda mais que isso (m) em WINDOW_MS (soco, tapa)
+    REARM_DIST: 0.07,       // depois de um golpe, a mão precisa quase parar (anda menos que isso) para valer outro
+    WINDOW_MS: 200,         // janela para medir o golpe (o tremido da detecção fica bem abaixo de MIN_DIST)
+    RANGE: 1.25,            // zumbi a até essa distância do jogador (m) leva o golpe
+    ANGLE_DEG: 50,          // e na direção da mão (graus de folga)
+    COOLDOWN_MS: 300,       // tempo mínimo entre golpes da mesma mão
     KNOCK_SPEED: 1.6,       // empurrão para trás (m/s, some rápido)
     STAGGER_S: 0.6,         // o zumbi demora pelo menos isso para morder depois de apanhar
   },
@@ -2415,11 +2424,14 @@ class Gun {
     if (cur) {
       const P = cur.worldPts;
       this.camera.getWorldPosition(this._o);
-      this._k.copy(P[5]).add(P[9]).multiplyScalar(0.5);
-      this._d.subVectors(this._k, this._o).normalize();
-      this._sd.lerp(this._d, 0.5).normalize();
+      // v20: mira para onde o DEDO aponta (com um pouco da direção olho→mão)
+      if (this.aimFn) this.aimFn(cur, this._d);
+      else { this._k.copy(P[5]).add(P[9]).multiplyScalar(0.5); this._d.subVectors(this._k, this._o).normalize(); }
+      this._sd.lerp(this._d, G.AIM_SMOOTH).normalize();
       if (this._sd.lengthSq() < 0.5) this._sd.copy(this._d);
       this._tip.copy(P[8]);
+      // o raio sai da ponta do dedo (o tiro vai para onde o laser mostra)
+      this._o.copy(P[8]);
       this._hist = this._hist || [];
       this._hist.push({ t: now, d: this._sd.clone() });
       while (this._hist.length > 2 && now - this._hist[1].t > G.AIM_LAG_MS) this._hist.shift();
@@ -2633,7 +2645,7 @@ class Gun {
 // Aparece no canto (HTML) e, no óculos, num painel pequeno preso à visão (3D).
 
 const COACH_STEPS = [
-  { id: 'walk', icon: '🔵', text: 'Mão azul: aponte = anda' },
+  { id: 'walk', icon: '🔵', text: 'Azul: aponte 👉 = anda' },
   { id: 'aim', icon: '🔴', text: 'Mão vermelha = mira' },
   { id: 'shoot', icon: '👉', text: 'Pistolinha = atira' },
 ];
@@ -3125,9 +3137,21 @@ class HandTracker {
       return { lm, wlm: res.worldLandmarks[i], label, score, pLeft: isLeft ? score : 1 - score, c: { x: lm[9].x, y: lm[9].y } };
     });
 
+    // v20: a MESMA mão detectada duas vezes (uma em cima da outra) vira uma só
+    if (dets.length === 2 && Math.hypot(dets[0].c.x - dets[1].c.x, dets[0].c.y - dets[1].c.y) < H.DUP_DIST) {
+      dets.splice(dets[0].score >= dets[1].score ? 1 : 0, 1);
+    }
     const assigned = this._assign(dets, nowMs);
     for (const h of this.hands) h.present = false;
     for (const [hand, det] of assigned) this._applyDetection(hand, det, nowMs, camera);
+    // v20: a mão "pulou" de esquerda para direita: a cópia parada no lugar
+    // antigo some na hora (antes ficava meio segundo e virava outra mão)
+    for (const h of this.hands) {
+      if (h.present || nowMs - h.lastSeen > H.LOST_GRACE_MS) continue;
+      for (const [o] of assigned) {
+        if (o !== h && Math.hypot(o.lastC.x - h.lastC.x, o.lastC.y - h.lastC.y) < H.GHOST_DIST) { h.lastSeen = -1e9; break; }
+      }
+    }
   }
 
   _cost(det, hand, nowMs) {
@@ -3222,6 +3246,11 @@ class HandTracker {
       this._p.set((lm[9].x - 0.5) * 2 * tanL * (vw / m), -(lm[9].y - 0.5) * 2 * tanL * (vh / m), 0);
       hand.anchorFilter.filter(this._p, tSec);
       const d = THREE.MathUtils.clamp(hand.rawDepthF / (2 * tanL), H.REAL_NEAR, H.REAL_FAR);
+      // posição SEM filtro (para medir a velocidade do soco)
+      const dr = THREE.MathUtils.clamp(hand.rawDepth / (2 * tanL), H.REAL_NEAR, 1.2);
+      hand.rawPos = hand.rawPos || new THREE.Vector3();
+      hand.rawPos.set((lm[9].x - 0.5) * 2 * tanL * (vw / m) * dr, -(lm[9].y - 0.5) * 2 * tanL * (vh / m) * dr, -dr);
+      hand.rawT = nowMs;
       ax = this._p.x * d; ay = this._p.y * d; az = -d;
     } else {
       const ndc = this.mapUV(lm[9].x, lm[9].y, camera);
@@ -4696,7 +4725,7 @@ class CalibrationFlow {
     }
     const html = `
       <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
-      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🔵 mão azul (esquerda) = anda para onde aponta</b> e <b>🔴 mão vermelha (direita): pistolinha 👉 = atira</b> (atira sozinho; a barra mostra a recarga).</p>
+      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🔵 mão azul (lado esquerdo): aponte 👉 = anda para onde o dedo aponta</b> (mão relaxada = parada) e <b>🔴 mão vermelha (direita): pistolinha 👉 = atira</b> (atira sozinho; a barra mostra a recarga).</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Calibração salva: toque em <b>▶ Jogar no óculos</b>, ponha o celular no óculos e pronto. Começa sozinho em ' + CONFIG.LOBBY.COUNTDOWN_S + ' s (ou mostre a ✋ mão aberta). No jogo, <b>as duas mãos abertas</b> recentram a visão.</p>' : '<p class="small">Dica: calibre uma vez; depois é só um toque para jogar no óculos.</p>'}
@@ -5422,52 +5451,64 @@ function lobbyRect(c, x, y, w, h, r) {
 }
 
 // ===== js/melee.js =====
-// Soco / tapa (v19). Cada mão (azul ou vermelha, aberta ou fechada) bate no
-// zumbi quando ENCOSTA nele chegando com velocidade (golpe). Depois precisa se
-// afastar um pouco (RELEASE_DIST) antes de bater de novo: encostar e deixar a
-// mão parada lá não dá dano infinito. São MELEE.PUNCHES golpes para derrubar.
-
-const PTS = [8, 12, 16, 5, 9, 13, 17, 0]; // pontas, nós dos dedos e pulso
+// Soco / tapa (v20). Golpe = a mão faz um movimento RÁPIDO (soco para frente,
+// tapa de lado, de cima...) com um zumbi perto, na direção da mão.
+// Mede quanto a mão (posição SEM filtro) andou nos últimos ~0,2 s: mais de
+// MIN_DIST = golpe (a mão desenhada é suavizada e quase não se mexe num soco).
+// Encostar e deixar parada não bate: depois de um golpe a mão precisa
+// parar (andar menos de REARM_DIST) antes do próximo. MELEE.PUNCHES golpes derrubam.
 
 class Melee {
   constructor() {
     this._dir = new THREE.Vector3();
+    this._hw = new THREE.Vector3();
+    this._eye = new THREE.Vector3();
   }
 
-  // hands: mãos do rastreador · horde: zumbis · player: posição do jogador
-  // Retorna a lista de golpes deste quadro: [{ zombie, kill, point, need }]
-  update(now, dt, hands, horde, player) {
+  // hands · horde · player (posição do rig) · camera
+  // Retorna os golpes deste quadro: [{ zombie, kill, point, need }]
+  update(now, dt, hands, horde, player, camera) {
     const M = CONFIG.MELEE;
     const out = [];
+    camera.getWorldPosition(this._eye);
     for (const h of hands) {
-      const st = h._melee || (h._melee = { prev: new THREE.Vector3(), speed: 0, inside: null, last: -1e9, has: false });
-      if (!h.visible) { st.has = false; st.inside = null; st.speed = 0; continue; }
-      // velocidade da mão em relação à cabeça (andar com a mão parada não conta)
-      const c = h.camPts[9];
-      if (st.has && dt > 0) {
-        const v = c.distanceTo(st.prev) / dt;
-        st.speed += (v - st.speed) * Math.min(1, dt * 20);
+      const st = h._melee || (h._melee = { hist: [], speed: 0, armed: true, last: -1e9, lastT: 0 });
+      if (!h.visible || !h.rawPos) { st.hist.length = 0; st.speed = 0; st.armed = true; continue; }
+      if (h.rawT !== st.lastT) {
+        st.lastT = h.rawT;
+        st.hist.push({ t: h.rawT, p: h.rawPos.clone() });
+        while (st.hist.length && h.rawT - st.hist[0].t > M.WINDOW_MS) st.hist.shift();
+        // quanto a mão andou nos últimos WINDOW_MS (o tremido não passa de
+        // poucos centímetros; um soco ou tapa passa de MIN_DIST)
+        st.speed = 0;
+        for (const a of st.hist) if (h.rawT - a.t <= M.WINDOW_MS) st.speed = Math.max(st.speed, a.p.distanceTo(h.rawPos));
       }
-      st.prev.copy(c); st.has = true;
-      if (st.inside) {
-        // ainda colada no mesmo zumbi? só solta quando a mão se afastar
-        const z = st.inside;
-        let near = false;
-        if (!z.dead) for (const i of PTS) { const t = horde.touch(h.worldPts[i], 0.04 + M.RELEASE_DIST); if (t && t.zombie === z) { near = true; break; } }
-        if (!near) st.inside = null;
-        continue;
+      if (st.speed < M.REARM_DIST) st.armed = true;
+      if (!st.armed || st.speed < M.MIN_DIST || now - st.last < M.COOLDOWN_MS) continue;
+      // zumbi perto e na direção da mão
+      this._hw.copy(h.worldPts[9]).sub(this._eye); this._hw.y = 0;
+      if (this._hw.lengthSq() < 1e-6) continue;
+      this._hw.normalize();
+      let best = null, bd = Infinity;
+      for (const z of horde.list) {
+        if (z.dead) continue;
+        const zp = z.m.root.position;
+        this._dir.set(zp.x - player.x, 0, zp.z - player.z);
+        const d = this._dir.length();
+        if (d > M.RANGE || d < 1e-3 || Math.abs(zp.y - player.y) > 1) continue;
+        this._dir.divideScalar(d);
+        const ang = THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(this._dir.dot(this._hw), -1, 1)));
+        if (ang > M.ANGLE_DEG) continue;
+        if (d < bd) { bd = d; best = z; }
       }
-      let hit = null, at = null;
-      for (const i of PTS) { hit = horde.touch(h.worldPts[i]); if (hit) { at = h.worldPts[i]; break; } }
-      if (!hit) continue;
-      st.inside = hit.zombie;
-      if (st.speed < M.MIN_SPEED || now - st.last < M.COOLDOWN_MS) continue; // só encostou: não conta
+      if (!best) continue;
+      st.armed = false;
       st.last = now;
-      const z = hit.zombie, zp = z.m.root.position;
-      this._dir.set(zp.x - player.x, 0, zp.z - player.z);
-      if (this._dir.lengthSq() > 1e-6) this._dir.normalize();
-      const kill = horde.punch(z, this._dir);
-      out.push({ zombie: z, kill, point: at.clone(), need: z.dummy ? M.DUMMY_PUNCHES : M.PUNCHES });
+      const zp = best.m.root.position;
+      this._dir.set(zp.x - player.x, 0, zp.z - player.z).normalize();
+      const kill = horde.punch(best, this._dir);
+      const point = new THREE.Vector3(zp.x - this._dir.x * 0.28, zp.y + 1.25 * best.m.scale, zp.z - this._dir.z * 0.28);
+      out.push({ zombie: best, kill, point, need: best.dummy ? M.DUMMY_PUNCHES : M.PUNCHES });
     }
     return out;
   }
@@ -5577,6 +5618,7 @@ class App {
     this._hv = new THREE.Vector3();
     this._eyeP = new THREE.Vector3();
     this._walkDir = new THREE.Vector3(0, 0, -1);
+    this._dirB = new THREE.Vector3();
     this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
@@ -6264,10 +6306,12 @@ class App {
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
       const w = this.hands.hands.find((h) => h.role === 'walk' && h.visible);
-      if (w && !this._isFistLike(w)) {
-        // direção: do olho até a mão azul, no plano do chão
-        this.camera.getWorldPosition(this._eyeP);
-        this._hv.copy(w.worldPts[5]).add(w.worldPts[9]).multiplyScalar(0.5).sub(this._eyeP);
+      // v20: a mão azul só anda fazendo um gesto: 👉 apontar = anda para onde o
+      // dedo aponta · ✋ palma aberta = anda para onde você olha. Outro jeito = parada.
+      const pointing = w && this._isPointing(w), palm = w && !pointing && this._isPalm(w);
+      if (pointing || palm) {
+        if (pointing) this._fingerDir(w, this._hv, CONFIG.ROLES.FINGER_BLEND);
+        else this.camera.getWorldDirection(this._hv);
         this._hv.y = 0;
         if (this._hv.lengthSq() > 1e-6) {
           this._hv.normalize();
@@ -6311,6 +6355,7 @@ class App {
     if (active) {
       const fire = !!input.fire;
       input.fire = false;
+      this.gun.aimFn = (h, out) => this._fingerDir(h, out, CONFIG.GUN.FINGER_BLEND);
       this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
       this.horde.update(dt, this.rig.position);
       if (CONFIG.MELEE.ON) this._updateMelee(now, dt);
@@ -6412,22 +6457,45 @@ class App {
   // andar). Com uma mão só, ela ganha o papel pelo lado em que apareceu e
   // fica com ele enquanto não sumir.
   _assignRoles() {
+    // v20: o lado da visão decide (com folga no meio para não ficar trocando):
+    // mão do lado esquerdo = AZUL (anda), do lado direito = VERMELHA (atira)
     const walkLeft = this.calib.locomotion !== 'right';
     const vis = this.hands.hands.filter((h) => h.visible);
     for (const h of this.hands.hands) if (!h.visible) h.role = null;
+    const roleOf = (left) => (left === walkLeft ? 'walk' : 'gun');
+    const x = (h) => h.camPts[9].x / Math.max(0.15, -h.camPts[9].z); // ângulo (tangente) na visão
     if (vis.length === 2) {
-      const [a, b] = vis[0].camPts[9].x <= vis[1].camPts[9].x ? vis : [vis[1], vis[0]];
-      a.role = walkLeft ? 'walk' : 'gun';
-      b.role = walkLeft ? 'gun' : 'walk';
-    } else if (vis.length === 1 && !vis[0].role) {
-      const onLeft = vis[0].camPts[9].x < 0;
-      vis[0].role = onLeft === walkLeft ? 'walk' : 'gun';
+      const [a, b] = x(vis[0]) <= x(vis[1]) ? vis : [vis[1], vis[0]];
+      a.role = roleOf(true);
+      b.role = roleOf(false);
+    } else if (vis.length === 1) {
+      const h = vis[0], hx = x(h), M = CONFIG.ROLES.CENTER_SLACK;
+      if (hx < -M) h.role = roleOf(true);
+      else if (hx > M) h.role = roleOf(false);
+      else if (!h.role) h.role = this._lastRole || roleOf(hx < 0);
+      this._lastRole = h.role;
     }
+  }
+
+  // mão da arma / de andar: indicador esticado e médio dobrado (pistolinha / apontar)
+  _isPointing(h) { return this.gun._isPistol(h, this.calib.thresholds); }
+
+  // direção para onde o indicador aponta (no mundo), misturada com a direção
+  // do olho até a mão (a ponta do dedo sozinha treme). Retorna em out.
+  _fingerDir(h, out, blend) {
+    const P = h.worldPts;
+    out.subVectors(P[8], P[5]);
+    const L = out.length();
+    this.camera.getWorldPosition(this._eyeP);
+    this._dirB.copy(P[5]).add(P[9]).multiplyScalar(0.5).sub(this._eyeP).normalize();
+    if (L < 1e-4) return out.copy(this._dirB);
+    out.divideScalar(L).multiplyScalar(blend).addScaledVector(this._dirB, 1 - blend).normalize();
+    return out;
   }
 
   // v19: soco/tapa (lógica em melee.js); aqui só os efeitos e o placar
   _updateMelee(now, dt) {
-    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position)) {
+    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position, this.camera)) {
       const z = e.zombie;
       this.sfx.punch(e.kill);
       this._pow(e.point, e.kill);
@@ -6523,9 +6591,9 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Mão <b>AZUL</b> (esquerda): mostre e <b>aponte para onde quer ir</b>. Feche a mão ou abaixe para parar. De perto, dá para dar <b>socos e tapas</b> 👊.',
+      walk: 'Mão <b>AZUL</b> (lado esquerdo): <b>aponte 👉 para onde quer ir</b> (ou ✋ palma aberta = anda para onde olha). Mão relaxada ou fechada = parada. De perto, <b>socos e tapas</b> 👊.',
       aim: 'Mão <b>VERMELHA</b> (direita): mostre para a câmera. Aparece o laser.',
-      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> em cima do zumbi. Atira sozinho; a <b>barra</b> mostra a recarga. Ou chegue perto e dê <b>3 socos</b> 👊.',
+      shoot: 'Mão vermelha: faça a <b>pistolinha 👉</b> apontando o dedo para o zumbi. Atira sozinho; a <b>barra</b> mostra a recarga. Ou chegue perto e dê <b>3 socos</b> 👊 rápidos.',
     };
     const g = this.gun.state;
     this.coach.update({

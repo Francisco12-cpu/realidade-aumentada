@@ -152,7 +152,7 @@ export class CalibrationFlow {
     }
     const html = `
       <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
-      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🔵 mão azul (esquerda) = anda para onde aponta</b> e <b>🔴 mão vermelha (direita): pistolinha 👉 = atira</b> (atira sozinho; a barra mostra a recarga).</p>
+      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🔵 mão azul (lado esquerdo): aponte 👉 = anda para onde o dedo aponta</b> (mão relaxada = parada) e <b>🔴 mão vermelha (direita): pistolinha 👉 = atira</b> (atira sozinho; a barra mostra a recarga).</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Calibração salva: toque em <b>▶ Jogar no óculos</b>, ponha o celular no óculos e pronto. Começa sozinho em ' + CONFIG.LOBBY.COUNTDOWN_S + ' s (ou mostre a ✋ mão aberta). No jogo, <b>as duas mãos abertas</b> recentram a visão.</p>' : '<p class="small">Dica: calibre uma vez; depois é só um toque para jogar no óculos.</p>'}

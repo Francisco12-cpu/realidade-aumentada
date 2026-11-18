@@ -283,9 +283,21 @@ export class HandTracker {
       return { lm, wlm: res.worldLandmarks[i], label, score, pLeft: isLeft ? score : 1 - score, c: { x: lm[9].x, y: lm[9].y } };
     });
 
+    // v20: a MESMA mão detectada duas vezes (uma em cima da outra) vira uma só
+    if (dets.length === 2 && Math.hypot(dets[0].c.x - dets[1].c.x, dets[0].c.y - dets[1].c.y) < H.DUP_DIST) {
+      dets.splice(dets[0].score >= dets[1].score ? 1 : 0, 1);
+    }
     const assigned = this._assign(dets, nowMs);
     for (const h of this.hands) h.present = false;
     for (const [hand, det] of assigned) this._applyDetection(hand, det, nowMs, camera);
+    // v20: a mão "pulou" de esquerda para direita: a cópia parada no lugar
+    // antigo some na hora (antes ficava meio segundo e virava outra mão)
+    for (const h of this.hands) {
+      if (h.present || nowMs - h.lastSeen > H.LOST_GRACE_MS) continue;
+      for (const [o] of assigned) {
+        if (o !== h && Math.hypot(o.lastC.x - h.lastC.x, o.lastC.y - h.lastC.y) < H.GHOST_DIST) { h.lastSeen = -1e9; break; }
+      }
+    }
   }
 
   _cost(det, hand, nowMs) {
@@ -380,6 +392,11 @@ export class HandTracker {
       this._p.set((lm[9].x - 0.5) * 2 * tanL * (vw / m), -(lm[9].y - 0.5) * 2 * tanL * (vh / m), 0);
       hand.anchorFilter.filter(this._p, tSec);
       const d = THREE.MathUtils.clamp(hand.rawDepthF / (2 * tanL), H.REAL_NEAR, H.REAL_FAR);
+      // posição SEM filtro (para medir a velocidade do soco)
+      const dr = THREE.MathUtils.clamp(hand.rawDepth / (2 * tanL), H.REAL_NEAR, 1.2);
+      hand.rawPos = hand.rawPos || new THREE.Vector3();
+      hand.rawPos.set((lm[9].x - 0.5) * 2 * tanL * (vw / m) * dr, -(lm[9].y - 0.5) * 2 * tanL * (vh / m) * dr, -dr);
+      hand.rawT = nowMs;
       ax = this._p.x * d; ay = this._p.y * d; az = -d;
     } else {
       const ndc = this.mapUV(lm[9].x, lm[9].y, camera);
