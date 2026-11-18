@@ -478,6 +478,7 @@ export class HandView {
   update() {
     const h = this.hand;
     this.group.visible = h.visible;
+    this.band.visible = !CONFIG.ROLES.ON; // com papéis, a cor da mão inteira já diz quem é quem
     if (!h.visible) return;
     const P = h.camPts;
 
