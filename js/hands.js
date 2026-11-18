@@ -205,7 +205,7 @@ export class HandTracker {
         const ts = Math.max(nowMs, this.lastTs + 1);
         this.lastTs = ts;
         const vw = v.videoWidth, vh = v.videoHeight;
-        const sc = Math.min(1, H.WORKER_MAX_SIDE / Math.max(vw, vh));
+        const sc = Math.min(1, (this.maxSide || H.WORKER_MAX_SIDE) / Math.max(vw, vh));
         createImageBitmap(v, { resizeWidth: Math.round(vw * sc), resizeHeight: Math.round(vh * sc), resizeQuality: 'low' })
           .then((bmp) => this.worker.postMessage({ type: 'frame', bitmap: bmp, ts }, [bmp]))
           .catch(() => { this._busy = false; });

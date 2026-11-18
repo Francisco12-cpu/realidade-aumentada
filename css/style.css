@@ -191,3 +191,7 @@ table.rank tr.me td { background: rgba(0, 229, 255, 0.18); font-weight: 600; }
 body.stereo #coach, body.xr #coach { display: none; }
 #btn-skip { display: none; position: fixed; right: 10px; bottom: 74px; z-index: 6; }
 body.tutorial:not(.stereo):not(.xr) #btn-skip { display: block; }
+
+/* v14: botão grande "Jogar no óculos" e código do perfil */
+#overlay .btns button.big { flex: 1 1 100%; min-height: 64px; font-size: 20px; }
+#overlay textarea { width: 100%; box-sizing: border-box; font: 12px monospace; background: #0b1118; color: #d8e2ea; border: 1px solid #2a3a48; border-radius: 8px; padding: 6px; word-break: break-all; }

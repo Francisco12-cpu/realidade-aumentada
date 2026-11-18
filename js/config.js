@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v13',
+  VERSION: 'v15',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -65,6 +65,7 @@ export const CONFIG = {
     VIDEO_H: 480,
     USE_WORKER: true,           // detecção numa thread separada (muito mais FPS)
     WORKER_MAX_SIDE: 480,       // reduz a imagem enviada ao worker (px do lado maior)
+    WORKER_MIN_SIDE: 352,       // se o FPS cair muito, a imagem das mãos diminui até isso
     MAX_DETECT_HZ: 30,          // detecções por segundo, no máximo
     DETECT_EVERY_N_FRAMES: 1,   // (modo normal) 2 = detecta em quadros alternados
     MIN_DETECTION_CONF: 0.4,    // mais baixo = acha a mão mais fácil (com pouca luz também)
@@ -191,6 +192,14 @@ export const CONFIG = {
     DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
   },
 
+  // ---- Começar no óculos (v14) ----
+  LOBBY: {
+    COUNTDOWN_S: 10,        // tempo para pôr o óculos no rosto antes de começar sozinho
+    HOLD_MS: 1500,          // mão aberta parada esse tempo = começar já
+    RECENTER_HOLD_MS: 1500, // durante o jogo: as duas mãos abertas esse tempo = recentrar
+  },
+  PROFILE_KEYS: ['cacador-sinal-calib-v1', 'cacador-sinal-vr-v1', 'cacador-sinal-opcoes-v1'],
+
   // ---- Jogador ----
   PLAYER: {
     HP: 5,                  // vidas (cada mordida tira 1)
@@ -215,6 +224,7 @@ export const CONFIG = {
     LUGARES_POR_AREA: 4,    // lugares possíveis em cada área (sorteio)
     DIST_MIN: 3,            // distância mínima entre lugares (m)
     LONGE_DO_INICIO: 8,     // nenhum ponto a menos disso do início (m)
+    DETAIL_DIST: 28,        // detalhes (carros, pessoas, plantas, móveis) somem além disso (m)
     FOG_NEAR: 18,
     FOG_FAR: 55,
   },

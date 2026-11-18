@@ -2,7 +2,7 @@
 // Estados: boot -> calibration -> tutorial -> playing -> ended
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { buildWorld, loadSchool } from './scene.js';
+import { buildWorld, loadSchool, updateDetails } from './scene.js';
 import { OrientationController } from './orientation.js';
 import { HandTracker, HandView } from './hands.js';
 import { updateHandGesture } from './gestures.js';
@@ -19,6 +19,7 @@ import { addResult, rename, rankingTable } from './ranking.js';
 import { Gun } from './gun.js';
 import { Horde } from './zombies.js';
 import { Coach } from './coach.js';
+import { Lobby } from './lobby.js';
 
 class App {
   constructor() {
@@ -110,6 +111,7 @@ class App {
       onWave: (n) => { if (this.state === 'playing') { this.toast(`🧟 Chegaram mais ${n} zumbis!`); this.sfx.alarm(); } },
     });
     this.coach = new Coach(this.camera);
+    this.lobby = new Lobby(this.camera);
     this.hp = CONFIG.PLAYER.HP;
     this.lastPalm = -1e9;
     this._fx = [];
@@ -195,7 +197,8 @@ class App {
       if (el) el.innerHTML = t;
     };
     try {
-      await loadSchool(this.world, this.scene, (msg, f) => setText(`🏫 ${msg}… ${Math.round(f * 100)}%`));
+      const aniso = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+      await loadSchool(this.world, this.scene, (msg, f) => setText(`🏫 ${msg}… ${Math.round(f * 100)}%`), aniso);
       this.rig.rotation.y = CONFIG.MAP.SPAWN_YAW;
       this._clearTargets();
       if (this.state === 'boot' || this.state === 'calibration') { this.rig.position.copy(this.world.spawn); this.floorY = this.world.spawn.y; }
@@ -260,6 +263,7 @@ class App {
   startTutorial() {
     if (this._waitMap(() => this.startTutorial())) return;
     this.calibration.hide();
+    this.lobby.close();
     this.state = 'tutorial';
     this._resetWorld();
     this.tutorial = { walk: false, aim: false, shoot: false };
@@ -317,6 +321,7 @@ class App {
   startGame() {
     if (this._waitMap(() => this.startGame())) return;
     this.calibration.hide();
+    this.lobby.close();
     this.state = 'playing';
     this._resetWorld();
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
@@ -451,6 +456,16 @@ class App {
       { label: 'Tutorial', onClick: () => this.startTutorial() },
       { label: 'Recalibrar', onClick: () => this.recalibrate() },
     ]);
+    // no óculos: resultado na lente e mão aberta = jogar de novo
+    if (this.inHeadset()) {
+      this.lobby.open({
+        title: win ? '🎉 Escola salva!' : bitten ? '🧟 Te pegaram!' : '⏰ Acabou o tempo',
+        lines: [`${rec.points} pontos · zumbis ${fixed}/${all.length}`, '✋ mão aberta = jogar de novo'],
+        holdMs: CONFIG.LOBBY.HOLD_MS * 1.3,
+        armMs: 2500,
+        onGo: () => { clearInterval(this._autoT); this.recenter(); this.startGame(); },
+      });
+    }
     // nome no ranking (opcional)
     const input = document.getElementById('rank-name');
     const saveName = () => {
@@ -482,10 +497,72 @@ class App {
   nextPlayer() {
     clearInterval(this._autoT);
     document.body.classList.remove('playing', 'tutorial');
-    if (this.xrActive) this.renderer.xr.getSession().end();
+    // no óculos: fica no óculos e espera o próximo jogador mostrar a mão aberta
+    if (this.inHeadset() && this.devicesReady) {
+      this.calibration.nextPlayer();
+      this._openLobby(false);
+      return;
+    }
     this.state = 'next';
     this._resetWorld();
     this.calibration.nextPlayer();
+  }
+
+  // ---------------------------------------------------------------
+  // v14: jogar no óculos com UM toque (usa a calibração salva).
+  // Entra no óculos já no toque (o navegador exige), liga câmera e mãos
+  // por trás e mostra o saguão na lente: contagem para pôr no rosto,
+  // ou mão aberta parada para começar na hora.
+  // ---------------------------------------------------------------
+  inHeadset() { return this.stereo || this.xrActive; }
+
+  playInHeadset() {
+    if (!this.inHeadset()) this.toggleVR(); // 1ª coisa do toque
+    const saved = loadCalib();
+    Object.assign(this.calib, saved || defaultCalib());
+    this.calibration.hide();
+    this._openLobby(true);
+    this.lobby.setStatus('Ligando a câmera…');
+    this.initDevices((m) => this.lobby.setStatus(String(m).replace(/<[^>]+>/g, '')), true).then((ok) => {
+      if (ok) { this.lobby.setStatus(saved ? 'Calibração salva carregada' : 'Sem calibração: usando o padrão'); return; }
+      this.lobby.setStatus('A câmera não abriu: tire o óculos');
+      setTimeout(() => {
+        this.lobby.close();
+        this.exitHeadset();
+        this.calibration._showInitError(() => this.playInHeadset());
+      }, 2500);
+    });
+  }
+
+  exitHeadset() {
+    if (this.xrActive) this.renderer.xr.getSession().end();
+    else if (this.stereo) this.setStereo(false);
+  }
+
+  // countdown: true = "coloque no rosto" com contagem; false = espera a mão aberta
+  _openLobby(countdown, title) {
+    this.state = 'lobby';
+    this._resetWorld();
+    document.body.classList.remove('playing', 'tutorial');
+    const tut = this.options.tutorial !== false;
+    const L = CONFIG.LOBBY;
+    this.lobby.open({
+      title: title || (countdown ? '👓 Coloque o óculos no rosto' : '👤 Próximo jogador'),
+      lines: countdown
+        ? ['Olhe para frente.', `Começa sozinho, ou ✋ mão aberta = já`]
+        : ['Olhe para frente e mostre', '✋ a mão aberta para começar'],
+      countdownS: countdown ? L.COUNTDOWN_S : 0,
+      holdMs: L.HOLD_MS,
+      armMs: countdown ? 0 : 1000,
+      onGo: () => { this.recenter(); if (tut) this.startTutorial(); else this.startGame(); },
+    });
+  }
+
+  _lobbyReady() { return this.devicesReady && this.mapDone; }
+
+  _lobbyStatus() {
+    if (!this.mapDone) return this.mapText.replace(/<[^>]+>/g, '');
+    return null;
   }
 
   recalibrate() {
@@ -599,8 +676,12 @@ class App {
     const max = Math.min(window.devicePixelRatio || 1, Q.PIXEL_RATIO);
     if (fps < Q.LOW_FPS) { q.low++; q.high = 0; } else if (fps > Q.HIGH_FPS) { q.high++; q.low = 0; } else { q.low = 0; q.high = 0; }
     let pr = this.pixelRatio;
+    const H = CONFIG.HANDS, hs = this.hands.maxSide || H.WORKER_MAX_SIDE;
     if (q.low >= 2 && pr > Q.MIN_PIXEL_RATIO) { pr = Math.max(Q.MIN_PIXEL_RATIO, pr - 0.15); q.low = 0; }
-    if (q.high >= 6 && pr < max) { pr = Math.min(max, pr + 0.1); q.high = 0; }
+    // já na resolução mínima e ainda lento: a imagem das mãos também diminui
+    else if (q.low >= 3 && hs > H.WORKER_MIN_SIDE) { this.hands.maxSide = Math.max(H.WORKER_MIN_SIDE, hs - 64); q.low = 0; }
+    if (q.high >= 6 && hs < H.WORKER_MAX_SIDE) { this.hands.maxSide = Math.min(H.WORKER_MAX_SIDE, hs + 64); q.high = 0; }
+    else if (q.high >= 6 && pr < max) { pr = Math.min(max, pr + 0.1); q.high = 0; }
     if (pr !== this.pixelRatio) { this.pixelRatio = pr; this.renderer.setPixelRatio(pr); this.resize(); }
   }
 
@@ -715,6 +796,16 @@ class App {
     } else {
       this.gun.hide();
     }
+    // saguão do óculos (antes da partida / no fim): mão aberta parada = começar
+    if (this.lobby.active) {
+      const palm = this.hands.hands.some((h) => this._isPalm(h));
+      const st = this._lobbyStatus();
+      if (st) this.lobby.setStatus(st);
+      this.lobby.update(now, palm || !!input.fire, this._lobbyReady());
+      input.fire = false;
+    }
+    // durante o jogo: as DUAS mãos abertas paradas = recentrar a visão
+    if (active) this._recenterGesture(now);
     for (const v of this.handViews) { v.tint = this.gun.tintFor(v.hand.side, now); v.update(); }
     this._updateFx(dt);
 
@@ -731,7 +822,8 @@ class App {
     this._updateHud(active);
     this._updateCoach(active);
 
-    // 6) render
+    // 6) render (detalhes longe da escola somem; confere 5× por segundo)
+    if (now - (this._detT || 0) > 200) { this._detT = now; updateDetails(this.world, this.rig.position); }
     this._render();
     this.debug.frame(now, dtMs);
     this._adaptQuality(now);
@@ -784,6 +876,17 @@ class App {
     this.prevDown.clear();
     for (const p of list) this.prevDown.set(p.id, p.down);
     return list;
+  }
+
+  _recenterGesture(now) {
+    const both = this.hands.hands.every((h) => this._isPalm(h));
+    if (!both) { this._bothPalmAt = 0; this._recentered = false; return; }
+    if (!this._bothPalmAt) this._bothPalmAt = now;
+    if (!this._recentered && now - this._bothPalmAt > CONFIG.LOBBY.RECENTER_HOLD_MS) {
+      this._recentered = true;
+      this.recenter();
+      this.toast('⟲ Visão recentrada');
+    }
   }
 
   _debugWalk(dt, move) {
