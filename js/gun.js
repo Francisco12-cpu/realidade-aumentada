@@ -157,7 +157,10 @@ export class Gun {
   _updateHead(now, hands, thr, manualFire, findHit) {
     // mão fazendo a pistolinha agora (prefere a mesma de antes)
     let ph = null;
-    for (const h of hands) if (h.visible && h.present && this._isPistol(h, thr) && (!ph || h.side === this.side)) ph = h;
+    for (const h of hands) {
+      if (this.onlySide && h.side !== this.onlySide) continue; // v22: só a mão da arma
+      if (h.visible && h.present && this._isPistol(h, thr) && (!ph || h.side === this.side)) ph = h;
+    }
     if (ph) {
       this.side = ph.side;
       this._pistolSeen = now;

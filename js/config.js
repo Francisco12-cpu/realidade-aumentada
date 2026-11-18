@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v21',
+  VERSION: 'v22',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -84,6 +84,9 @@ export const CONFIG = {
     REAL_FAR: 0.75,
     TRACK_MEMORY_MS: 600,       // memória de posição p/ não trocar esquerda/direita
     LABEL_WEIGHT: 1.0,          // peso do rótulo do MediaPipe na atribuição
+    SIDE_WEIGHT: 0.8,           // v22: peso do lado da imagem (esquerda/direita) na atribuição
+    SIDE_AVG: 0.12,             // v22: média do rótulo por detecção (~1 s)
+    SWAP_BELOW: 0.25,           // v22: se a média do rótulo cair abaixo disso, a mão troca de lado
     POS_WEIGHT: 4.0,            // peso da continuidade de posição
     // Profundidade virtual (distância da mão à câmera no mundo 3D, em m)
     VIRTUAL_NEAR: 0.28,
@@ -230,6 +233,9 @@ export const CONFIG = {
     WALK_GRACE_MS: 400,     // continua andando esse tempo se a mão azul "piscar"
     FINGER_BLEND: 0.7,      // andar apontando: 1 = só o dedo · 0 = só do olho até a mão
     CENTER_SLACK: 0.12,     // uma mão só perto do meio da visão mantém a cor que tinha
+    STRICT_SIDES: true,     // v22: só a mão DIREITA atira e só a ESQUERDA anda (troca na calibração)
+    WALK_DIM: 0x24406e,     // cor da mão de andar parada
+    GUN_DIM: 0x6e2424,      // cor da mão da arma parada
   },
 
   // ---- Soco / tapa (v19): encostar a mão no zumbi com força ----
@@ -243,6 +249,9 @@ export const CONFIG = {
     RANGE: 1.25,            // zumbi a até essa distância do jogador (m) leva o golpe
     ANGLE_DEG: 50,          // e na direção da mão (graus de folga)
     COOLDOWN_MS: 300,       // tempo mínimo entre golpes da mesma mão
+    GAP_MS: 700,            // v22: mão sumiu menos que isso e voltou longe = golpe
+    VANISH_MS: 120,         // v22: mão que vinha se mexendo e sumiu por isso = golpe (borrão do soco)
+    VANISH_MOVE: 0.06,      // v22: ...se tinha andado pelo menos isso (m) logo antes
     KNOCK_SPEED: 1.6,       // empurrão para trás (m/s, some rápido)
     STAGGER_S: 0.6,         // o zumbi demora pelo menos isso para morder depois de apanhar
   },
@@ -251,6 +260,9 @@ export const CONFIG = {
   PLAYER: {
     HP: 5,                  // vidas (cada mordida tira 1)
     WALK_GRACE_MS: 450,     // continua andando esse tempo se a palma "piscar"
+    PALM_START_MS: 250,     // v22: palma aberta segurada esse tempo para começar a andar
+    WALK_STOP_MS: 250,      // v22: parou de ver a palma: para depois disso
+    PALM_REACH: 1.7,        // v22: indicador e médio mais longe do pulso que isso (palmos) = palma aberta de verdade
     PALM_FINGERS: 4,        // dedos esticados para contar como mão aberta (de 4)
     NO_WALK_AFTER_GUN_MS: 600, // depois de mirar, a mão da arma não anda por esse tempo
   },
