@@ -1,14 +1,31 @@
-# Caçador de Sinal — protótipo VR (versão de teste)
+# Escola Zumbi — protótipo VR (versão de teste)
 
-Protótipo para a feira de ciências. A ideia é **testar as mecânicas**, não fazer o jogo final:
+Protótipo para a feira de ciências (começou como *Caçador de Sinal*). A escola foi tomada por **zumbis**: o jogador anda pela escola de verdade e elimina todos, **sem tocar no celular**, só com as mãos na frente da câmera.
 
-- a visão gira junto com o celular;
-- as mãos aparecem no jogo (rastreadas pela câmera traseira);
-- gestos;
-- teleporte;
-- tocar caixas e arrastar fios.
+| Gesto | O que faz |
+|---|---|
+| ✋ **mão aberta** | anda para onde você está olhando (abaixe a mão para parar) |
+| 👉 **pistolinha** (indicador esticado, polegar para cima) | a arma aparece: laser vermelho e a mão fica **vermelha** = pronta |
+| 👍⬇ **abaixar o polegar** (como o cão de um revólver) | **atira**; a mão fica **cinza** enquanto recarrega. Levante o polegar de novo para engatilhar |
 
-O mapa é a **escola de verdade**: o modelo 3D original do Centro Educa Mais José Mariano Muniz (`models/escola.glb`, exportado do SketchUp, sem nenhuma melhoria). As **caixas pretas** são os pontos de sinal. Se o modelo não carregar, o jogo usa o mapa antigo de blocos coloridos.
+Uma **dica no cantinho da tela** (e um painel pequeno no canto da visão, no óculos) mostra esses três gestos o tempo todo e acende o que você está fazendo.
+
+O mapa é a **escola de verdade** (Centro Educa Mais José Mariano Muniz, `models/escola.glb`). O jogador começa **na porta**, no portão do muro oeste, olhando para dentro.
+
+### Zumbis
+
+- Nascem espalhados **dentro do muro da escola**, longe da porta (12 na partida, 8 no modo feira).
+- Ficam vagando até **ver** você (até 13 m, sem parede no meio), **ouvir** você (5 m) ou ouvir um **tiro** (20 m). Aí perseguem pelo caminho a pé: contornam paredes e passam pelas portas.
+- De perto, **mordem**: você tem **5 vidas** (❤ no alto da tela; a tela pisca vermelho e o celular vibra).
+- **Tiro na cabeça mata na hora**; no corpo são 2 tiros. Tem uma pequena ajuda de mira.
+- A setinha no alto da tela aponta o zumbi mais perto.
+- Vence quem eliminar todos antes do tempo (5 min; 3 min no modo feira). Pontos: 100 por zumbi + 2 por segundo que sobrou.
+
+### Tutorial
+
+Começa na porta, com um **zumbi de treino** parado na frente. Os passos aparecem na dica do canto: andar, fazer a pistolinha, atirar. Quando os três estão feitos, a partida começa sozinha em 3 s (não precisa tocar no celular). Na tela normal tem o botão **Pular tutorial ⏭**.
+
+Sem câmera (PC): **W** anda, **espaço** ou o botão **🔫 Atirar** atira no centro da tela; um toque rápido na tela também atira.
 
 Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregados por CDN. Não tem etapa de build.
 
@@ -25,18 +42,19 @@ Tudo é HTML/JS puro, com **Three.js** e **MediaPipe Hand Landmarker** carregado
 
 **Atalho: arquivo único.** O arquivo `dist/index.html` tem o jogo inteiro (CSS e JS embutidos). Ele é **gerado sozinho** por uma GitHub Action (`.github/workflows/arquivo-unico.yml`) a cada mudança no código da `main`, então nunca fica desatualizado. Para gerar à mão: `python3 tools/build-single.py`.
 
+> **Atenção:** as partes deste README que falam de **caixas, fios e detector de sinal** são do jogo anterior (*Caçador de Sinal*). Esse código continua no projeto (`js/interaction.js`), mas fica desligado no jogo de zumbis.
+
 ## Modo feira
 
 Ligue o botão **🎪 Modo feira** na tela inicial (fica salvo no celular), ou abra o link com `?feira` no final.
 
-- Partida de **3 minutos** com **4 caixas** (sala vermelha, cantina, quadra e biblioteca).
-- O tutorial começa do lado do pedestal: só tocar a caixa e ligar o fio.
+- Partida de **3 minutos** com **8 zumbis**.
 - No fim da partida aparece **👤 Próximo jogador**, e depois de 25 s o jogo volta sozinho para essa tela. A calibração e as permissões continuam valendo.
 - Os números ficam em `CONFIG.FEIRA` (`js/config.js`).
 
 ## Mapa da escola
 
-- O modelo fica em `models/escola.glb` (17 MB, 205 mil triângulos). Na primeira vez ele baixa com barra de progresso. Depois o `sw.js` guarda o modelo e ele abre sem internet.
+- O modelo fica em `models/escola.glb` (10 MB, 202 mil triângulos, 72 peças — versão leve feita no Blender a partir do original: peças juntadas por material, texturas até 1024 px em WEBP). Na primeira vez ele baixa com barra de progresso. Depois o `sw.js` guarda o modelo e ele abre sem internet.
 - **Colisão automática** (`js/mapa.js`): o jogo lê os triângulos do próprio modelo e monta uma grade de 25 cm.
   - Superfícies horizontais baixas viram chão. Degraus de até 36 cm dá para subir; mesas e balcões bloqueiam.
   - Superfícies verticais viram parede, mas só entre 35 cm e 1,75 m acima do chão (assim o vão da porta passa).
@@ -185,7 +203,10 @@ js/hands.js         MediaPipe, esquerda/direita estável, profundidade, suaviza�
 js/filters.js       filtro One Euro
 js/gestures.js      classificação dos gestos e limiares a partir da calibração
 js/teleport.js      parábola, limites, teleporte
-js/interaction.js   tocar caixa, painel, fios, pinça, detector de sinal
+js/interaction.js   (jogo antigo, desligado) tocar caixa, painel, fios, pinça
+js/zombies.js       zumbis: boneco, espalhar, perseguir pelo caminho, morder, levar tiro
+js/gun.js           arma de mão: pistolinha, gatilho do polegar, recarga, laser
+js/coach.js         dica dos gestos no cantinho da tela (HTML e painel 3D no óculos)
 js/calibration.js   calibração + tutorial + localStorage
 js/debug.js         painel de depuração, botões e teclado
 ```

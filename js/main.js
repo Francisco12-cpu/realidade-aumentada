@@ -1,8 +1,8 @@
-// Caçador de Sinal — protótipo. Loop principal e estados do jogo.
+// Escola Zumbi (antigo Caçador de Sinal) — protótipo. Loop principal e estados do jogo.
 // Estados: boot -> calibration -> tutorial -> playing -> ended
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { buildWorld, animateTargets, placeTargets, loadSchool } from './scene.js';
+import { buildWorld, loadSchool } from './scene.js';
 import { OrientationController } from './orientation.js';
 import { HandTracker, HandView } from './hands.js';
 import { updateHandGesture } from './gestures.js';
@@ -16,6 +16,9 @@ import { Sfx } from './audio.js';
 import { loadOptions, saveOptions } from './options.js';
 import { HandHint } from './handhint.js';
 import { addResult, rename, rankingTable } from './ranking.js';
+import { Gun } from './gun.js';
+import { Horde } from './zombies.js';
+import { Coach } from './coach.js';
 
 class App {
   constructor() {
@@ -43,7 +46,8 @@ class App {
     this.rig.add(this.eye);
     this.eye.add(this.camera);
     this.scene.add(this.rig);
-    this.locoMode = CONFIG.LOCOMOTION;
+    // a pistolinha agora é a arma: o teleporte (que usava a pistolinha) vira 'palma'
+    this.locoMode = CONFIG.LOCOMOTION === 'teleporte' ? 'palma' : CONFIG.LOCOMOTION;
     document.body.classList.add(`mode-${this.locoMode}`);
     this.xrSupported = false;
     this.xrActive = false;
@@ -60,8 +64,12 @@ class App {
     this.vignette = makeVignette();
     this.camera.add(this.vignette);
     this.vignetteK = 0;
+    this.hurtFx = makeHurt();
+    this.camera.add(this.hurtFx);
+    this.hurtK = 0;
 
     this.world = buildWorld(this.scene);
+    this._clearTargets();
     this.rig.position.copy(this.world.spawn);
     this.floorY = this.rig.position.y;
     // a escola de verdade carrega em segundo plano; até lá vale o mapa de blocos
@@ -72,13 +80,13 @@ class App {
     this.hands = new HandTracker(this.calib);
     this.handViews = [new HandView(this.camera, this.hands.left), new HandView(this.camera, this.hands.right)];
 
-    this.tutorial = { teleport: false, touch: false, wire: false };
+    this.tutorial = { walk: false, aim: false, shoot: false };
     this.teleport = new Teleport(this.scene, this.rig, this.camera, this.world, {
-      onTeleport: () => { if (this.state === 'tutorial' && !this.tutorial.teleport) { this.tutorial.teleport = true; this._refreshTutorial(); } },
+      onTeleport: () => {},
       onFail: (msg) => this.toast(`Teleporte: ${msg}`),
     });
     this.runner = new Runner(this.rig, this.eye, this.camera, this.world, {
-      onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.teleport && d > 2) { this.tutorial.teleport = true; this._refreshTutorial(); } },
+      onMove: (d) => { if (this.state === 'tutorial' && !this.tutorial.walk && d > 2) { this.tutorial.walk = true; this.sfx.wire(true); } },
     });
     this.interaction = new Interaction(this.scene, this.camera, this.world, {
       onOpen: (t) => {
@@ -92,6 +100,19 @@ class App {
       wireCount: (t) => this._wireCount(t),
       onFixed: () => this._onFixed(),
     });
+    this.gun = new Gun(this.scene, this.camera, this.world, {
+      onShot: (hit) => this._onShot(hit),
+      onReady: () => { this.sfx.cock(); if (this.state === 'tutorial' && !this.tutorial.aim) { this.tutorial.aim = true; this.sfx.wire(true); } },
+    });
+    this.horde = new Horde(this.scene, this.world, {
+      onHit: () => this._onBite(),
+      onGroan: (d) => this.sfx.groan(d),
+    });
+    this.coach = new Coach(this.camera);
+    this.hp = CONFIG.PLAYER.HP;
+    this.lastPalm = -1e9;
+    this._fx = [];
+    this._hv = new THREE.Vector3();
     this.handHint = new HandHint(this);
     this.debug = new DebugUI(this);
     this.calibration = new CalibrationFlow(this);
@@ -175,6 +196,7 @@ class App {
     try {
       await loadSchool(this.world, this.scene, (msg, f) => setText(`🏫 ${msg}… ${Math.round(f * 100)}%`));
       this.rig.rotation.y = CONFIG.MAP.SPAWN_YAW;
+      this._clearTargets();
       if (this.state === 'boot' || this.state === 'calibration') { this.rig.position.copy(this.world.spawn); this.floorY = this.world.spawn.y; }
       this.applyOptions();
       setText('<span class="ok">🏫 Escola carregada.</span>');
@@ -188,7 +210,7 @@ class App {
   // Se a escola ainda está carregando, mostra o progresso e chama again() no fim.
   _waitMap(again) {
     if (this.mapDone) return false;
-    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (17 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
+    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (10 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
     this.mapPromise.then(again);
     return true;
   }
@@ -224,6 +246,11 @@ class App {
     this.runner.distance = 0;
     this.teleport.lastJump = -1e9;
     this.teleport.jumps = 0;
+    this.gun.hide();
+    this.horde.clear();
+    this.hp = CONFIG.PLAYER.HP;
+    this.hurtK = 0;
+    this._tutDoneAt = 0;
     this.rig.position.copy(this.world.spawn);
     this.floorY = this.world.spawn.y;
     this.recenter();
@@ -231,35 +258,134 @@ class App {
 
   startTutorial() {
     if (this._waitMap(() => this.startTutorial())) return;
+    this.calibration.hide();
     this.state = 'tutorial';
     this._resetWorld();
-    this.interaction.mode = 'tutorial';
-    this.tutorial = { teleport: false, touch: false, wire: false };
-    if (this.options.feira) {
-      // modo feira: começa do lado do pedestal, sem o passo de andar
-      if (this.world.tutorialSpawn) { this.rig.position.copy(this.world.tutorialSpawn); this.floorY = this.rig.position.y; } else this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
-      this.tutorial.teleport = true;
+    this.tutorial = { walk: false, aim: false, shoot: false };
+    // zumbi de treino na frente do início (parado, 1 tiro)
+    const yaw = this.rig.rotation.y;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const S = this.world.spawn;
+    let pos = null;
+    for (let d = CONFIG.ZOMBIES.DUMMY_DIST; d > 2 && !pos; d -= 0.5) {
+      for (const off of [0, 0.6, -0.6, 1.2, -1.2]) {
+        const x = S.x + fx * d - fz * off, z = S.z + fz * d + fx * off;
+        const y = this.world.floorAt(x, z);
+        if (y != null && this.world.isFree(x, z, 0.35, y)) { pos = new THREE.Vector3(x, y, z); break; }
+      }
     }
-    this._refreshTutorial();
+    if (!pos) pos = new THREE.Vector3(S.x + fx * 4, S.y, S.z + fz * 4);
+    this.horde.spawnDummy(pos, Math.atan2(S.x - pos.x, S.z - pos.z));
     document.body.classList.remove('playing');
+    document.body.classList.add('tutorial');
+    this.toast('Tutorial: siga a dica no canto da tela');
   }
 
-  _refreshTutorial() { if (this.state === 'tutorial') this.calibration.showTutorial(this.tutorial); }
+  _refreshTutorial() {}
+
+  // Tira as caixas do jogo antigo (o jogo agora é de zumbis).
+  _clearTargets() {
+    for (const t of this.world.targets) this.scene.remove(t.group);
+    this.world.targets = [];
+    this.world._reach = null;
+  }
+
+  // Passos do tutorial: todos feitos -> a partida começa sozinha em 3 s.
+  _tutorialStep(now) {
+    const t = this.tutorial;
+    if (t.walk && t.aim && t.shoot && !this._tutDoneAt) {
+      this._tutDoneAt = now;
+      this.sfx.fixed();
+      this.toast('Tutorial completo! A partida começa em 3 s…');
+    }
+    if (this._tutDoneAt && now - this._tutDoneAt > 3000) this.startGame();
+  }
 
   startGame() {
     if (this._waitMap(() => this.startGame())) return;
     this.calibration.hide();
     this.state = 'playing';
     this._resetWorld();
-    // cada partida sorteia onde fica a caixa de cada lugar
-    if (CONFIG.INTERACTION.RANDOM_SPOTS) { placeTargets(this.world, this.scene, true); this.applyOptions(); }
-    this.interaction.mode = 'game';
+    const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
+    this.horde.spawnHorde(n, this.world.spawn);
     this.timeLeft = this.gameTime();
     this._alarmDone = false;
     this._lastTick = 0;
+    this._loseReason = '';
     this.gameStart = performance.now();
+    document.body.classList.remove('tutorial');
     document.body.classList.add('playing');
-    this.toast('Valendo! Siga o detector de sinal.');
+    this.toast(`🧟 ${this.horde.total} zumbis na escola. Elimine todos!`);
+  }
+
+  // Raio da mira: zumbi mais perto ou parede (o que vier primeiro).
+  _findHit(o, d) {
+    const R = CONFIG.GUN.RANGE;
+    const zh = this.horde.rayHit(o, d, R);
+    const end = this._hv.copy(o).addScaledVector(d, zh ? zh.dist : R);
+    const wall = this.world.segmentHit(o, end);
+    if (wall && wall.point) {
+      const wd = wall.point.distanceTo(o);
+      if (!zh || wd < zh.dist - 0.05) return { dist: wd, point: wall.point, wall: true };
+    }
+    return zh;
+  }
+
+  _onShot(hit) {
+    this.sfx.shot();
+    if (this.state === 'tutorial') this.tutorial.aim = true; // atirou (mão ou botão): já sabe mirar
+    this.horde.alertAll(this.rig.position, CONFIG.ZOMBIES.SHOT_ALERT);
+    if (!hit) return;
+    if (hit.zombie) {
+      const z = hit.zombie;
+      const kill = this.horde.damage(z, hit.part);
+      this.sfx.zombieHit(kill);
+      this._puff(hit.point, 0x8a0d0d, kill ? 0.35 : 0.22);
+      if (!kill) return;
+      if (z.dummy) {
+        if (this.state === 'tutorial') { this.tutorial.shoot = true; this.toast(hit.part === 'head' ? '💥 Na cabeça! Isso aí!' : '🧟 Acertou!'); }
+        return;
+      }
+      const left = this.horde.alive;
+      this.toast(`${hit.part === 'head' ? '💥 Na cabeça!' : '🧟 Abatido!'} Faltam ${left}`);
+      if (this.state === 'playing' && left === 0) this.endGame(true);
+    } else {
+      this._puff(hit.point, 0xbdb6a6, 0.15);
+    }
+  }
+
+  // Mordida de zumbi
+  _onBite() {
+    if (this.state !== 'playing') return;
+    this.hp--;
+    this.hurtK = 1;
+    this.sfx.hurt();
+    this.toast(this.hp > 0 ? `🩸 Mordida! ${'❤'.repeat(this.hp)}` : '🩸 Os zumbis te pegaram!');
+    if (this.hp <= 0) { this._loseReason = 'bitten'; this.endGame(false); }
+  }
+
+  // nuvenzinha (sangue ou poeira) onde o tiro bateu
+  _puff(p, color, size) {
+    if (!this._puffGeo) this._puffGeo = new THREE.SphereGeometry(1, 8, 6);
+    const m = new THREE.Mesh(this._puffGeo, new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }));
+    m.position.copy(p);
+    m.scale.setScalar(size * 0.3);
+    this.scene.add(m);
+    this._fx.push({ m, t: 0, size });
+  }
+
+  _updateFx(dt) {
+    for (let i = this._fx.length - 1; i >= 0; i--) {
+      const f = this._fx[i];
+      f.t += dt;
+      const k = f.t / 0.35;
+      f.m.scale.setScalar(f.size * (0.3 + k));
+      f.m.material.opacity = Math.max(0, 1 - k);
+      if (k >= 1) { this.scene.remove(f.m); f.m.material.dispose(); this._fx.splice(i, 1); }
+    }
+    this.hurtK = Math.max(0, this.hurtK - dt * 1.6);
+    this.hurtFx.visible = this.hurtK > 0.01;
+    this.hurtFx.material.opacity = this.hurtK * 0.55;
   }
 
   _gameTargets() { return this.world.targets.filter((t) => !t.tutorial && !t.off); }
@@ -290,18 +416,19 @@ class App {
     if (this.state !== 'playing') return;
     this.state = 'ended';
     this.teleport.cancel();
-    this.interaction.closePanel();
+    this.gun.hide();
     document.body.classList.remove('playing');
-    const all = this._gameTargets();
-    const fixed = all.filter((t) => t.state === 'fixed').length;
+    const all = { length: this.horde.total };
+    const fixed = this.horde.killed;
     const used = Math.min((performance.now() - this.gameStart) / 1000, this.gameTime());
     setTimeout(() => (win ? this.sfx.win() : this.sfx.lose()), 350);
     const c = this.calibration;
     const feira = this.options.feira;
     const { rec, place } = addResult({ fixed, total: all.length, used, timeLeft: this.timeLeft, win, feira });
-    c._show(win ? '🎉 Rede restaurada!' : '⏰ O tempo acabou', `
-      <p>${win ? 'Você consertou todos os pontos de sinal.' : 'A rede caiu antes de você consertar tudo.'}</p>
-      <p class="score"><b>${rec.points}</b> pontos · caixas <b>${fixed}/${all.length}</b> · tempo <b>${fmtTime(used)}</b>
+    const bitten = this._loseReason === 'bitten';
+    c._show(win ? '🎉 Escola salva!' : bitten ? '🧟 Os zumbis te pegaram' : '⏰ O tempo acabou', `
+      <p>${win ? 'Você eliminou todos os zumbis da escola.' : bitten ? 'Você levou mordidas demais. Fique de olho nos lados!' : 'Ainda sobraram zumbis na escola.'}</p>
+      <p class="score"><b>${rec.points}</b> pontos · zumbis <b>${fixed}/${all.length}</b> · tempo <b>${fmtTime(used)}</b>
       ${place ? `<br>${place === 1 ? '🏆 <b>Melhor do dia!</b>' : `Você ficou em <b>${place}º</b> hoje.`}` : ''}</p>
       <div class="name-row"><input id="rank-name" maxlength="${CONFIG.RANKING.NAME_MAX}" placeholder="Seu nome" autocomplete="off" enterkeyhint="done"><button id="rank-save">Salvar nome</button></div>
       <div id="rank-table">${rankingTable(feira, rec.id)}</div>
@@ -341,7 +468,7 @@ class App {
   // Tela entre um visitante e outro: zera a partida e guarda a calibração.
   nextPlayer() {
     clearInterval(this._autoT);
-    document.body.classList.remove('playing');
+    document.body.classList.remove('playing', 'tutorial');
     if (this.xrActive) this.renderer.xr.getSession().end();
     this.state = 'next';
     this._resetWorld();
@@ -496,7 +623,13 @@ class App {
       p.lx = e.clientX; p.ly = e.clientY; p.x = e.clientX; p.y = e.clientY;
       if (!this.interaction.grabs.has(p.id) && !this.orientation.hasData) this.orientation.addManual(dx, dy);
     });
-    const up = (e) => { const p = this.mouse.get(e.pointerId); if (p) p.down = false; };
+    const up = (e) => {
+      const p = this.mouse.get(e.pointerId);
+      if (!p) return;
+      p.down = false;
+      // toque rápido na tela (sem arrastar) = atirar no centro
+      if ((this.state === 'playing' || this.state === 'tutorial') && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 12) this.debug.input.fire = true;
+    };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
   }
@@ -529,8 +662,6 @@ class App {
     for (const h of this.hands.hands) {
       if (fresh || !h.visible) updateHandGesture(h, this.calib.thresholds, now);
     }
-    for (const v of this.handViews) v.update();
-
     const active = this.state === 'tutorial' || this.state === 'playing';
     const loco = this.hands.get(this.locoSide());
     const inter = this.hands.get(this.interSide());
@@ -541,11 +672,12 @@ class App {
       this.runner.manualSource = 'botão';
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
-      if (this.locoMode === 'palma' && this.hands.hands.some((h) => h.visible && h.gesture === 'open')) { manual = 1; this.runner.manualSource = 'palma aberta'; }
+      // mão aberta (a que não está com a arma) = anda; continua um instante se a palma "piscar"
+      if (this.hands.hands.some((h) => h.visible && h.gesture === 'open' && h.side !== this.gun.side)) this.lastPalm = now;
+      if (this.locoMode === 'palma' && now - this.lastPalm < CONFIG.PLAYER.WALK_GRACE_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.useSwing = this.locoMode === 'correr';
       this.runner.maxSpeed = this.locoMode === 'correr' ? CONFIG.RUN.MAX_SPEED : CONFIG.RUN.WALK_SPEED;
-      const busy = this.interaction.grabs.size > 0; // arrastando fio: não anda
-      this.runner.update(now, dt, this.hands.hands, manual, busy);
+      this.runner.update(now, dt, this.hands.hands, manual, false);
       this.teleport.hide();
     } else if (active) {
       this.teleport.update(now, loco, input.aim || input.keyAim);
@@ -554,17 +686,19 @@ class App {
       if (this.runner.speed) this.runner.stop();
     }
 
-    // 4) interação: tocar, painel, detector
+    // 4) arma e zumbis
     if (active) {
-      if (inter.visible && inter.present) this.interaction.checkTouch(inter.worldPts[8]);
-      this.interaction.updatePanel(this._collectPointers(), window.innerWidth, window.innerHeight, now);
-      this.interaction.updateDetector(inter);
+      const fire = !!input.fire;
+      input.fire = false;
+      this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
+      this.horde.update(dt, this.rig.position);
+      this._collectPointers();
+      if (this.state === 'tutorial') this._tutorialStep(now);
     } else {
-      this.interaction.detector.group.visible = false;
+      this.gun.hide();
     }
-    animateTargets(this.world.targets, dt, now / 1000, this.rig.position, (t) => active && this.interaction.eligible(t));
-    // bipe do detector (quieto com o painel aberto)
-    if (active && !this.interaction.panel && this.interaction.nearest) this.sfx.detector(this.interaction.nearest.dist, now / 1000);
+    for (const v of this.handViews) { v.tint = this.gun.tintFor(v.hand.side, now); v.update(); }
+    this._updateFx(dt);
 
     // 5) tempo
     if (this.state === 'playing') {
@@ -577,6 +711,7 @@ class App {
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
+    this._updateCoach(active);
 
     // 6) render
     this._render();
@@ -647,31 +782,58 @@ class App {
     if (!active) { if (this.stereo || this.xrActive) this.hud3d.update({ timer: this.state === 'ended' ? 'fim' : '' }); return; }
     const info = {};
     const tl = document.getElementById('timer');
+    const hearts = '❤'.repeat(Math.max(0, this.hp));
     if (this.state === 'playing') {
       tl.textContent = info.timer = fmtTime(this.timeLeft);
       tl.classList.toggle('urgent', this.timeLeft < 30);
-      const all = this._gameTargets();
-      document.getElementById('count').textContent = info.count = `📡 ${all.filter((t) => t.state === 'fixed').length}/${all.length}`;
+      document.getElementById('count').textContent = info.count = `🧟 ${this.horde.alive} ${hearts}`;
     } else {
       tl.textContent = info.timer = 'tutorial';
-      document.getElementById('count').textContent = '';
+      document.getElementById('count').textContent = info.count = '';
     }
-    // bússola do detector (ajuda quando a mão de interação não está visível)
-    const near = this.interaction.nearest;
+    // bússola: zumbi vivo mais perto
+    let near = null;
+    for (const z of this.horde.list) {
+      if (z.dead || (z.dummy && this.state === 'playing')) continue;
+      const d = z.m.root.position.distanceTo(this.rig.position);
+      if (!near || d < near.dist) near = { z, dist: d };
+    }
     const comp = document.getElementById('compass');
     if (!near) { comp.hidden = true; } else {
       comp.hidden = false;
-      const local = this.camera.worldToLocal(this._v.copy(near.target.center));
+      const zp = near.z.m.root.position;
+      const local = this.camera.worldToLocal(this._v.set(zp.x, zp.y + 1.2, zp.z));
       const ang = Math.atan2(local.x, -local.z);
       document.getElementById('compass-arrow').style.transform = `rotate(${ang}rad)`;
-      const up = local.y > 0.6 && near.dist < 5 ? ' ↑ olhe para cima' : '';
-      document.getElementById('compass-text').textContent = `${near.dist.toFixed(1)} m${up}`;
-      info.dist = `${near.dist.toFixed(1)} m`; info.arrowAngle = ang; info.up = !!up;
+      document.getElementById('compass-text').textContent = `🧟 ${near.dist.toFixed(0)} m`;
+      info.dist = `${near.dist.toFixed(0)} m`; info.arrowAngle = ang; info.up = false;
     }
     if (this.locoMode !== 'teleporte' && this.runner.speed > 0.2) info.count = `${info.count || ''} 🏃`;
     if (this.stereo || this.xrActive) this.hud3d.update(info);
     const input = this.debug.input;
     document.getElementById('crosshair').classList.toggle('on', input.pinch || input.fist || input.aim);
+  }
+
+  _updateCoach(active) {
+    const tut = this.state === 'tutorial';
+    const t = this.tutorial;
+    const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
+    const notes = {
+      walk: 'Olhe para onde quer ir e mostre a <b>palma aberta</b> para a câmera. Abaixe a mão para parar.',
+      aim: 'Faça a <b>pistolinha</b>: indicador esticado, polegar para cima. A mão fica <b>vermelha</b> = pronta.',
+      shoot: 'Cubra o zumbi de treino com a mão e <b>abaixe o polegar</b>. A mão fica <b>cinza</b> até recarregar.',
+    };
+    const g = this.gun.state;
+    this.coach.update({
+      show: active,
+      stereo: this.stereo || this.xrActive,
+      title: tut ? (cur ? 'Tutorial' : 'Pronto! Começando…') : '',
+      cur,
+      done: tut ? { ...t } : {},
+      active: { walk: this.runner.speed > 0.2, aim: this.gun.aiming, shoot: performance.now() - this.gun.lastShot < 350 },
+      gun: g === 'ready' ? 'ready' : g === 'off' ? 'off' : 'reload',
+      note: tut && cur ? notes[cur] : '',
+    });
   }
 
   _render() {
@@ -709,6 +871,16 @@ function makeVignette() {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(D * 8, D * 8), mat);
   m.position.z = -D;
   m.renderOrder = 40; // por cima do mundo, por baixo do HUD 3D e do painel
+  m.frustumCulled = false;
+  m.visible = false;
+  return m;
+}
+
+// Tela vermelha ao levar mordida (presa à câmera: funciona no óculos também).
+function makeHurt() {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0xb00000, transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
+  m.position.z = -0.11;
+  m.renderOrder = 41;
   m.frustumCulled = false;
   m.visible = false;
   return m;

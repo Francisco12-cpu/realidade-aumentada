@@ -422,7 +422,10 @@ export class HandView {
 
     const accent = hand.side === 'left' ? 0x3d8bff : 0xff7a1a; // azul = esquerda, laranja = direita
     const glove = new THREE.MeshLambertMaterial({ color: 0x2b3440 });
-    this.joints = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshLambertMaterial({ color: 0x3a4654 }), 21);
+    this.glove = glove;
+    this.jointMat = new THREE.MeshLambertMaterial({ color: 0x3a4654 });
+    this.tint = null; // cor da mão inteira (arma: vermelho = pronta, cinza = recarregando)
+    this.joints = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), this.jointMat, 21);
     // cilindro com Y de 0 a 1, um pouco mais fino no topo (ponta do dedo)
     const cyl = new THREE.CylinderGeometry(0.88, 1, 1, 10, 1, true);
     cyl.translate(0, 0.5, 0);
@@ -444,7 +447,8 @@ export class HandView {
     for (let i = 1; i < this.palmIdx.length; i++) idx.push(0, i, i + 1);
     idx.push(0, this.palmIdx.length, 1);
     pg.setIndex(idx);
-    this.palm = new THREE.Mesh(pg, new THREE.MeshLambertMaterial({ color: 0x2b3440, side: THREE.DoubleSide }));
+    this.palmMat = new THREE.MeshLambertMaterial({ color: 0x2b3440, side: THREE.DoubleSide });
+    this.palm = new THREE.Mesh(pg, this.palmMat);
     this.palm.frustumCulled = false;
     this.group.add(this.palm);
 
@@ -482,7 +486,16 @@ export class HandView {
     this.joints.instanceMatrix.needsUpdate = true;
     this.bones.instanceMatrix.needsUpdate = true;
     this.tips.instanceMatrix.needsUpdate = true;
-    this.tipMat.color.setHex(GESTURE_COLORS[h.gesture] || GESTURE_COLORS.neutral);
+    this.tipMat.color.setHex(this.tint ?? (GESTURE_COLORS[h.gesture] || GESTURE_COLORS.neutral));
+    if (this.tint !== this._tint) {
+      this._tint = this.tint;
+      const t = this.tint;
+      this.glove.color.setHex(t ?? 0x2b3440);
+      this.palmMat.color.setHex(t ?? 0x2b3440);
+      this.jointMat.color.setHex(t != null ? new THREE.Color(t).multiplyScalar(1.2).getHex() : 0x3a4654);
+      this.glove.emissive.setHex(t != null ? new THREE.Color(t).multiplyScalar(0.35).getHex() : 0);
+      this.palmMat.emissive.copy(this.glove.emissive);
+    }
 
     // palma
     _mid.set(0, 0, 0);

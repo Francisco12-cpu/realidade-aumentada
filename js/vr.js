@@ -117,7 +117,7 @@ export class VRView {
 }
 
 // ---------------------------------------------------------------------
-// Painel 3D (aparece só no modo óculos): tempo, caixas, sinal e mensagens.
+// Painel 3D (aparece só no modo óculos): tempo, zumbis, vidas, bússola e mensagens.
 // ---------------------------------------------------------------------
 export class HUD3D {
   constructor(camera) {

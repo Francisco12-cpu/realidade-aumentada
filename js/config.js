@@ -10,10 +10,10 @@ export const CONFIG = {
   CAMERA_FOV: 70,           // FOV vertical da câmera 3D (graus)
 
   // ---- Partida ----
-  GAME_TIME_S: 360,         // duração da partida (6 min)
+  GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v10',
+  VERSION: 'v11',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -150,11 +150,52 @@ export const CONFIG = {
   },
 
   // ---- Mapa: escola de verdade (modelo 3D original) ----
+  // ---- Arma de mão (pistolinha) ----
+  GUN: {
+    RELOAD_MS: 650,         // depois do tiro a mão fica cinza por pelo menos isso
+    THUMB_UP_K: 1.0,        // polegar "levantado" = thumbOut acima de limiar × isto (engatilha)
+    THUMB_DOWN_K: 0.85,     // polegar "abaixado" = abaixo de limiar × isto (atira)
+    COCK_FRAMES: 2,         // detecções seguidas com o polegar em pé para engatilhar
+    GRACE_MS: 300,          // a arma continua na mão se a pistolinha "piscar"
+    RANGE: 35,              // alcance do tiro (m)
+  },
+
+  // ---- Zumbis ----
+  ZOMBIES: {
+    COUNT: 12,              // zumbis na partida
+    FEIRA_COUNT: 8,         // no modo feira
+    HP: 2,                  // tiros no corpo para matar (cabeça mata na hora)
+    SPEED_MIN: 0.55,        // m/s (o jogador anda a 2 m/s)
+    SPEED_MAX: 1.0,
+    WANDER_SPEED: 0.25,
+    RADIUS: 0.22,
+    SIGHT: 13,              // vê o jogador até essa distância (se não tiver parede)
+    HEAR: 5,                // percebe o jogador por perto mesmo sem ver
+    SHOT_ALERT: 20,         // tiro acorda os zumbis até essa distância
+    ATTACK_DIST: 0.95,
+    ATTACK_S: 1.3,          // tempo entre ataques
+    ASSIST_DEG: 4,          // ajuda de mira (graus)
+    MIN_DIST_START: 12,     // nenhum zumbi nasce perto do início
+    SPREAD: 12,             // distância entre zumbis ao espalhar
+    FLOW_RADIUS: 45,        // raio do caminho calculado em volta do jogador (m)
+    FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
+    AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
+    GROAN_DIST: 9,
+    CORPSE_S: 3,            // corpo fica no chão esse tempo antes de sumir
+    DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
+  },
+
+  // ---- Jogador ----
+  PLAYER: {
+    HP: 5,                  // vidas (cada mordida tira 1)
+    WALK_GRACE_MS: 350,     // continua andando esse tempo se a palma "piscar"
+  },
+
   MAP: {
     USE_SCHOOL: true,       // false = volta para o mapa de blocos
     // procura o modelo nesses endereços (o 2º é para o arquivo único em dist/)
     URLS: ['models/escola.glb', '../models/escola.glb'],
-    SPAWN: [38.5, 0, -60.25], // onde o jogador começa: no corredor coberto do portão (muro oeste)
+    SPAWN: [31.6, 0, -60.25], // onde o jogador começa: no corredor coberto do portão (muro oeste)
     SPAWN_YAW: -Math.PI / 2, // olhando para dentro da escola (leste, +x)
     CELL: 0.25,             // tamanho da célula da grade de colisão (m)
     CHAO_MAX: 1.3,          // superfícies horizontais até essa altura contam como chão
