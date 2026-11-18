@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v20, 18/11/2026)
+# Escola Zumbi: estado do projeto (v21, 18/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -10,14 +10,14 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 
 ## Como se joga
 
-| Mão | O que faz |
+| Gesto | O que faz |
 |---|---|
-| 🔵 **mão AZUL** (a da esquerda; dá para trocar na calibração) | 👉 **apontar = anda para onde o dedo aponta** · ✋ palma aberta = anda para onde você olha · mão relaxada ou fechada = **parada** |
-| 🔴 **mão VERMELHA** (a da direita) | mostra o laser. Fazendo a **pistolinha 👉** (indicador esticado, médio dobrado), **atira sozinha para onde o dedo aponta**; a **barra** em cima da mão enche em 0,8 s e atira de novo enquanto a pistolinha continuar |
-
+| 🎯 **olhar** | a **mira é o ponto no meio da visão** (fica amarela em cima de um zumbi) |
+| 👉 **pistolinha** (qualquer mão: indicador esticado, médio dobrado) | a mão fica **vermelha** e **atira sozinha** para onde você olha; a **barra embaixo da mira** enche em 0,8 s e atira de novo enquanto a pistolinha continuar |
+| ✋ **palma aberta** (qualquer mão) | a mão fica **azul** e você **anda para onde olha**; abaixar ou fechar a mão = para |
 | 👊 **soco ou tapa rápido** (a mão anda 15 cm em 0,2 s) com um zumbi a até 1,25 m, na direção da mão | **golpe**: estrela de pancada, som, vibração e o zumbi é empurrado para trás. São **10 socos** para derrubar (3 no zumbi de treino). A mão parada não bate: depois de um golpe ela precisa parar antes do próximo |
 
-> Desde a v18 cada mão tem um papel fixo. Desde a v20, o **lado da visão** decide: a mão do lado esquerdo é a azul e a do direito é a vermelha. Perto do meio, a mão mantém a cor que tinha. A mesma mão detectada duas vezes vira uma só, e a cópia que ficava parada quando a mão "pulava" de lado some na hora. Modos antigos: `ROLES.ON: false` com `GUN.MODE: 'punho'` ou `'polegar'`.
+> Desde a v21 a mira é a **cabeça**. A câmera de trás vê a mão por trás, e a direção do dedo saía errada. A cor da mão mostra o que ela está fazendo, e não o lado. A mira pelo dedo (v20) continua em `GUN.AIM: 'dedo'`.
 
 > Desde a v16 o gatilho é **fechar a mão**. Na pistolinha antiga a mão aponta para frente, para longe da câmera: o indicador e o polegar ficavam escondidos e o tiro falhava. O modo antigo continua em `GUN.MODE: 'polegar'`.
 
@@ -53,6 +53,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v21 | #19 | Mira com a cabeça (ponto no meio da visão), pistolinha de qualquer mão atira sozinha com a barra embaixo da mira, palma aberta anda para onde olha, cor da mão = o que ela faz |
 | v20 | #18 | Mão não troca mais de cor nem aparece dobrada; azul só anda apontando (ou palma); tiro vai para onde o dedo aponta; socos medidos pelo movimento da mão (não precisa alcançar o zumbi) |
 | v19 | #17 | Socos e tapas: encostar a mão no zumbi com velocidade = golpe (10 para derrubar), efeito de pancada, empurrão; mão parada encostada não dá dano |
 | v18 | #16 | Mão azul anda para onde aponta, mão vermelha atira sozinha com a pistolinha, barra de recarga em cima da mão (0,8 s) |

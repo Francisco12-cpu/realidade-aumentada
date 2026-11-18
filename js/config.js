@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v20',
+  VERSION: 'v21',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -163,8 +163,11 @@ export const CONFIG = {
     // 'punho' = fechar a mão atira (funciona de qualquer ângulo) · 'polegar' = pistolinha + abaixar o polegar (antigo)
     // v18 'auto' = mão VERMELHA faz a pistolinha e atira sozinha a cada recarga (barra)
     MODE: 'auto',
-    PISTOL_INDEX: 1.5,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
-    PISTOL_MIDDLE: 1.4,     // (auto) médio mais perto que isso = dobrado
+    // v21: 'cabeca' = mira com a cabeça (ponto no meio da visão), pistolinha atira · 'dedo' = mira pela mão (v20)
+    AIM: 'cabeca',
+    PISTOL_INDEX: 1.4,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
+    PISTOL_MIDDLE: 1.5,     // (auto) médio mais perto que isso = dobrado
+    PISTOL_GAP: 0.28,       // (auto) indicador pelo menos isso mais longe que o médio
     PISTOL_HOLD_MS: 200,    // (auto) pistolinha firme esse tempo antes do 1º tiro (a mira assenta)
     FINGER_BLEND: 0.65,     // mira: 1 = só para onde o dedo aponta · 0 = só do olho até a mão
     AIM_SMOOTH: 0.35,       // suavização da mira por quadro (menor = mais firme, mais lenta)
