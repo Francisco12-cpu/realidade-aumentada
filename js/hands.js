@@ -511,13 +511,16 @@ export class HandView {
     this.jointMat = new THREE.MeshLambertMaterial({ color: 0x3a4654 });
     this.tint = null; // cor da mão inteira (arma: vermelho = pronta, cinza = recarregando)
     this.joints = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), this.jointMat, 21);
+    // v24: contorno (esferas maiores, por dentro) = brilho em volta da mão
+    this.haloMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide, transparent: true, opacity: 0.35, depthWrite: false });
+    this.halo = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 6), this.haloMat, 21);
     // cilindro com Y de 0 a 1, um pouco mais fino no topo (ponta do dedo)
     const cyl = new THREE.CylinderGeometry(0.88, 1, 1, 10, 1, true);
     cyl.translate(0, 0.5, 0);
     this.bones = new THREE.InstancedMesh(cyl, glove, BONES.length);
     this.tipMat = new THREE.MeshBasicMaterial({ color: GESTURE_COLORS.neutral });
     this.tips = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), this.tipMat, TIPS.length);
-    for (const im of [this.joints, this.bones, this.tips]) {
+    for (const im of [this.joints, this.bones, this.tips, this.halo]) {
       im.frustumCulled = false;
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.group.add(im);
@@ -554,7 +557,13 @@ export class HandView {
       const r = JOINT_R[i] * 1.08;
       _m.compose(P[i], _q.identity(), _sc.set(r, r, r));
       this.joints.setMatrixAt(i, _m);
+      const rh = r * 1.9;
+      _m.compose(P[i], _q.identity(), _sc.set(rh, rh, rh));
+      this.halo.setMatrixAt(i, _m);
     }
+    this.halo.instanceMatrix.needsUpdate = true;
+    this.haloMat.color.setHex(this.tint ?? 0xbfe9ff);
+    this.haloMat.opacity = this.tint != null ? 0.45 : 0.22;
     BONES.forEach(([a, b], k) => {
       _dir.subVectors(P[b], P[a]);
       const len = _dir.length();

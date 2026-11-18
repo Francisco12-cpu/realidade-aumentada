@@ -2,6 +2,7 @@
 // Nada da escola ainda — o objetivo é só ter referências visuais e obstáculos.
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
+import { buildCenario } from './cenario.js';
 import { loadSchoolModel, CollisionGrid, autoTargets } from './mapa.js';
 
 const BOX_SIZE = 0.45;
@@ -173,7 +174,18 @@ export async function loadSchool(world, scene, onStatus = () => {}, aniso = 1) {
   world.isFree = (x, z, r, fromY) => grid.isFree(x, z, r, fromY);
   world.segmentHit = (a, b) => grid.segmentHit(a, b);
   world.floorAt = (x, z) => grid.floorAt(x, z);
-  scene.fog = new THREE.Fog(0xcfe2f2, S.FOG_NEAR, S.FOG_FAR);
+  scene.fog = new THREE.Fog(S.FOG_COLOR, S.FOG_NEAR, S.FOG_FAR);
+  scene.background = new THREE.Color(S.FOG_COLOR);
+  // v24: mundo em volta (ruas, prédios, céu); o céu antigo (parado no início) sai
+  if (CONFIG.CENARIO.ON) {
+    try {
+      if (scene.userData.sky) { scene.remove(scene.userData.sky); scene.userData.sky = null; }
+      const box = new THREE.Box3();
+      model.traverse((o) => { if (o.isMesh && /^s_/.test(o.name)) box.expandByObject(o); });
+      if (box.isEmpty()) box.setFromObject(model);
+      world.cenario = buildCenario(scene, box, spawn.y);
+    } catch (e) { console.warn('Cenário não montou', e); }
+  }
   placeTargets(world, scene, false);
   onStatus('Escola pronta', 1);
   return world;
@@ -186,10 +198,10 @@ function collectDetails(model) {
   const list = [];
   model.updateMatrixWorld(true);
   model.traverse((o) => {
-    if (!o.isMesh || !/^d_/.test(o.name)) return;
+    if (!o.isMesh || !/^[ds]_/.test(o.name)) return;
     o.geometry.computeBoundingSphere();
     const s = o.geometry.boundingSphere.clone().applyMatrix4(o.matrixWorld);
-    list.push({ m: o, c: s.center, r: s.radius });
+    list.push({ m: o, c: s.center, r: s.radius, det: o.name[0] === 'd' });
   });
   return list;
 }
@@ -197,8 +209,11 @@ function collectDetails(model) {
 // Chamar de vez em quando: mostra os detalhes perto, esconde os longe (com folga
 // para não ficar piscando na borda).
 export function updateDetails(world, p) {
-  const D = CONFIG.MAP.DETAIL_DIST;
+  const D0 = CONFIG.MAP.DETAIL_DIST, DS = CONFIG.MAP.FOG_FAR + 4;
   for (const d of world.details || []) {
+    // detalhes somem além de DETAIL_DIST; blocos da escola além da neblina (v24)
+    const D = d.det ? D0 : DS;
+    if (!d.det && !CONFIG.MAP.CHUNK_CULL) continue;
     const dist = Math.hypot(d.c.x - p.x, d.c.z - p.z) - d.r;
     if (d.m.visible && dist > D + 2) d.m.visible = false;
     else if (!d.m.visible && dist < D) d.m.visible = true;
@@ -237,8 +252,8 @@ export function buildWorld(scene) {
   scene.background = new THREE.Color(0xbfd8ee);
   scene.fog = new THREE.Fog(0xcfe2f2, 16, 48);
 
-  scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x9a8f80, 1.05));
-  const sun = new THREE.DirectionalLight(0xfff3e0, 1.35);
+  scene.add(new THREE.HemisphereLight(0xf0e6d6, 0x857a6a, 1.05));
+  const sun = new THREE.DirectionalLight(0xffe4bd, 1.35);
   sun.position.set(6, 12, 4);
   scene.add(sun);
 

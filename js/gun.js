@@ -81,6 +81,33 @@ export class Gun {
     this.reticle.position.set(0, 0, -1.5);
     this.reticle.visible = false;
     camera.add(this.reticle);
+
+    // v24: pistola 3D na mão da pistolinha (aponta para onde a mira está)
+    this.model = new THREE.Group();
+    const dark = new THREE.MeshLambertMaterial({ color: 0x2a2d31 });
+    const grip = new THREE.MeshLambertMaterial({ color: 0x4a3a2c });
+    const tip = new THREE.MeshBasicMaterial({ color: 0xff7a1a });
+    const bx = (w, h, d, x, y, z, m) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); this.model.add(o); return o; };
+    bx(0.03, 0.035, 0.17, 0, 0.012, 0.05, dark);      // ferrolho
+    bx(0.026, 0.07, 0.035, 0, -0.035, -0.01, grip);   // cabo
+    bx(0.008, 0.02, 0.03, 0, -0.012, 0.02, dark);     // guarda do gatilho
+    bx(0.012, 0.012, 0.01, 0, 0.012, 0.137, tip);     // ponta laranja
+    this.model.visible = false;
+    scene.add(this.model);
+    this._muzzle = new THREE.Vector3(0, 0.012, 0.145);
+    this._aimAt = new THREE.Vector3();
+  }
+
+  // pistola na mão: entre os nós dos dedos e o pulso, apontando para a mira
+  _placeModel(cur) {
+    const P = cur.worldPts;
+    this.model.position.copy(P[5]).add(P[9]).multiplyScalar(0.5).lerp(P[0], 0.25);
+    this._aimAt.copy(this._o).addScaledVector(this._sd, 20);
+    this.model.lookAt(this._aimAt);
+    this.model.visible = true;
+    // a ponta do cano vira o lugar do clarão e do risco do tiro
+    this.model.updateMatrixWorld();
+    this._tip.copy(this._muzzle).applyMatrix4(this.model.matrixWorld);
   }
 
   get headAim() { return G.AIM === 'cabeca'; }
@@ -174,6 +201,7 @@ export class Gun {
     this.camera.getWorldPosition(this._o);
     this.camera.getWorldDirection(this._sd);
     if (cur) this._tip.copy(cur.worldPts[8]); else this._tip.copy(this._o).addScaledVector(this._sd, 0.4).setY(this._o.y - 0.15);
+    if (cur && G.SHOW_MODEL) this._placeModel(cur); else this.model.visible = false;
     if (this.pistol && reloadK >= 1 && now - this._pistolSince >= G.PISTOL_HOLD_MS) this._fire(now, null, findHit);
     if (manualFire && now - this.lastShot >= G.RELOAD_MS) this._fire(now, null, findHit);
     // mira: amarela em cima de zumbi, vermelha com a pistolinha, branca parada
@@ -375,6 +403,7 @@ export class Gun {
     this._hist = [];
     this.bar.visible = false;
     this.reticle.visible = false;
+    this.model.visible = false;
     this.pistol = false;
   }
 }

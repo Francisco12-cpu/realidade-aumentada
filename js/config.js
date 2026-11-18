@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v23',
+  VERSION: 'v24',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -75,6 +75,7 @@ export const CONFIG = {
     // vem invertido, então por padrão invertemos. A calibração confirma.
     FLIP_HANDEDNESS: true,
     LOST_GRACE_MS: 500,         // segura a mão na tela por esse tempo se sumir
+    EDGE_MARGIN: 0.12,          // v24: mão sumiu a menos disso da borda da imagem = seta "saiu por aqui"
     DUP_DIST: 0.08,             // duas detecções mais perto que isso (fração da imagem) = a mesma mão
     GHOST_DIST: 0.15,           // mão "pulou" de lado: a cópia antiga perto disso some na hora
     // 'real' = mão no mesmo ângulo e distância da mão de verdade (v16) · 'tela' = imagem esticada na tela (antigo)
@@ -158,6 +159,7 @@ export const CONFIG = {
     AUTO: true,             // baixa a resolução se o FPS cair, sobe se sobrar
     LOW_FPS: 45,
     HIGH_FPS: 56,
+    XR_FOVEATION: 1,        // v24: (VR do Chrome) 0 = igual na lente toda · 1 = bordas mais leves
   },
 
   // ---- Mapa: escola de verdade (modelo 3D original) ----
@@ -166,6 +168,7 @@ export const CONFIG = {
     // 'punho' = fechar a mão atira (funciona de qualquer ângulo) · 'polegar' = pistolinha + abaixar o polegar (antigo)
     // v18 'auto' = mão VERMELHA faz a pistolinha e atira sozinha a cada recarga (barra)
     MODE: 'auto',
+    SHOW_MODEL: true,       // v24: pistola 3D aparece na mão da pistolinha
     // v21: 'cabeca' = mira com a cabeça (ponto no meio da visão), pistolinha atira · 'dedo' = mira pela mão (v20)
     AIM: 'cabeca',
     PISTOL_INDEX: 1.4,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
@@ -213,6 +216,7 @@ export const CONFIG = {
     FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
     AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
     GROAN_DIST: 9,
+    ANIM_FAR: 25,           // v24: zumbis mais longe que isso animam com menos frequência
     CORPSE_S: 3,            // corpo fica no chão esse tempo antes de sumir
     DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
   },
@@ -286,6 +290,30 @@ export const CONFIG = {
     DETAIL_DIST: 28,        // detalhes (carros, pessoas, plantas, móveis) somem além disso (m)
     FOG_NEAR: 18,
     FOG_FAR: 55,
+    FOG_COLOR: 0xc4baa8,    // v24: neblina poeirenta (combina com o céu do apocalipse)
+    VIEW_FAR: 230,          // v24: até onde a câmera enxerga (prédios e céu no horizonte)
+    CHUNK_CULL: true,       // v24: blocos da escola além da neblina não são desenhados
+  },
+
+  // ---- Cenário em volta da escola (v24) ----
+  CENARIO: {
+    ON: true,
+    MARGIN: 1,              // folga entre a escola e a calçada (m)
+    SIDEWALK_W: 3,
+    ROAD_W: 9,
+    BUILD_GAP: 3,           // da rua até a frente dos prédios
+    BUILD_ROWS: 2,          // fileiras de prédios (a de trás é mais alta)
+    CAR_EVERY: 14,          // um carro a cada ~isso de rua (m)
+    POLE_EVERY: 16,
+    FIRES: 6,               // barris pegando fogo
+    SMOKES: 5,              // colunas de fumaça ao longe
+    GROUND_SIZE: 600,
+    SKY_R: 210,
+    HAZE_NEAR: 45,          // neblina dos prédios (bem mais longe que a da escola)
+    HAZE_FAR: 260,
+    SKY_TOP: '#5f7690',
+    SKY_MID: '#a7a39a',
+    SKY_HORIZON: '#c4baa8',
   },
 
   // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----
