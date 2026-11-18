@@ -200,7 +200,32 @@ export class HandTracker {
       this._replayT = nowMs;
       v.play().catch(() => {});
     }
-    if (this.worker && this.landmarker) {
+    // v23: o vídeo está andando? Se o navegador parou o vídeo (acontece no
+    // Android com o vídeo escondido, no óculos), pega a imagem DIRETO da
+    // câmera (ImageCapture), sem depender do vídeo.
+    if (this.stream && !this._vidT) this._vidT = nowMs; // vídeo que nunca começou também conta como parado
+    if (v.currentTime !== this._lastCT) { this._lastCT = v.currentTime; this._vidT = nowMs; }
+    this.stalled = !!this.stream && nowMs - (this._vidT || nowMs) > 400;
+    if (this.stalled && !this._ic && typeof ImageCapture !== 'undefined') {
+      try { this._ic = new ImageCapture(this.stream.getVideoTracks()[0]); } catch (e) { this._ic = null; }
+    }
+    this.frameSource = this.stalled ? (this._ic ? 'câmera direta' : 'vídeo parado') : 'vídeo';
+    if (this.worker && this.landmarker && this.stalled && this._ic) {
+      if (this._busy && nowMs - this._lastSend > 4000) this._busy = false;
+      if (!this._busy && nowMs - (this._lastSend || 0) >= minGap) {
+        this._busy = true;
+        this._lastSend = nowMs;
+        const ts = Math.max(nowMs, this.lastTs + 1);
+        this.lastTs = ts;
+        this._ic.grabFrame().then((full) => {
+          const sc = Math.min(1, (this.maxSide || H.WORKER_MAX_SIDE) / Math.max(full.width, full.height));
+          return createImageBitmap(full, { resizeWidth: Math.round(full.width * sc), resizeHeight: Math.round(full.height * sc), resizeQuality: 'low' })
+            .then((bmp) => { try { full.close(); } catch (e) { /* */ } this._grabW = full.width; this._grabH = full.height; return bmp; });
+        }).then((bmp) => this.worker.postMessage({ type: 'frame', bitmap: bmp, ts }, [bmp]))
+          .catch(() => { this._busy = false; this._ic = null; });
+      }
+    }
+    if (this.worker && this.landmarker && !this.stalled) {
       // ---- modo rápido: manda o quadro para o worker e segue desenhando ----
       if (this._busy && nowMs - this._lastSend > 4000) this._busy = false; // quadro perdido
       if (!this._busy && v.readyState >= 2 && v.currentTime !== this.lastVideoTime && nowMs - (this._lastSend || 0) >= minGap) {
@@ -215,6 +240,8 @@ export class HandTracker {
           .then((bmp) => this.worker.postMessage({ type: 'frame', bitmap: bmp, ts }, [bmp]))
           .catch(() => { this._busy = false; });
       }
+      }
+    if (this.worker && this.landmarker) {
       if (this._workerResult) {
         const m = this._workerResult;
         this._workerResult = null;
@@ -379,8 +406,9 @@ export class HandTracker {
 
   _applyDetection(hand, det, nowMs, camera) {
     const { lm, wlm } = det;
-    const vw = this.video.videoWidth || H.VIDEO_W;
-    const vh = this.video.videoHeight || H.VIDEO_H;
+    // (com a câmera direta, o tamanho vem do quadro pego)
+    const vw = (this.stalled && this._grabW) || this.video.videoWidth || H.VIDEO_W;
+    const vh = (this.stalled && this._grabH) || this.video.videoHeight || H.VIDEO_H;
     const m = Math.max(vw, vh);
     const d2 = (a, b) => Math.hypot((lm[a].x - lm[b].x) * vw / m, (lm[a].y - lm[b].y) * vh / m);
     const d3 = (a, b) => Math.hypot(wlm[a].x - wlm[b].x, wlm[a].y - wlm[b].y, wlm[a].z - wlm[b].z);

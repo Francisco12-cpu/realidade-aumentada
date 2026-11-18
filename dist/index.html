@@ -82,7 +82,13 @@ button:disabled { opacity: 0.5; }
 #preview canvas { position: absolute; inset: 0; height: 100%; }
 body.sheet-bottom #preview, body.sheet-bottom #debug { top: calc(34px + env(safe-area-inset-top)); bottom: auto; max-height: 24vh; }
 /* vídeo continua tocando (MediaPipe precisa) mas fica invisível */
-#preview.offscreen { width: 2px; height: 2px; opacity: 0.01; border: 0; }
+/* v23: o vídeo fica ATRÁS do jogo (no canto, coberto pela imagem 3D): o
+   navegador acha que ele está visível e não pausa (no Android ele pausava o
+   vídeo escondido e a mão sumia) */
+#gl { z-index: 1; }
+#preview.offscreen { left: 0; top: 0; bottom: auto; width: 160px; max-width: none; height: 120px; opacity: 1; border: 0; border-radius: 0; z-index: 0; }
+#preview.offscreen video { width: 100%; height: 100%; object-fit: cover; }
+#preview.offscreen canvas { display: none; }
 
 .ok { color: var(--ok); }
 .bad { color: var(--bad); }
@@ -125,7 +131,7 @@ body.sheet-bottom #preview, body.sheet-bottom #debug { top: calc(34px + env(safe
 /* ---------- Modo óculos ---------- */
 #btn-vradjust { display: none; }
 body.stereo #btn-vradjust { display: inline-block; }
-body.stereo #hud, body.stereo #debug, body.stereo #preview, body.stereo #toast { display: none !important; }
+body.stereo #hud, body.stereo #debug, body.stereo #preview:not(.offscreen), body.stereo #toast { display: none !important; }
 body.stereo #overlay { display: none; }
 body.stereo #fps { opacity: 0.5; }
 /* botões escondidos no óculos; um toque na tela mostra */
@@ -282,7 +288,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v22',
+  VERSION: 'v23',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -911,6 +917,9 @@ class HandHint {
     if (now - this.lastMeasure > 500) { this.lastMeasure = now; this._measure(); }
     let msg = '';
     const lost = now - this.lastSeen;
+    if (lost > 1500 && app.hands.stalled && !app.hands._ic) {
+      msg = '📷 A câmera parou: toque na tela para religar.';
+    } else
     if (lost > 1500 && this.brightness != null && this.brightness < HH.DARK) {
       msg = '💡 Pouca luz ou câmera tapada: vá para um lugar mais claro e deixe a câmera de trás livre.';
     } else if (lost > HH.NO_HAND_MS) {
@@ -3132,7 +3141,32 @@ class HandTracker {
       this._replayT = nowMs;
       v.play().catch(() => {});
     }
-    if (this.worker && this.landmarker) {
+    // v23: o vídeo está andando? Se o navegador parou o vídeo (acontece no
+    // Android com o vídeo escondido, no óculos), pega a imagem DIRETO da
+    // câmera (ImageCapture), sem depender do vídeo.
+    if (this.stream && !this._vidT) this._vidT = nowMs; // vídeo que nunca começou também conta como parado
+    if (v.currentTime !== this._lastCT) { this._lastCT = v.currentTime; this._vidT = nowMs; }
+    this.stalled = !!this.stream && nowMs - (this._vidT || nowMs) > 400;
+    if (this.stalled && !this._ic && typeof ImageCapture !== 'undefined') {
+      try { this._ic = new ImageCapture(this.stream.getVideoTracks()[0]); } catch (e) { this._ic = null; }
+    }
+    this.frameSource = this.stalled ? (this._ic ? 'câmera direta' : 'vídeo parado') : 'vídeo';
+    if (this.worker && this.landmarker && this.stalled && this._ic) {
+      if (this._busy && nowMs - this._lastSend > 4000) this._busy = false;
+      if (!this._busy && nowMs - (this._lastSend || 0) >= minGap) {
+        this._busy = true;
+        this._lastSend = nowMs;
+        const ts = Math.max(nowMs, this.lastTs + 1);
+        this.lastTs = ts;
+        this._ic.grabFrame().then((full) => {
+          const sc = Math.min(1, (this.maxSide || H.WORKER_MAX_SIDE) / Math.max(full.width, full.height));
+          return createImageBitmap(full, { resizeWidth: Math.round(full.width * sc), resizeHeight: Math.round(full.height * sc), resizeQuality: 'low' })
+            .then((bmp) => { try { full.close(); } catch (e) { /* */ } this._grabW = full.width; this._grabH = full.height; return bmp; });
+        }).then((bmp) => this.worker.postMessage({ type: 'frame', bitmap: bmp, ts }, [bmp]))
+          .catch(() => { this._busy = false; this._ic = null; });
+      }
+    }
+    if (this.worker && this.landmarker && !this.stalled) {
       // ---- modo rápido: manda o quadro para o worker e segue desenhando ----
       if (this._busy && nowMs - this._lastSend > 4000) this._busy = false; // quadro perdido
       if (!this._busy && v.readyState >= 2 && v.currentTime !== this.lastVideoTime && nowMs - (this._lastSend || 0) >= minGap) {
@@ -3147,6 +3181,8 @@ class HandTracker {
           .then((bmp) => this.worker.postMessage({ type: 'frame', bitmap: bmp, ts }, [bmp]))
           .catch(() => { this._busy = false; });
       }
+      }
+    if (this.worker && this.landmarker) {
       if (this._workerResult) {
         const m = this._workerResult;
         this._workerResult = null;
@@ -3311,8 +3347,9 @@ class HandTracker {
 
   _applyDetection(hand, det, nowMs, camera) {
     const { lm, wlm } = det;
-    const vw = this.video.videoWidth || H.VIDEO_W;
-    const vh = this.video.videoHeight || H.VIDEO_H;
+    // (com a câmera direta, o tamanho vem do quadro pego)
+    const vw = (this.stalled && this._grabW) || this.video.videoWidth || H.VIDEO_W;
+    const vh = (this.stalled && this._grabH) || this.video.videoHeight || H.VIDEO_H;
     const m = Math.max(vw, vh);
     const d2 = (a, b) => Math.hypot((lm[a].x - lm[b].x) * vw / m, (lm[a].y - lm[b].y) * vh / m);
     const d3 = (a, b) => Math.hypot(wlm[a].x - wlm[b].x, wlm[a].y - wlm[b].y, wlm[a].z - wlm[b].z);
@@ -5407,7 +5444,7 @@ class DebugUI {
     };
     const p = a.rig.position;
     this.stats.innerHTML =
-      `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate}</div>` +
+      `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate} · imagem: ${h.frameSource || "—"}</div>` +
       `<div>Sensor: ${o.source} ${o.hasData ? '✔' : '✖'} (${o.eventCount}) · estado: ${a.state}</div>` +
       hand(h.left) + hand(h.right) +
       (a.locoMode !== 'teleporte' ? `<div>Andar (${a.locoMode}): ${a.runner.speed.toFixed(1)} m/s · mãos ${(a.runner.handEnergy * 100).toFixed(0)}% · corrida parada ${(a.runner.jogEnergy * 100).toFixed(0)}% · ${a.runner.source}</div>` : '') +

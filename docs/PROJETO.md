@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v22, 18/11/2026)
+# Escola Zumbi: estado do projeto (v23, 18/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -53,6 +53,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v23 | #21 | Conserto: mãos não detectadas de novo. O vídeo da câmera fica atrás do jogo (o navegador não pausa mais), e se ele parar mesmo assim a imagem vem direto da câmera (ImageCapture). O painel 🐞 mostra de onde vem a imagem |
 | v22 | #20 | Camada esquerda/direita (rótulo + lado + continuidade); só a direita atira e só a esquerda anda; palma tem que estar bem aberta e segurada para andar; soco conta mesmo quando a mão some no borrão |
 | v21 | #19 | Mira com a cabeça (ponto no meio da visão), pistolinha de qualquer mão atira sozinha com a barra embaixo da mira, palma aberta anda para onde olha, cor da mão = o que ela faz |
 | v20 | #18 | Mão não troca mais de cor nem aparece dobrada; azul só anda apontando (ou palma); tiro vai para onde o dedo aponta; socos medidos pelo movimento da mão (não precisa alcançar o zumbi) |
