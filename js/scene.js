@@ -2,6 +2,7 @@
 // Nada da escola ainda — o objetivo é só ter referências visuais e obstáculos.
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
+import { loadSchoolModel, CollisionGrid, autoTargets } from './mapa.js';
 
 const BOX_SIZE = 0.45;
 
@@ -112,13 +113,64 @@ export const TARGET_DEFS = [
   ] },
 ];
 
+// Troca o mapa de blocos pela escola de verdade (modelo 3D original).
+// onStatus(texto, fração 0..1). Se falhar, o mapa de blocos continua.
+export async function loadSchool(world, scene, onStatus = () => {}) {
+  const model = await loadSchoolModel((f) => onStatus('Baixando a escola', f * 0.7));
+  onStatus('Montando a escola', 0.7);
+  model.name = 'escola';
+  scene.add(model);
+  model.updateMatrixWorld(true);
+  const grid = await CollisionGrid.build(model, (f) => onStatus('Calculando paredes e chão', 0.7 + f * 0.28));
+  const S = CONFIG.MAP;
+  const spawn = new THREE.Vector3(S.SPAWN[0], 0, S.SPAWN[2]);
+  spawn.y = grid.floorAt(spawn.x, spawn.z) ?? 0;
+  // pontos de sinal escolhidos sozinhos + caixa do tutorial na frente do início
+  const defs = autoTargets(grid, spawn, BH);
+  const tut = tutorialSpot(grid, spawn);
+  defs.unshift({ id: 'tutorial', name: 'início', tutorial: true, wires: 1, spots: [{ pos: [tut.x, tut.y + BH, tut.z], normal: [0, 1, 0] }] });
+
+  scene.remove(world.deco);
+  world.deco.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  world.blocks.length = 0;
+  world.school = true;
+  world.model = model;
+  world.grid = grid;
+  world.spawn = spawn;
+  world.targetDefs = defs;
+  // modo feira: o tutorial começa a 1,1 m da caixa (sem passo de andar)
+  const yaw = S.SPAWN_YAW;
+  world.tutorialSpawn = new THREE.Vector3(tut.x + Math.sin(yaw) * 1.1, tut.y, tut.z + Math.cos(yaw) * 1.1);
+  world.feiraTargets = defs.filter((d) => !d.tutorial).slice(0, CONFIG.FEIRA.TARGETS.length).map((d) => d.id);
+  world.isFree = (x, z, r, fromY) => grid.isFree(x, z, r, fromY);
+  world.segmentHit = (a, b) => grid.segmentHit(a, b);
+  world.floorAt = (x, z) => grid.floorAt(x, z);
+  scene.fog = new THREE.Fog(0xcfe2f2, S.FOG_NEAR, S.FOG_FAR);
+  placeTargets(world, scene, false);
+  onStatus('Escola pronta', 1);
+  return world;
+}
+
+// Lugar da caixa do tutorial: chão livre a ~2,5 m na frente do início.
+function tutorialSpot(grid, spawn) {
+  const yaw = CONFIG.MAP.SPAWN_YAW;
+  for (let d = 2.5; d > 0.8; d -= 0.25) {
+    for (const off of [0, 0.4, -0.4, 0.8, -0.8]) {
+      const x = spawn.x - Math.sin(yaw + off) * d, z = spawn.z - Math.cos(yaw + off) * d;
+      const f = grid.floorAt(x, z);
+      if (f != null && Math.abs(f - spawn.y) < 0.3 && grid.isFree(x, z, 0.3, f)) return { x, y: f, z };
+    }
+  }
+  return { x: spawn.x, y: spawn.y, z: spawn.z - 2 };
+}
+
 // Cria (ou recria) as caixas. random = sorteia um spot por lugar.
 export function placeTargets(world, scene, random = false) {
   for (const t of world.targets) {
     scene.remove(t.group);
     t.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   }
-  world.targets = TARGET_DEFS.map((def) => {
+  world.targets = (world.targetDefs || TARGET_DEFS).map((def) => {
     const spot = random ? def.spots[Math.floor(Math.random() * def.spots.length)] : def.spots[0];
     return createTarget(scene, { ...def, pos: spot.pos, normal: spot.normal });
   });
@@ -147,41 +199,46 @@ export function buildWorld(scene) {
   scene.add(sky);
   scene.userData.sky = sky;
 
+  // tudo do mapa de blocos fica neste grupo (sai quando a escola de verdade carrega)
+  const deco = new THREE.Group();
+  deco.name = 'mapa-de-blocos';
+  scene.add(deco);
+
   // Chão: piso claro com rejunte e leve variação (textura gerada no código)
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(40, 40),
     new THREE.MeshLambertMaterial({ map: makeFloorTexture(40) }),
   );
   ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
+  deco.add(ground);
   // caminhos (cinza-claro) ligando as áreas
   const roadMat = new THREE.MeshLambertMaterial({ color: 0xd9dcdf });
   for (const [w, d, x, z] of [[3, 23, 0, 3.5], [34, 2.4, 0, -6.2], [6, 2.4, 6, 1], [2.4, 6, -5.6, 1]]) {
     const road = new THREE.Mesh(new THREE.PlaneGeometry(w, d), roadMat);
     road.rotation.x = -Math.PI / 2;
     road.position.set(x, 0.004, z);
-    scene.add(road);
+    deco.add(road);
   }
   // quadra: piso verde com linhas brancas
   const court = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 10), new THREE.MeshLambertMaterial({ color: 0x3f9b5b }));
   court.rotation.x = -Math.PI / 2;
   court.position.set(-12.55, 0.006, 0);
-  scene.add(court);
+  deco.add(court);
   const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   for (const [w, d, x, z] of [[9.2, 0.08, -12.55, 4.8], [9.2, 0.08, -12.55, -4.8], [0.08, 9.6, -17.15, 0], [0.08, 9.6, -7.95, 0], [0.08, 9.6, -12.55, 0]]) {
     const l = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineMat);
     l.rotation.x = -Math.PI / 2;
     l.position.set(x, 0.008, z);
-    scene.add(l);
+    deco.add(l);
   }
   const ring = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.23, 40), lineMat);
   ring.rotation.x = -Math.PI / 2;
   ring.position.set(-12.55, 0.008, 0);
-  scene.add(ring);
+  deco.add(ring);
   // bandeira no mastro
   const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.7), new THREE.MeshLambertMaterial({ color: 0x00a3ad, side: THREE.DoubleSide }));
   flag.position.set(0.63, 4.55, -3);
-  scene.add(flag);
+  deco.add(flag);
   scene.userData.flag = flag;
 
   const shadowTex = getShadowTexture();
@@ -190,7 +247,7 @@ export function buildWorld(scene) {
       new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity, depthWrite: false }));
     m.rotation.x = -Math.PI / 2;
     m.position.set(cx, 0.008, cz);
-    scene.add(m);
+    deco.add(m);
   };
 
   const blocks = [];
@@ -199,7 +256,7 @@ export function buildWorld(scene) {
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
     mesh.scale.set(x1 - x0, y1 - y0, z1 - z0);
     mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-    scene.add(mesh);
+    deco.add(mesh);
     blocks.push({ mesh, box: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)) });
     // sombra de contato: escurece o chão em volta da base do bloco
     if (y0 === 0) addShadow((x0 + x1) / 2, (z0 + z1) / 2, (x1 - x0) + 0.9, (z1 - z0) + 0.9);
@@ -213,20 +270,23 @@ export function buildWorld(scene) {
     const trunk = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x7b5233 }));
     trunk.scale.set(0.3, 1.8, 0.3);
     trunk.position.set(x, 0.9, z);
-    scene.add(trunk);
+    deco.add(trunk);
     blocks.push({ mesh: trunk, box: new THREE.Box3(new THREE.Vector3(x - 0.15, 0, z - 0.15), new THREE.Vector3(x + 0.15, 1.8, z + 0.15)) });
     const crown = new THREE.Mesh(leafGeo, leafMat);
     crown.position.set(x, 2.5, z);
     crown.scale.set(1, 0.9, 1);
-    scene.add(crown);
+    deco.add(crown);
     addShadow(x, z, 2.4, 2.4, 0.45);
   }
 
   const world = {
     blocks,
+    deco,
     targets: [],
     spawn: new THREE.Vector3(0, 0, 10),
     bounds: 19.5,
+    school: false,
+    floorAt() { return 0; },
 
     // Primeiro bloco atingido pelo segmento a->b (ou null).
     segmentHit(a, b) {
@@ -312,11 +372,11 @@ function createTarget(scene, def) {
   group.add(glow);
 
   // sombra no chão (só para caixa no chão): vai junto com a caixa quando ela é sorteada
-  if (def.pos[1] < 0.5) {
+  if (def.normal[1] > 0.5) {
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(BOX_SIZE + 0.5, BOX_SIZE + 0.5),
       new THREE.MeshBasicMaterial({ map: getShadowTexture(), transparent: true, opacity: 0.6, depthWrite: false }));
     sh.rotation.x = -Math.PI / 2;
-    sh.position.y = 0.008 - def.pos[1];
+    sh.position.y = 0.008 - BOX_SIZE / 2; // no apoio (chão, mesa, estante)
     group.add(sh);
   }
 

@@ -2,7 +2,7 @@
 // Estados: boot -> calibration -> tutorial -> playing -> ended
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { buildWorld, animateTargets, placeTargets } from './scene.js';
+import { buildWorld, animateTargets, placeTargets, loadSchool } from './scene.js';
 import { OrientationController } from './orientation.js';
 import { HandTracker, HandView } from './hands.js';
 import { updateHandGesture } from './gestures.js';
@@ -63,6 +63,11 @@ class App {
 
     this.world = buildWorld(this.scene);
     this.rig.position.copy(this.world.spawn);
+    this.floorY = this.rig.position.y;
+    // a escola de verdade carrega em segundo plano; até lá vale o mapa de blocos
+    this.mapDone = !CONFIG.MAP.USE_SCHOOL;
+    this.mapText = this.mapDone ? '' : 'Carregando a escola…';
+    this.mapPromise = this.mapDone ? Promise.resolve() : this._loadSchool();
     this.orientation = new OrientationController(this.camera);
     this.hands = new HandTracker(this.calib);
     this.handViews = [new HandView(this.camera, this.hands.left), new HandView(this.camera, this.hands.right)];
@@ -159,6 +164,35 @@ class App {
     } catch (e) { /* opcional: sem permissão ou bateria fraca */ }
   }
 
+  // Carrega o modelo da escola e troca o mapa. Nunca rejeita: se der errado,
+  // o jogo continua no mapa de blocos.
+  async _loadSchool() {
+    const setText = (t) => {
+      this.mapText = t;
+      const el = document.getElementById('map-status');
+      if (el) el.innerHTML = t;
+    };
+    try {
+      await loadSchool(this.world, this.scene, (msg, f) => setText(`🏫 ${msg}… ${Math.round(f * 100)}%`));
+      this.rig.rotation.y = CONFIG.MAP.SPAWN_YAW;
+      if (this.state === 'boot' || this.state === 'calibration') { this.rig.position.copy(this.world.spawn); this.floorY = this.world.spawn.y; }
+      this.applyOptions();
+      setText('<span class="ok">🏫 Escola carregada.</span>');
+    } catch (e) {
+      console.warn('Escola não carregou, usando o mapa de blocos', e);
+      setText(`<span class="bad">🏫 A escola não carregou (${e.message || e}). Usando o mapa de blocos.</span>`);
+    }
+    this.mapDone = true;
+  }
+
+  // Se a escola ainda está carregando, mostra o progresso e chama again() no fim.
+  _waitMap(again) {
+    if (this.mapDone) return false;
+    this.calibration._show('Carregando a escola…', `<p>Na primeira vez o modelo 3D da escola (17 MB) demora um pouco para baixar. Depois ele fica guardado no celular.</p><p id="map-status">${this.mapText}</p>`, []);
+    this.mapPromise.then(again);
+    return true;
+  }
+
   // ---------------------------------------------------------------
   // Opções (som, vibração, vinheta, modo feira)
   // ---------------------------------------------------------------
@@ -171,7 +205,8 @@ class App {
   applyOptions() {
     const feira = this.options.feira;
     document.body.classList.toggle('feira', feira);
-    for (const t of this.world.targets) t.off = feira && !t.tutorial && !CONFIG.FEIRA.TARGETS.includes(t.id);
+    const feiraIds = this.world.feiraTargets || CONFIG.FEIRA.TARGETS;
+    for (const t of this.world.targets) t.off = feira && !t.tutorial && !feiraIds.includes(t.id);
     const b = document.getElementById('btn-sound');
     if (b) { b.textContent = this.options.sound ? '🔊' : '🔇'; b.classList.toggle('on', this.options.sound); }
   }
@@ -190,17 +225,19 @@ class App {
     this.teleport.lastJump = -1e9;
     this.teleport.jumps = 0;
     this.rig.position.copy(this.world.spawn);
+    this.floorY = this.world.spawn.y;
     this.recenter();
   }
 
   startTutorial() {
+    if (this._waitMap(() => this.startTutorial())) return;
     this.state = 'tutorial';
     this._resetWorld();
     this.interaction.mode = 'tutorial';
     this.tutorial = { teleport: false, touch: false, wire: false };
     if (this.options.feira) {
       // modo feira: começa do lado do pedestal, sem o passo de andar
-      this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
+      if (this.world.tutorialSpawn) { this.rig.position.copy(this.world.tutorialSpawn); this.floorY = this.rig.position.y; } else this.rig.position.fromArray(CONFIG.FEIRA.TUTORIAL_SPAWN);
       this.tutorial.teleport = true;
     }
     this._refreshTutorial();
@@ -210,6 +247,7 @@ class App {
   _refreshTutorial() { if (this.state === 'tutorial') this.calibration.showTutorial(this.tutorial); }
 
   startGame() {
+    if (this._waitMap(() => this.startGame())) return;
     this.calibration.hide();
     this.state = 'playing';
     this._resetWorld();
@@ -483,6 +521,7 @@ class App {
       this.orientation.update();
     }
     if (this.locoMode !== 'correr' && (input.move.f || input.move.r)) this._debugWalk(dt, input.move);
+    this._followFloor(dt);
     this.rig.updateMatrixWorld(true);
 
     // 2) mãos + gestos
@@ -545,6 +584,19 @@ class App {
     this._adaptQuality(now);
   }
 
+  // Na escola o chão tem degraus e rampas: o jogador acompanha a altura do piso.
+  _followFloor(dt) {
+    if (!this.world.school) return;
+    const p = this.rig.position;
+    const f = this.world.floorAt(p.x, p.z);
+    if (f != null) {
+      this.world.grid.refY = f;
+      const dy = f - this.floorY;
+      this.floorY += Math.abs(dy) > 0.6 ? dy : dy * Math.min(1, dt * 12);
+    }
+    p.y = this.floorY;
+  }
+
   // Vinheta de conforto: escurece as bordas da visão enquanto anda (menos enjoo).
   // Fica presa à câmera, então funciona na tela normal, no óculos e no WebXR.
   _updateVignette(dt) {
@@ -586,7 +638,7 @@ class App {
     fwd.y = 0; fwd.normalize();
     const nx = this.rig.position.x + (fwd.x * move.f - fwd.z * move.r) * 2 * dt;
     const nz = this.rig.position.z + (fwd.z * move.f + fwd.x * move.r) * 2 * dt;
-    if (this.world.isFree(nx, nz, 0.25)) this.rig.position.set(nx, 0, nz);
+    if (this.world.isFree(nx, nz, 0.25)) { this.rig.position.x = nx; this.rig.position.z = nz; }
   }
 
   _updateHud(active) {

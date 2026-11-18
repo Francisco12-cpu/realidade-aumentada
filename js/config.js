@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 360,         // duração da partida (6 min)
 
   // ---- Locomoção ----
-  VERSION: 'v9',
+  VERSION: 'v10',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -147,6 +147,27 @@ export const CONFIG = {
     AUTO: true,             // baixa a resolução se o FPS cair, sobe se sobrar
     LOW_FPS: 40,
     HIGH_FPS: 56,
+  },
+
+  // ---- Mapa: escola de verdade (modelo 3D original) ----
+  MAP: {
+    USE_SCHOOL: true,       // false = volta para o mapa de blocos
+    // procura o modelo nesses endereços (o 2º é para o arquivo único em dist/)
+    URLS: ['models/escola.glb', '../models/escola.glb'],
+    SPAWN: [38.5, 0, -60.25], // onde o jogador começa: no corredor coberto do portão (muro oeste)
+    SPAWN_YAW: -Math.PI / 2, // olhando para dentro da escola (leste, +x)
+    CELL: 0.25,             // tamanho da célula da grade de colisão (m)
+    CHAO_MAX: 1.3,          // superfícies horizontais até essa altura contam como chão
+    DEGRAU: 0.36,           // maior degrau que dá para subir andando (m)
+    PAREDE_DE: 0.35,        // parede só bloqueia entre essa altura...
+    PAREDE_ATE: 1.75,       // ...e essa (acima do chão)
+    RAIO_JOGADOR: 0.3,
+    AREAS: 6,               // áreas com pontos de sinal (1 caixa por área na partida)
+    LUGARES_POR_AREA: 4,    // lugares possíveis em cada área (sorteio)
+    DIST_MIN: 3,            // distância mínima entre lugares (m)
+    LONGE_DO_INICIO: 8,     // nenhum ponto a menos disso do início (m)
+    FOG_NEAR: 25,
+    FOG_FAR: 75,
   },
 
   // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----

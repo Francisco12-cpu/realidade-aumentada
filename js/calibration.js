@@ -143,6 +143,7 @@ export class CalibrationFlow {
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Existe uma calibração salva neste aparelho.</p>' : ''}
       ${this._optionsHtml()}
+      <p class="small" id="map-status">${this.app.mapText}</p>
       <p class="small" id="offline"></p>
       <p class="small">Dica: o botão 🐞 mostra o painel de depuração (FPS, gestos, prévia da câmera).</p>`;
     const btns = [];
@@ -169,6 +170,7 @@ export class CalibrationFlow {
       <p>${feira ? `Partida de <b>${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min</b> com <b>${CONFIG.FEIRA.TARGETS.length} caixas</b>.` : ''}
       Siga o <b>bipe</b>: quanto mais rápido, mais perto. Perto da caixa ela solta <b>faíscas</b>.</p>
       ${this._optionsHtml()}
+      <p class="small" id="map-status">${this.app.mapText}</p>
       <p class="small" id="offline"></p>`;
     const ready = this.app.devicesReady;
     const go = (next) => {

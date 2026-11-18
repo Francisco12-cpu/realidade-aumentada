@@ -3,3 +3,6 @@ servidor/cache/
 servidor/cert.pem
 servidor/key.pem
 __pycache__/
+# arquivos brutos (o modelo usado pelo jogo fica em models/escola.glb)
+*.rar
+*.skp
