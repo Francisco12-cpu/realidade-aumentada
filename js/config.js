@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v11',
+  VERSION: 'v12',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -67,13 +67,13 @@ export const CONFIG = {
     WORKER_MAX_SIDE: 480,       // reduz a imagem enviada ao worker (px do lado maior)
     MAX_DETECT_HZ: 30,          // detecções por segundo, no máximo
     DETECT_EVERY_N_FRAMES: 1,   // (modo normal) 2 = detecta em quadros alternados
-    MIN_DETECTION_CONF: 0.5,
-    MIN_PRESENCE_CONF: 0.5,
-    MIN_TRACKING_CONF: 0.5,
+    MIN_DETECTION_CONF: 0.4,    // mais baixo = acha a mão mais fácil (com pouca luz também)
+    MIN_PRESENCE_CONF: 0.4,
+    MIN_TRACKING_CONF: 0.4,
     // MediaPipe supõe imagem espelhada (selfie). Na câmera traseira o rótulo
     // vem invertido, então por padrão invertemos. A calibração confirma.
     FLIP_HANDEDNESS: true,
-    LOST_GRACE_MS: 220,         // segura a mão na tela por esse tempo se sumir
+    LOST_GRACE_MS: 350,         // segura a mão na tela por esse tempo se sumir
     TRACK_MEMORY_MS: 600,       // memória de posição p/ não trocar esquerda/direita
     LABEL_WEIGHT: 1.0,          // peso do rótulo do MediaPipe na atribuição
     POS_WEIGHT: 4.0,            // peso da continuidade de posição
@@ -108,7 +108,7 @@ export const CONFIG = {
 
   // ---- Gestos ----
   GESTURE: {
-    STABLE_FRAMES: 3,       // quadros seguidos para aceitar um gesto novo
+    STABLE_FRAMES: 2,       // quadros seguidos para aceitar um gesto novo
     // Limiares padrão (a calibração substitui)
     DEFAULT_THRESHOLDS: {
       ext: [0.72, 0.72, 0.72, 0.72], // retidão p/ considerar dedo esticado (indicador..mínimo)
@@ -142,20 +142,20 @@ export const CONFIG = {
 
   // ---- Qualidade / FPS ----
   QUALITY: {
-    PIXEL_RATIO: 1.0,       // resolução máxima (1 = um pixel por pixel CSS; celular fica bem mais leve)
-    MIN_PIXEL_RATIO: 0.55,  // nunca abaixo disso
+    PIXEL_RATIO: 0.85,      // resolução máxima (1 = um pixel por pixel CSS; menos = mais FPS)
+    MIN_PIXEL_RATIO: 0.5,   // nunca abaixo disso
     AUTO: true,             // baixa a resolução se o FPS cair, sobe se sobrar
-    LOW_FPS: 40,
+    LOW_FPS: 45,
     HIGH_FPS: 56,
   },
 
   // ---- Mapa: escola de verdade (modelo 3D original) ----
   // ---- Arma de mão (pistolinha) ----
   GUN: {
-    RELOAD_MS: 650,         // depois do tiro a mão fica cinza por pelo menos isso
-    THUMB_UP_K: 1.0,        // polegar "levantado" = thumbOut acima de limiar × isto (engatilha)
-    THUMB_DOWN_K: 0.85,     // polegar "abaixado" = abaixo de limiar × isto (atira)
-    COCK_FRAMES: 2,         // detecções seguidas com o polegar em pé para engatilhar
+    RELOAD_MS: 450,         // depois do tiro a mão fica cinza só esse tempo e volta a ficar vermelha
+    THUMB_UP_K: 0.92,       // polegar "levantado" = thumbOut acima de limiar × isto (engatilha)
+    THUMB_DOWN_K: 0.8,      // polegar "abaixado" = abaixo de limiar × isto (atira)
+    SHAPE_SLACK: 0.1,       // folga no formato da pistolinha (maior = reconhece mais fácil)
     GRACE_MS: 300,          // a arma continua na mão se a pistolinha "piscar"
     RANGE: 35,              // alcance do tiro (m)
   },
@@ -175,7 +175,8 @@ export const CONFIG = {
     ATTACK_DIST: 0.95,
     ATTACK_S: 1.3,          // tempo entre ataques
     ASSIST_DEG: 4,          // ajuda de mira (graus)
-    MIN_DIST_START: 12,     // nenhum zumbi nasce perto do início
+    MIN_DIST_START: 9,      // nenhum zumbi nasce perto do início
+    IN_VIEW: 3,             // quantos nascem À VISTA da porta (9 a 20 m, sem parede no meio)
     SPREAD: 12,             // distância entre zumbis ao espalhar
     FLOW_RADIUS: 45,        // raio do caminho calculado em volta do jogador (m)
     FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
@@ -188,7 +189,8 @@ export const CONFIG = {
   // ---- Jogador ----
   PLAYER: {
     HP: 5,                  // vidas (cada mordida tira 1)
-    WALK_GRACE_MS: 350,     // continua andando esse tempo se a palma "piscar"
+    WALK_GRACE_MS: 450,     // continua andando esse tempo se a palma "piscar"
+    PALM_FINGERS: 3,        // dedos esticados que já contam como mão aberta (de 4)
   },
 
   MAP: {
@@ -207,8 +209,8 @@ export const CONFIG = {
     LUGARES_POR_AREA: 4,    // lugares possíveis em cada área (sorteio)
     DIST_MIN: 3,            // distância mínima entre lugares (m)
     LONGE_DO_INICIO: 8,     // nenhum ponto a menos disso do início (m)
-    FOG_NEAR: 25,
-    FOG_FAR: 75,
+    FOG_NEAR: 18,
+    FOG_FAR: 55,
   },
 
   // ---- Modo feira (liga na tela inicial ou com ?feira no link) ----

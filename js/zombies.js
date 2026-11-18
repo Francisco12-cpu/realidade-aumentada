@@ -136,6 +136,15 @@ export class Horde {
     // embaralha e aceita pontos afastados entre si (diminui a distância se faltar)
     for (let i = cand.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cand[i], cand[j]] = [cand[j], cand[i]]; }
     const out = [];
+    // alguns já À VISTA da porta: o jogador vê zumbi logo que começa
+    const eye = new THREE.Vector3(start.x, (start.y || 0) + 1.5, start.z), to = new THREE.Vector3();
+    for (const p of cand) {
+      if (out.length >= Math.min(Z.IN_VIEW, count)) break;
+      const d = Math.hypot(p.x - start.x, p.z - start.z);
+      if (d > 20 || out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 3)) continue;
+      to.set(p.x, p.y + 1.5, p.z);
+      if (!w.segmentHit(eye, to)) out.push(p);
+    }
     for (let d = Z.SPREAD; d >= 2 && out.length < count; d *= 0.7) {
       for (const p of cand) {
         if (out.length >= count) break;

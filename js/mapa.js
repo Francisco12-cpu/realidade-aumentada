@@ -39,7 +39,8 @@ export class CollisionGrid {
     const box = new THREE.Box3().setFromObject(root);
     const C = M.CELL;
     g.cell = C;
-    g.x0 = box.min.x - 1; g.z0 = box.min.z - 1;
+    // origem alinhada à célula: a grade não muda se o tamanho do modelo mudar
+    g.x0 = Math.floor(box.min.x / C) * C - 1; g.z0 = Math.floor(box.min.z / C) * C - 1;
     g.W = Math.ceil((box.max.x - box.min.x + 2) / C);
     g.H = Math.ceil((box.max.z - box.min.z + 2) / C);
     g.Y0 = box.min.y - 0.2;
