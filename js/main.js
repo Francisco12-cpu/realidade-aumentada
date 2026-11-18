@@ -328,6 +328,19 @@ class App {
     return n >= CONFIG.PLAYER.PALM_FINGERS && f.straight[1] > thr.ext[1] - 0.05;
   }
 
+  // v22: palma BEM aberta para andar: o gesto 'palma' OU os 4 dedos esticados
+  // E indicador e médio longe do pulso (as duas coisas). Mão fechada ou meio
+  // fechada não anda mais.
+  _isOpenPalm(h) {
+    if (!h.visible || !h.features) return false;
+    if (h.gesture === 'fist' || h.gesture === 'pinch' || h.gesture === 'gun') return false;
+    const f = h.features, thr = this.calib.thresholds;
+    const n = f.straight.filter((s, i) => s > thr.ext[i] - 0.03).length;
+    const r = this.gun._reach(h);
+    const far = !!r && r.index > CONFIG.PLAYER.PALM_REACH && r.middle > CONFIG.PLAYER.PALM_REACH;
+    return far && (h.gesture === 'open' || n >= 4);
+  }
+
   // Tira as caixas do jogo antigo (o jogo agora é de zumbis).
   _clearTargets() {
     for (const t of this.world.targets) this.scene.remove(t.group);
@@ -812,9 +825,16 @@ class App {
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
       const thr = this.calib.thresholds;
-      const palm = this.hands.hands.find((h) => this._isPalm(h) && !this.gun._isPistol(h, thr) && !(this.gun.pistol && h.side === this.gun.side));
-      if (palm) this.lastPalm = now;
-      if (now - this.lastPalm < CONFIG.PLAYER.WALK_GRACE_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
+      // v22: só a mão de ANDAR (esquerda, ou a escolhida na calibração) anda,
+      // e só com a palma bem aberta segurada um instante (não anda sem querer)
+      const walkSide = this.locoSide();
+      const strict = CONFIG.ROLES.STRICT_SIDES;
+      this.gun.onlySide = strict ? this.interSide() : null;
+      const palm = this.hands.hands.find((h) => (!strict || h.side === walkSide) && this._isOpenPalm(h)
+        && !this.gun._isPistol(h, thr) && !(this.gun.pistol && h.side === this.gun.side));
+      if (palm) { if (!this._palmSince) this._palmSince = now; if (now - this._palmSince >= CONFIG.PLAYER.PALM_START_MS) this.lastPalm = now; }
+      else this._palmSince = 0;
+      if (now - this.lastPalm < CONFIG.PLAYER.WALK_STOP_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.dir = null;
       this.runner.useSwing = false;
       this.runner.maxSpeed = CONFIG.RUN.WALK_SPEED;
@@ -899,8 +919,11 @@ class App {
         // a cor mostra o que a mão está fazendo: vermelha = pistolinha, azul = palma (andando)
         const h = v.hand, thr = this.calib.thresholds;
         const gunNow = this.gun.pistol && h.side === this.gun.side;
+        const walking = this.runner.speed > 0.2 && (!CONFIG.ROLES.STRICT_SIDES || h.side === this.locoSide()) && this._isOpenPalm(h);
+        // v22: cor fraca pelo lado (vermelho = mão da arma, azul = mão de andar), forte quando faz o gesto
+        const sideCol = !CONFIG.ROLES.STRICT_SIDES ? null : h.side === this.locoSide() ? CONFIG.ROLES.WALK_DIM : CONFIG.ROLES.GUN_DIM;
         v.tint = gunNow ? (this.gun.state === 'reload' ? 0x8e1b1b : CONFIG.ROLES.GUN_COLOR)
-          : this._isPalm(h) ? CONFIG.ROLES.WALK_COLOR : null;
+          : walking ? CONFIG.ROLES.WALK_COLOR : sideCol;
       } else if (CONFIG.ROLES.ON) {
         const r = v.hand.role;
         v.tint = r === 'walk' ? CONFIG.ROLES.WALK_COLOR : r === 'gun' ? (this.gun.state === 'reload' ? 0x8e1b1b : CONFIG.ROLES.GUN_COLOR) : null;
@@ -1117,8 +1140,8 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Mostre a <b>palma aberta ✋</b> para a câmera: a mão fica <b>azul</b> e você anda para onde <b>olha</b>. Abaixe ou feche a mão para parar.',
-      aim: 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela). Faça a <b>pistolinha 👉</b> com a outra mão: ela fica <b>vermelha</b>.',
+      walk: 'Mão <b>ESQUERDA</b> (azul): <b>palma bem aberta ✋</b>, dedos esticados, por um instante = anda para onde <b>olha</b>. Feche ou abaixe = para.',
+      aim: 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela). Mão <b>DIREITA</b> (vermelha): faça a <b>pistolinha 👉</b>.',
       shoot: 'Olhando para o zumbi, segure a <b>pistolinha 👉</b>: atira sozinho; a <b>barra</b> embaixo da mira mostra a recarga. De perto, <b>socos</b> 👊 também valem.',
     };
     const g = this.gun.state;

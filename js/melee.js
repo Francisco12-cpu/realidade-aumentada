@@ -21,9 +21,14 @@ export class Melee {
     const out = [];
     camera.getWorldPosition(this._eye);
     for (const h of hands) {
-      const st = h._melee || (h._melee = { hist: [], speed: 0, armed: true, last: -1e9, lastT: 0 });
-      if (!h.visible || !h.rawPos) { st.hist.length = 0; st.speed = 0; st.armed = true; continue; }
+      const st = h._melee || (h._melee = { hist: [], speed: 0, armed: true, last: -1e9, lastT: 0, prevP: null, prevT: 0, vanishDone: false });
+      if (!h.rawPos || (!h.visible && now - (h.rawT || 0) > M.GAP_MS)) { st.hist.length = 0; st.speed = 0; st.armed = true; st.prevP = null; continue; }
+      let jump = 0;
       if (h.rawT !== st.lastT) {
+        // v22: a mão sumiu um instante no movimento rápido e voltou longe = golpe
+        if (st.prevP && h.rawT - st.prevT > M.WINDOW_MS && h.rawT - st.prevT < M.GAP_MS) jump = st.prevP.distanceTo(h.rawPos);
+        st.prevP = (st.prevP || new THREE.Vector3()).copy(h.rawPos); st.prevT = h.rawT;
+        st.vanishDone = false;
         st.lastT = h.rawT;
         st.hist.push({ t: h.rawT, p: h.rawPos.clone() });
         while (st.hist.length && h.rawT - st.hist[0].t > M.WINDOW_MS) st.hist.shift();
@@ -32,8 +37,14 @@ export class Melee {
         st.speed = 0;
         for (const a of st.hist) if (h.rawT - a.t <= M.WINDOW_MS) st.speed = Math.max(st.speed, a.p.distanceTo(h.rawPos));
       }
-      if (st.speed < M.REARM_DIST) st.armed = true;
-      if (!st.armed || st.speed < M.MIN_DIST || now - st.last < M.COOLDOWN_MS) continue;
+      if (jump > st.speed) st.speed = jump;
+      // v22: a mão vinha se mexendo e SUMIU (borrão do movimento) = golpe
+      const lost = now - h.rawT;
+      let vanish = false;
+      if (!st.vanishDone && lost > M.VANISH_MS && lost < M.GAP_MS && st.moving > M.VANISH_MOVE) { vanish = true; st.vanishDone = true; }
+      if (h.rawT === st.lastT && lost < 50) st.moving = st.speed;
+      if (st.speed < M.REARM_DIST && lost < 50) st.armed = true;
+      if (!st.armed || (st.speed < M.MIN_DIST && !vanish) || now - st.last < M.COOLDOWN_MS) continue;
       // zumbi perto e na direção da mão
       this._hw.copy(h.worldPts[9]).sub(this._eye); this._hw.y = 0;
       if (this._hw.lengthSq() < 1e-6) continue;

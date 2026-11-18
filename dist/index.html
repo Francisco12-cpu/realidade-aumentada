@@ -282,7 +282,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v21',
+  VERSION: 'v22',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -353,6 +353,9 @@ const CONFIG = {
     REAL_FAR: 0.75,
     TRACK_MEMORY_MS: 600,       // memória de posição p/ não trocar esquerda/direita
     LABEL_WEIGHT: 1.0,          // peso do rótulo do MediaPipe na atribuição
+    SIDE_WEIGHT: 0.8,           // v22: peso do lado da imagem (esquerda/direita) na atribuição
+    SIDE_AVG: 0.12,             // v22: média do rótulo por detecção (~1 s)
+    SWAP_BELOW: 0.25,           // v22: se a média do rótulo cair abaixo disso, a mão troca de lado
     POS_WEIGHT: 4.0,            // peso da continuidade de posição
     // Profundidade virtual (distância da mão à câmera no mundo 3D, em m)
     VIRTUAL_NEAR: 0.28,
@@ -499,6 +502,9 @@ const CONFIG = {
     WALK_GRACE_MS: 400,     // continua andando esse tempo se a mão azul "piscar"
     FINGER_BLEND: 0.7,      // andar apontando: 1 = só o dedo · 0 = só do olho até a mão
     CENTER_SLACK: 0.12,     // uma mão só perto do meio da visão mantém a cor que tinha
+    STRICT_SIDES: true,     // v22: só a mão DIREITA atira e só a ESQUERDA anda (troca na calibração)
+    WALK_DIM: 0x24406e,     // cor da mão de andar parada
+    GUN_DIM: 0x6e2424,      // cor da mão da arma parada
   },
 
   // ---- Soco / tapa (v19): encostar a mão no zumbi com força ----
@@ -512,6 +518,9 @@ const CONFIG = {
     RANGE: 1.25,            // zumbi a até essa distância do jogador (m) leva o golpe
     ANGLE_DEG: 50,          // e na direção da mão (graus de folga)
     COOLDOWN_MS: 300,       // tempo mínimo entre golpes da mesma mão
+    GAP_MS: 700,            // v22: mão sumiu menos que isso e voltou longe = golpe
+    VANISH_MS: 120,         // v22: mão que vinha se mexendo e sumiu por isso = golpe (borrão do soco)
+    VANISH_MOVE: 0.06,      // v22: ...se tinha andado pelo menos isso (m) logo antes
     KNOCK_SPEED: 1.6,       // empurrão para trás (m/s, some rápido)
     STAGGER_S: 0.6,         // o zumbi demora pelo menos isso para morder depois de apanhar
   },
@@ -520,6 +529,9 @@ const CONFIG = {
   PLAYER: {
     HP: 5,                  // vidas (cada mordida tira 1)
     WALK_GRACE_MS: 450,     // continua andando esse tempo se a palma "piscar"
+    PALM_START_MS: 250,     // v22: palma aberta segurada esse tempo para começar a andar
+    WALK_STOP_MS: 250,      // v22: parou de ver a palma: para depois disso
+    PALM_REACH: 1.7,        // v22: indicador e médio mais longe do pulso que isso (palmos) = palma aberta de verdade
     PALM_FINGERS: 4,        // dedos esticados para contar como mão aberta (de 4)
     NO_WALK_AFTER_GUN_MS: 600, // depois de mirar, a mão da arma não anda por esse tempo
   },
@@ -2482,7 +2494,10 @@ class Gun {
   _updateHead(now, hands, thr, manualFire, findHit) {
     // mão fazendo a pistolinha agora (prefere a mesma de antes)
     let ph = null;
-    for (const h of hands) if (h.visible && h.present && this._isPistol(h, thr) && (!ph || h.side === this.side)) ph = h;
+    for (const h of hands) {
+      if (this.onlySide && h.side !== this.onlySide) continue; // v22: só a mão da arma
+      if (h.visible && h.present && this._isPistol(h, thr) && (!ph || h.side === this.side)) ph = h;
+    }
     if (ph) {
       this.side = ph.side;
       this._pistolSeen = now;
@@ -2708,9 +2723,9 @@ class Gun {
 // Aparece no canto (HTML) e, no óculos, num painel pequeno preso à visão (3D).
 
 const COACH_STEPS = [
-  { id: 'walk', icon: '✋', text: 'Palma aberta = anda' },
+  { id: 'walk', icon: '✋', text: 'Esquerda aberta = anda' },
   { id: 'aim', icon: '🎯', text: 'Olhe para o zumbi = mira' },
-  { id: 'shoot', icon: '👉', text: 'Pistolinha = atira' },
+  { id: 'shoot', icon: '👉', text: 'Direita pistolinha = atira' },
 ];
 
 class Coach {
@@ -3204,7 +3219,14 @@ class HandTracker {
     if (dets.length === 2 && Math.hypot(dets[0].c.x - dets[1].c.x, dets[0].c.y - dets[1].c.y) < H.DUP_DIST) {
       dets.splice(dets[0].score >= dets[1].score ? 1 : 0, 1);
     }
-    const assigned = this._assign(dets, nowMs);
+    let assigned = this._assign(dets, nowMs);
+    // uma mão só, e o rótulo diz há um tempo que ela é a outra: troca
+    if (assigned.length === 1 && this._checkSide(assigned[0][0], assigned[0][1])) {
+      const [h, d] = assigned[0];
+      const o = h.side === 'left' ? this.right : this.left;
+      h.lastSeen = -1e9; o.agree = 0.5;
+      assigned = [[o, d]];
+    }
     for (const h of this.hands) h.present = false;
     for (const [hand, det] of assigned) this._applyDetection(hand, det, nowMs, camera);
     // v20: a mão "pulou" de esquerda para direita: a cópia parada no lugar
@@ -3217,15 +3239,31 @@ class HandTracker {
     }
   }
 
+  // v22: camada esquerda/direita. Junta 3 pistas:
+  //  1) o rótulo do MediaPipe (Left/Right, com a inversão da calibração);
+  //  2) o LADO da imagem (a câmera de trás não espelha: mão esquerda
+  //     costuma aparecer do lado esquerdo);
+  //  3) a continuidade (a mão que estava ali há pouco é a mesma).
   _cost(det, hand, nowMs) {
     const labelCost = hand.side === 'left' ? 1 - det.pLeft : det.pLeft;
-    let c = labelCost * H.LABEL_WEIGHT;
+    const sideCost = hand.side === 'left' ? det.c.x : 1 - det.c.x; // 0 = bem do lado certo
+    let c = labelCost * H.LABEL_WEIGHT + sideCost * H.SIDE_WEIGHT;
     if (nowMs - hand.lastSeen < H.TRACK_MEMORY_MS) {
       c += Math.hypot(det.c.x - hand.lastC.x, det.c.y - hand.lastC.y) * H.POS_WEIGHT;
     } else {
-      c += 0.25 * H.POS_WEIGHT * 0.5; // sem memória: só o rótulo decide
+      c += 0.25 * H.POS_WEIGHT * 0.5; // sem memória: rótulo + lado decidem
     }
     return c;
+  }
+
+  // v22: se o rótulo do MediaPipe insiste (média de ~1 s) que esta mão é a
+  // outra, e a outra não está na tela, a mão é "trocada" de lado.
+  _checkSide(hand, det) {
+    const agree = hand.side === 'left' ? det.pLeft : 1 - det.pLeft;
+    hand.agree = hand.agree == null ? agree : hand.agree + (agree - hand.agree) * H.SIDE_AVG;
+    const other = hand.side === 'left' ? this.right : this.left;
+    if (hand.agree < H.SWAP_BELOW && !other.visible) { hand.agree = 0.5; return true; }
+    return false;
   }
 
   _assign(dets, nowMs) {
@@ -4788,7 +4826,7 @@ class CalibrationFlow {
     }
     const html = `
       <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
-      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🎯 olhe para o zumbi = mira</b> (ponto no meio da visão), <b>👉 pistolinha = atira</b> sozinho a cada recarga (barra) e <b>✋ palma aberta = anda</b> para onde você olha.</p>
+      <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🎯 olhe para o zumbi = mira</b> (ponto no meio da visão), <b>👉 pistolinha da mão DIREITA = atira</b> sozinho a cada recarga (barra) e <b>✋ palma aberta da mão ESQUERDA = anda</b> para onde você olha. <b>👊 Soco rápido</b> de perto também vale.</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
       <p>O jogo vai pedir permissão para a <b>câmera</b> e para os <b>sensores de movimento</b>. Depois vem a calibração (uns 3 minutos) e um mini-tutorial.</p>
       ${saved ? '<p class="ok">✔ Calibração salva: toque em <b>▶ Jogar no óculos</b>, ponha o celular no óculos e pronto. Começa sozinho em ' + CONFIG.LOBBY.COUNTDOWN_S + ' s (ou mostre a ✋ mão aberta). No jogo, <b>as duas mãos abertas</b> recentram a visão.</p>' : '<p class="small">Dica: calibre uma vez; depois é só um toque para jogar no óculos.</p>'}
@@ -5535,9 +5573,14 @@ class Melee {
     const out = [];
     camera.getWorldPosition(this._eye);
     for (const h of hands) {
-      const st = h._melee || (h._melee = { hist: [], speed: 0, armed: true, last: -1e9, lastT: 0 });
-      if (!h.visible || !h.rawPos) { st.hist.length = 0; st.speed = 0; st.armed = true; continue; }
+      const st = h._melee || (h._melee = { hist: [], speed: 0, armed: true, last: -1e9, lastT: 0, prevP: null, prevT: 0, vanishDone: false });
+      if (!h.rawPos || (!h.visible && now - (h.rawT || 0) > M.GAP_MS)) { st.hist.length = 0; st.speed = 0; st.armed = true; st.prevP = null; continue; }
+      let jump = 0;
       if (h.rawT !== st.lastT) {
+        // v22: a mão sumiu um instante no movimento rápido e voltou longe = golpe
+        if (st.prevP && h.rawT - st.prevT > M.WINDOW_MS && h.rawT - st.prevT < M.GAP_MS) jump = st.prevP.distanceTo(h.rawPos);
+        st.prevP = (st.prevP || new THREE.Vector3()).copy(h.rawPos); st.prevT = h.rawT;
+        st.vanishDone = false;
         st.lastT = h.rawT;
         st.hist.push({ t: h.rawT, p: h.rawPos.clone() });
         while (st.hist.length && h.rawT - st.hist[0].t > M.WINDOW_MS) st.hist.shift();
@@ -5546,8 +5589,14 @@ class Melee {
         st.speed = 0;
         for (const a of st.hist) if (h.rawT - a.t <= M.WINDOW_MS) st.speed = Math.max(st.speed, a.p.distanceTo(h.rawPos));
       }
-      if (st.speed < M.REARM_DIST) st.armed = true;
-      if (!st.armed || st.speed < M.MIN_DIST || now - st.last < M.COOLDOWN_MS) continue;
+      if (jump > st.speed) st.speed = jump;
+      // v22: a mão vinha se mexendo e SUMIU (borrão do movimento) = golpe
+      const lost = now - h.rawT;
+      let vanish = false;
+      if (!st.vanishDone && lost > M.VANISH_MS && lost < M.GAP_MS && st.moving > M.VANISH_MOVE) { vanish = true; st.vanishDone = true; }
+      if (h.rawT === st.lastT && lost < 50) st.moving = st.speed;
+      if (st.speed < M.REARM_DIST && lost < 50) st.armed = true;
+      if (!st.armed || (st.speed < M.MIN_DIST && !vanish) || now - st.last < M.COOLDOWN_MS) continue;
       // zumbi perto e na direção da mão
       this._hw.copy(h.worldPts[9]).sub(this._eye); this._hw.y = 0;
       if (this._hw.lengthSq() < 1e-6) continue;
@@ -5885,6 +5934,19 @@ class App {
     const thr = this.calib.thresholds;
     const n = f.straight.filter((s, i) => s > thr.ext[i] - 0.05).length;
     return n >= CONFIG.PLAYER.PALM_FINGERS && f.straight[1] > thr.ext[1] - 0.05;
+  }
+
+  // v22: palma BEM aberta para andar: o gesto 'palma' OU os 4 dedos esticados
+  // E indicador e médio longe do pulso (as duas coisas). Mão fechada ou meio
+  // fechada não anda mais.
+  _isOpenPalm(h) {
+    if (!h.visible || !h.features) return false;
+    if (h.gesture === 'fist' || h.gesture === 'pinch' || h.gesture === 'gun') return false;
+    const f = h.features, thr = this.calib.thresholds;
+    const n = f.straight.filter((s, i) => s > thr.ext[i] - 0.03).length;
+    const r = this.gun._reach(h);
+    const far = !!r && r.index > CONFIG.PLAYER.PALM_REACH && r.middle > CONFIG.PLAYER.PALM_REACH;
+    return far && (h.gesture === 'open' || n >= 4);
   }
 
   // Tira as caixas do jogo antigo (o jogo agora é de zumbis).
@@ -6371,9 +6433,16 @@ class App {
       if (input.run || input.move.f > 0) manual = 1;
       if (this.xrSelect) { manual = 1; this.runner.manualSource = 'botão do óculos'; }
       const thr = this.calib.thresholds;
-      const palm = this.hands.hands.find((h) => this._isPalm(h) && !this.gun._isPistol(h, thr) && !(this.gun.pistol && h.side === this.gun.side));
-      if (palm) this.lastPalm = now;
-      if (now - this.lastPalm < CONFIG.PLAYER.WALK_GRACE_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
+      // v22: só a mão de ANDAR (esquerda, ou a escolhida na calibração) anda,
+      // e só com a palma bem aberta segurada um instante (não anda sem querer)
+      const walkSide = this.locoSide();
+      const strict = CONFIG.ROLES.STRICT_SIDES;
+      this.gun.onlySide = strict ? this.interSide() : null;
+      const palm = this.hands.hands.find((h) => (!strict || h.side === walkSide) && this._isOpenPalm(h)
+        && !this.gun._isPistol(h, thr) && !(this.gun.pistol && h.side === this.gun.side));
+      if (palm) { if (!this._palmSince) this._palmSince = now; if (now - this._palmSince >= CONFIG.PLAYER.PALM_START_MS) this.lastPalm = now; }
+      else this._palmSince = 0;
+      if (now - this.lastPalm < CONFIG.PLAYER.WALK_STOP_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.dir = null;
       this.runner.useSwing = false;
       this.runner.maxSpeed = CONFIG.RUN.WALK_SPEED;
@@ -6458,8 +6527,11 @@ class App {
         // a cor mostra o que a mão está fazendo: vermelha = pistolinha, azul = palma (andando)
         const h = v.hand, thr = this.calib.thresholds;
         const gunNow = this.gun.pistol && h.side === this.gun.side;
+        const walking = this.runner.speed > 0.2 && (!CONFIG.ROLES.STRICT_SIDES || h.side === this.locoSide()) && this._isOpenPalm(h);
+        // v22: cor fraca pelo lado (vermelho = mão da arma, azul = mão de andar), forte quando faz o gesto
+        const sideCol = !CONFIG.ROLES.STRICT_SIDES ? null : h.side === this.locoSide() ? CONFIG.ROLES.WALK_DIM : CONFIG.ROLES.GUN_DIM;
         v.tint = gunNow ? (this.gun.state === 'reload' ? 0x8e1b1b : CONFIG.ROLES.GUN_COLOR)
-          : this._isPalm(h) ? CONFIG.ROLES.WALK_COLOR : null;
+          : walking ? CONFIG.ROLES.WALK_COLOR : sideCol;
       } else if (CONFIG.ROLES.ON) {
         const r = v.hand.role;
         v.tint = r === 'walk' ? CONFIG.ROLES.WALK_COLOR : r === 'gun' ? (this.gun.state === 'reload' ? 0x8e1b1b : CONFIG.ROLES.GUN_COLOR) : null;
@@ -6676,8 +6748,8 @@ class App {
     const t = this.tutorial;
     const cur = tut ? (!t.walk ? 'walk' : !t.aim ? 'aim' : !t.shoot ? 'shoot' : null) : null;
     const notes = {
-      walk: 'Mostre a <b>palma aberta ✋</b> para a câmera: a mão fica <b>azul</b> e você anda para onde <b>olha</b>. Abaixe ou feche a mão para parar.',
-      aim: 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela). Faça a <b>pistolinha 👉</b> com a outra mão: ela fica <b>vermelha</b>.',
+      walk: 'Mão <b>ESQUERDA</b> (azul): <b>palma bem aberta ✋</b>, dedos esticados, por um instante = anda para onde <b>olha</b>. Feche ou abaixe = para.',
+      aim: 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela). Mão <b>DIREITA</b> (vermelha): faça a <b>pistolinha 👉</b>.',
       shoot: 'Olhando para o zumbi, segure a <b>pistolinha 👉</b>: atira sozinho; a <b>barra</b> embaixo da mira mostra a recarga. De perto, <b>socos</b> 👊 também valem.',
     };
     const g = this.gun.state;

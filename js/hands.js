@@ -287,7 +287,14 @@ export class HandTracker {
     if (dets.length === 2 && Math.hypot(dets[0].c.x - dets[1].c.x, dets[0].c.y - dets[1].c.y) < H.DUP_DIST) {
       dets.splice(dets[0].score >= dets[1].score ? 1 : 0, 1);
     }
-    const assigned = this._assign(dets, nowMs);
+    let assigned = this._assign(dets, nowMs);
+    // uma mão só, e o rótulo diz há um tempo que ela é a outra: troca
+    if (assigned.length === 1 && this._checkSide(assigned[0][0], assigned[0][1])) {
+      const [h, d] = assigned[0];
+      const o = h.side === 'left' ? this.right : this.left;
+      h.lastSeen = -1e9; o.agree = 0.5;
+      assigned = [[o, d]];
+    }
     for (const h of this.hands) h.present = false;
     for (const [hand, det] of assigned) this._applyDetection(hand, det, nowMs, camera);
     // v20: a mão "pulou" de esquerda para direita: a cópia parada no lugar
@@ -300,15 +307,31 @@ export class HandTracker {
     }
   }
 
+  // v22: camada esquerda/direita. Junta 3 pistas:
+  //  1) o rótulo do MediaPipe (Left/Right, com a inversão da calibração);
+  //  2) o LADO da imagem (a câmera de trás não espelha: mão esquerda
+  //     costuma aparecer do lado esquerdo);
+  //  3) a continuidade (a mão que estava ali há pouco é a mesma).
   _cost(det, hand, nowMs) {
     const labelCost = hand.side === 'left' ? 1 - det.pLeft : det.pLeft;
-    let c = labelCost * H.LABEL_WEIGHT;
+    const sideCost = hand.side === 'left' ? det.c.x : 1 - det.c.x; // 0 = bem do lado certo
+    let c = labelCost * H.LABEL_WEIGHT + sideCost * H.SIDE_WEIGHT;
     if (nowMs - hand.lastSeen < H.TRACK_MEMORY_MS) {
       c += Math.hypot(det.c.x - hand.lastC.x, det.c.y - hand.lastC.y) * H.POS_WEIGHT;
     } else {
-      c += 0.25 * H.POS_WEIGHT * 0.5; // sem memória: só o rótulo decide
+      c += 0.25 * H.POS_WEIGHT * 0.5; // sem memória: rótulo + lado decidem
     }
     return c;
+  }
+
+  // v22: se o rótulo do MediaPipe insiste (média de ~1 s) que esta mão é a
+  // outra, e a outra não está na tela, a mão é "trocada" de lado.
+  _checkSide(hand, det) {
+    const agree = hand.side === 'left' ? det.pLeft : 1 - det.pLeft;
+    hand.agree = hand.agree == null ? agree : hand.agree + (agree - hand.agree) * H.SIDE_AVG;
+    const other = hand.side === 'left' ? this.right : this.left;
+    if (hand.agree < H.SWAP_BELOW && !other.visible) { hand.agree = 0.5; return true; }
+    return false;
   }
 
   _assign(dets, nowMs) {
