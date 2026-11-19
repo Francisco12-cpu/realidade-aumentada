@@ -26,7 +26,7 @@ const DARK = new THREE.MeshBasicMaterial({ color: 0x1a0d0d });
 const BLOOD = new THREE.MeshBasicMaterial({ color: 0x7a0a0a });
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
-function makeZombie() {
+export function makeZombie() {
   const skin = new THREE.MeshLambertMaterial({ color: pick(SKINS) });
   const shirt = new THREE.MeshLambertMaterial({ color: pick(SHIRTS) });
   const pants = new THREE.MeshLambertMaterial({ color: pick(PANTS) });
@@ -72,8 +72,9 @@ export class Horde {
   }
 
   // vivos = na escola + os que ainda vão chegar nas próximas ondas
-  get alive() { return this.list.filter((z) => !z.dead && !z.dummy).length + this.pending; }
-  get killed() { return this.list.filter((z) => z.dead && !z.dummy).length; }
+  // (o zumbi do susto que vem correndo é "extra": não conta no placar)
+  get alive() { return this.list.filter((z) => !z.dead && !z.dummy && !z.extra).length + this.pending; }
+  get killed() { return this.list.filter((z) => z.dead && !z.dummy && !z.extra).length; }
   get total() { return this.planned; }
 
   clear() {
@@ -105,6 +106,7 @@ export class Horde {
       flank: !opts.dummy && Math.random() < Z.FLANK_P, // v26: tenta pegar por trás
       groanT: 1 + Math.random() * 4, stepT: Math.random() * 0.5,
       scream: !!opts.scream, screamed: false,
+      extra: !!opts.extra, runner: !!opts.runner, born: 0,
     };
     this.list.push(zb);
     return zb;
@@ -410,6 +412,27 @@ export class Horde {
     return null;
   }
 
+  // v29: susto estilo FNAF. Um zumbi aparece LONGE, na sua frente (dá para
+  // ver: sem parede no meio), grita e vem correndo. Se chegar, pula na cara.
+  spawnRunner(player, facing) {
+    const R = CONFIG.RUSH;
+    const f = new THREE.Vector3(facing.x, 0, facing.z).normalize();
+    for (let d = R.MAX_DIST; d >= R.MIN_DIST; d -= 1.5) {
+      for (const off of [0, 0.2, -0.2, 0.4, -0.4]) {
+        const ca = Math.cos(off), sa = Math.sin(off);
+        const x = player.x + (f.x * ca - f.z * sa) * d, zz = player.z + (f.x * sa + f.z * ca) * d;
+        const y = this.world.floorAt(x, zz);
+        if (y == null || Math.abs(y - player.y) > 0.6 || !this._free(x, zz, y)) continue;
+        this._a.set(player.x, player.y + 1.5, player.z); this._b.set(x, y + 1.5, zz);
+        if (this.world.segmentHit(this._a, this._b)) continue;
+        const z = this._add(x, y, zz, { extra: true, runner: true, yaw: Math.atan2(player.x - x, player.z - zz) });
+        z.alert = true; z.speed = R.SPEED; z.flank = false; z.groanT = 0.4;
+        return z;
+      }
+    }
+    return null;
+  }
+
   update(dt, player, facing = null) {
     // ondas
     if (this.pending > 0) {
@@ -487,6 +510,15 @@ export class Horde {
         }
         // susto: grita quando chega perto (ou quando o jogador vira e vê)
         if (z.scream && !z.screamed && (dist < Z.SCARE_DIST || (!z.behind && dist < 4.5))) { z.screamed = true; this.hooks.onScream && this.hooks.onScream(z); }
+        // v29: o corredor não morde: chegando perto, pula na sua cara (susto)
+        if (z.runner) {
+          z.born += dt;
+          if (dist < CONFIG.RUSH.HIT_DIST || z.born > CONFIG.RUSH.TIMEOUT_S) {
+            z.dead = true; z.deadT = 99; r.visible = false;
+            if (dist < CONFIG.RUSH.HIT_DIST * 1.5) this.hooks.onRunnerHit && this.hooks.onRunnerHit(z);
+            continue;
+          }
+        }
         // ataque
         z.attackT -= dt;
         if (dist < Z.ATTACK_DIST && Math.abs(player.y - p.y) < 1 && z.attackT <= 0) {
@@ -523,7 +555,7 @@ export class Horde {
       // v26: sons de cada zumbi (gemido e passos), saindo do lugar dele
       if (!z.dummy && dist < Z.SOUND_DIST) {
         z.groanT -= dt;
-        if (z.groanT <= 0) { z.groanT = (z.alert ? 1.8 : 3.5) + Math.random() * 3; this.hooks.onGroanAt && this.hooks.onGroanAt(z, dist); }
+        if (z.groanT <= 0) { z.groanT = z.runner ? 0.7 : (z.alert ? 1.8 : 3.5) + Math.random() * 3; this.hooks.onGroanAt && this.hooks.onGroanAt(z, dist); }
         if (moved > 0.15) { z.stepT -= dt * (0.8 + moved); if (z.stepT <= 0) { z.stepT = 0.55; this.hooks.onStep && this.hooks.onStep(z, dist); } }
       }
       // vira para onde anda (ou para o jogador quando perto/parado)

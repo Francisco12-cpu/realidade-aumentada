@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ORDER = ['config', 'options', 'audio', 'ranking', 'handhint', 'mapa', 'filters', 'cenario', 'scene', 'zombies', 'gun', 'coach', 'orientation', 'hands', 'gestures',
-         'teleport', 'locomotion', 'interaction', 'vr', 'calibration', 'debug', 'lobby', 'melee', 'demo', 'gamepad', 'swipe', 'main']
+         'teleport', 'locomotion', 'interaction', 'vr', 'calibration', 'debug', 'lobby', 'melee', 'demo', 'gamepad', 'swipe', 'jumpscare', 'main']
 
 # todo arquivo de js/ precisa estar na lista (senão o arquivo único quebra)
 missing = sorted({f.stem for f in (ROOT / 'js').glob('*.js')} - set(ORDER))

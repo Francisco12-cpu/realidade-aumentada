@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v28',
+  VERSION: 'v29',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -228,7 +228,7 @@ export const CONFIG = {
     SOUND_DIST: 22,         // zumbis a menos disso fazem barulho (som 3D)
     SCARE_FIRST_S: 25,      // susto (jumpscare): o 1º depois disso na partida...
     SCARE_EVERY_S: 50,      //   ...e depois a cada ~isso (sorteado ±15 s)
-    SCARE_MAX: 4,           //   no máximo esses por partida
+    SCARE_MAX: 0,           //   no máximo esses por partida (v29: 0 = desligado; o susto agora é o RUSH)
     SCARE_FRONT_DIST: 1.4,  // v27: o zumbi do susto APARECE NA SUA FRENTE a essa distância...
     SCARE_DARK_MS: 450,     //   ...depois das luzes apagarem esse tempo
     SCARE_BITE_S: 1.1,      //   ...e morde depois disso se você não reagir
@@ -249,9 +249,26 @@ export const CONFIG = {
     LOOK_PITCH: 1.6,        // fora do óculos e sem sensor: olhar para cima/baixo (rad/s)
   },
 
-  // ---- Susto do braço (v28) ----
-  SWIPE: {
+  // ---- Susto estilo FNAF (v29) ----
+  RUSH: {
     ON: true,
+    FIRST_S: 15,            // o 1º vem mais ou menos aqui na partida...
+    EVERY_S: 25,            // ...e depois a cada ~isso
+    JITTER_S: 8,            // sorteado ± isso
+    MIN_DIST: 7,            // o zumbi aparece na sua frente entre essas distâncias (m)...
+    MAX_DIST: 16,
+    SPEED: 5.5,             // ...e vem correndo (você anda a 2 m/s)
+    HIT_DIST: 1.1,          // chegou a isso = pula na cara
+    TIMEOUT_S: 9,           // se ficar preso no caminho, some
+    LUNGE_S: 0.14,          // o pulo até a cara
+    FACE_DIST: -0.5,        // posição do zumbi na cara (a frente do rosto fica a ~22 cm: enche a visão sem cortar)
+    HOLD_S: 1.3,            // tempo colado na tela
+    DAMAGE: 1,              // vidas que tira (0 = só susto)
+  },
+
+  // ---- Susto do braço (v28): desligado na v29 (o susto agora é o FNAF) ----
+  SWIPE: {
+    ON: false,
     FIRST_S: 12,            // o 1º vem mais ou menos aqui na partida...
     EVERY_S: 20,            // ...e depois a cada ~isso
     JITTER_S: 8,            // sorteado ± isso (nunca no tempo exato)

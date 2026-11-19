@@ -293,7 +293,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v28',
+  VERSION: 'v29',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -508,7 +508,7 @@ const CONFIG = {
     SOUND_DIST: 22,         // zumbis a menos disso fazem barulho (som 3D)
     SCARE_FIRST_S: 25,      // susto (jumpscare): o 1º depois disso na partida...
     SCARE_EVERY_S: 50,      //   ...e depois a cada ~isso (sorteado ±15 s)
-    SCARE_MAX: 4,           //   no máximo esses por partida
+    SCARE_MAX: 0,           //   no máximo esses por partida (v29: 0 = desligado; o susto agora é o RUSH)
     SCARE_FRONT_DIST: 1.4,  // v27: o zumbi do susto APARECE NA SUA FRENTE a essa distância...
     SCARE_DARK_MS: 450,     //   ...depois das luzes apagarem esse tempo
     SCARE_BITE_S: 1.1,      //   ...e morde depois disso se você não reagir
@@ -529,9 +529,26 @@ const CONFIG = {
     LOOK_PITCH: 1.6,        // fora do óculos e sem sensor: olhar para cima/baixo (rad/s)
   },
 
-  // ---- Susto do braço (v28) ----
-  SWIPE: {
+  // ---- Susto estilo FNAF (v29) ----
+  RUSH: {
     ON: true,
+    FIRST_S: 15,            // o 1º vem mais ou menos aqui na partida...
+    EVERY_S: 25,            // ...e depois a cada ~isso
+    JITTER_S: 8,            // sorteado ± isso
+    MIN_DIST: 7,            // o zumbi aparece na sua frente entre essas distâncias (m)...
+    MAX_DIST: 16,
+    SPEED: 5.5,             // ...e vem correndo (você anda a 2 m/s)
+    HIT_DIST: 1.1,          // chegou a isso = pula na cara
+    TIMEOUT_S: 9,           // se ficar preso no caminho, some
+    LUNGE_S: 0.14,          // o pulo até a cara
+    FACE_DIST: -0.5,        // posição do zumbi na cara (a frente do rosto fica a ~22 cm: enche a visão sem cortar)
+    HOLD_S: 1.3,            // tempo colado na tela
+    DAMAGE: 1,              // vidas que tira (0 = só susto)
+  },
+
+  // ---- Susto do braço (v28): desligado na v29 (o susto agora é o FNAF) ----
+  SWIPE: {
+    ON: false,
     FIRST_S: 12,            // o 1º vem mais ou menos aqui na partida...
     EVERY_S: 20,            // ...e depois a cada ~isso
     JITTER_S: 8,            // sorteado ± isso (nunca no tempo exato)
@@ -935,6 +952,39 @@ class Sfx {
     this._noise(0.1, { gain: 0.6 * A.ZOMBIE_VOL, freq: 170 + Math.random() * 90, q: 1.2, dest });
     this._noise(0.22, { gain: 0.3 * A.ZOMBIE_VOL, freq: 2600 + Math.random() * 1200, q: 1.5, at: 0.03, dest });
     this._tone(58, 0.08, { type: 'sine', gain: 0.3 * A.ZOMBIE_VOL, dest });
+  }
+
+  // v29: susto estilo FNAF (o zumbi na cara): grito MUITO alto, rasgado,
+  // com rugido grave por baixo. Não é 3D: é "na cara" mesmo.
+  jumpscare() {
+    if (!this.on) return;
+    const c = this.ctx, t = c.currentTime, V = A.SCARE_VOL;
+    // distorção (deixa o grito rasgado)
+    const out = c.createGain(); out.gain.value = 0.9 * V; out.connect(this.master);
+    let ws = out;
+    if (c.createWaveShaper) {
+      ws = c.createWaveShaper();
+      const curve = new Float32Array(512);
+      for (let i = 0; i < 512; i++) { const x = i / 255.5 - 1; curve[i] = Math.tanh(x * 6); }
+      ws.curve = curve;
+      ws.connect(out);
+    }
+    const scream = (f0, f1, type, g, at) => {
+      const o = c.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(f0, t + at); o.frequency.exponentialRampToValueAtTime(f1, t + at + 0.35); o.frequency.exponentialRampToValueAtTime(f1 * 0.8, t + at + 1.4);
+      const vib = c.createOscillator(); vib.frequency.value = 9; const vg = c.createGain(); vg.gain.value = f1 * 0.04; vib.connect(vg).connect(o.frequency);
+      const gg = c.createGain(); gg.gain.setValueAtTime(0.0001, t + at); gg.gain.exponentialRampToValueAtTime(g, t + at + 0.03); gg.gain.setValueAtTime(g, t + at + 1.1); gg.gain.exponentialRampToValueAtTime(0.0001, t + at + 1.5);
+      o.connect(gg).connect(ws);
+      for (const n of [o, vib]) { n.start(t + at); n.stop(t + at + 1.6); }
+    };
+    scream(500, 1400, 'sawtooth', 0.9, 0);
+    scream(730, 1900, 'square', 0.5, 0.02);
+    scream(380, 1000, 'sawtooth', 0.6, 0.04);
+    this._noise(1.4, { gain: 1.6 * V, freq: 2800, q: 0.5 });
+    this._noise(1.0, { gain: 1.0 * V, freq: 5500, q: 0.8 });
+    this._tone(48, 1.5, { type: 'sawtooth', gain: 1.0 * V, slide: -18 });
+    this._tone(32, 0.8, { type: 'sine', gain: 1.3 * V, slide: -10 });
+    this.vibrate([400, 80, 400]);
   }
 
   // v28: susto do braço: "vuuush" que passa de um lado para o outro do fone
@@ -2579,8 +2629,9 @@ class Horde {
   }
 
   // vivos = na escola + os que ainda vão chegar nas próximas ondas
-  get alive() { return this.list.filter((z) => !z.dead && !z.dummy).length + this.pending; }
-  get killed() { return this.list.filter((z) => z.dead && !z.dummy).length; }
+  // (o zumbi do susto que vem correndo é "extra": não conta no placar)
+  get alive() { return this.list.filter((z) => !z.dead && !z.dummy && !z.extra).length + this.pending; }
+  get killed() { return this.list.filter((z) => z.dead && !z.dummy && !z.extra).length; }
   get total() { return this.planned; }
 
   clear() {
@@ -2612,6 +2663,7 @@ class Horde {
       flank: !opts.dummy && Math.random() < Z.FLANK_P, // v26: tenta pegar por trás
       groanT: 1 + Math.random() * 4, stepT: Math.random() * 0.5,
       scream: !!opts.scream, screamed: false,
+      extra: !!opts.extra, runner: !!opts.runner, born: 0,
     };
     this.list.push(zb);
     return zb;
@@ -2917,6 +2969,27 @@ class Horde {
     return null;
   }
 
+  // v29: susto estilo FNAF. Um zumbi aparece LONGE, na sua frente (dá para
+  // ver: sem parede no meio), grita e vem correndo. Se chegar, pula na cara.
+  spawnRunner(player, facing) {
+    const R = CONFIG.RUSH;
+    const f = new THREE.Vector3(facing.x, 0, facing.z).normalize();
+    for (let d = R.MAX_DIST; d >= R.MIN_DIST; d -= 1.5) {
+      for (const off of [0, 0.2, -0.2, 0.4, -0.4]) {
+        const ca = Math.cos(off), sa = Math.sin(off);
+        const x = player.x + (f.x * ca - f.z * sa) * d, zz = player.z + (f.x * sa + f.z * ca) * d;
+        const y = this.world.floorAt(x, zz);
+        if (y == null || Math.abs(y - player.y) > 0.6 || !this._free(x, zz, y)) continue;
+        this._a.set(player.x, player.y + 1.5, player.z); this._b.set(x, y + 1.5, zz);
+        if (this.world.segmentHit(this._a, this._b)) continue;
+        const z = this._add(x, y, zz, { extra: true, runner: true, yaw: Math.atan2(player.x - x, player.z - zz) });
+        z.alert = true; z.speed = R.SPEED; z.flank = false; z.groanT = 0.4;
+        return z;
+      }
+    }
+    return null;
+  }
+
   update(dt, player, facing = null) {
     // ondas
     if (this.pending > 0) {
@@ -2994,6 +3067,15 @@ class Horde {
         }
         // susto: grita quando chega perto (ou quando o jogador vira e vê)
         if (z.scream && !z.screamed && (dist < Z.SCARE_DIST || (!z.behind && dist < 4.5))) { z.screamed = true; this.hooks.onScream && this.hooks.onScream(z); }
+        // v29: o corredor não morde: chegando perto, pula na sua cara (susto)
+        if (z.runner) {
+          z.born += dt;
+          if (dist < CONFIG.RUSH.HIT_DIST || z.born > CONFIG.RUSH.TIMEOUT_S) {
+            z.dead = true; z.deadT = 99; r.visible = false;
+            if (dist < CONFIG.RUSH.HIT_DIST * 1.5) this.hooks.onRunnerHit && this.hooks.onRunnerHit(z);
+            continue;
+          }
+        }
         // ataque
         z.attackT -= dt;
         if (dist < Z.ATTACK_DIST && Math.abs(player.y - p.y) < 1 && z.attackT <= 0) {
@@ -3030,7 +3112,7 @@ class Horde {
       // v26: sons de cada zumbi (gemido e passos), saindo do lugar dele
       if (!z.dummy && dist < Z.SOUND_DIST) {
         z.groanT -= dt;
-        if (z.groanT <= 0) { z.groanT = (z.alert ? 1.8 : 3.5) + Math.random() * 3; this.hooks.onGroanAt && this.hooks.onGroanAt(z, dist); }
+        if (z.groanT <= 0) { z.groanT = z.runner ? 0.7 : (z.alert ? 1.8 : 3.5) + Math.random() * 3; this.hooks.onGroanAt && this.hooks.onGroanAt(z, dist); }
         if (moved > 0.15) { z.stepT -= dt * (0.8 + moved); if (z.stepT <= 0) { z.stepT = 0.55; this.hooks.onStep && this.hooks.onStep(z, dist); } }
       }
       // vira para onde anda (ou para o jogador quando perto/parado)
@@ -6769,6 +6851,79 @@ class ArmSwipe {
   reset() { this.t = -1; this.arm.visible = false; this.dimK = 0; this.dim.visible = false; }
 }
 
+// ===== js/jumpscare.js =====
+// Susto estilo FNAF (v29): o zumbi que veio correndo PULA NA SUA CARA e fica
+// colado na tela um tempo, tremendo, de boca aberta e braços levantados,
+// gritando. Depois some e a visão fica escura.
+// O rosto é uma cópia do zumbi presa à câmera (funciona no óculos e no VR do Chrome).
+
+class Jumpscare {
+  constructor(camera) {
+    this.camera = camera;
+    this.t = -1;
+    this.m = null;
+  }
+
+  get active() { return this.t >= 0; }
+
+  // monta o rosto (uma vez) com materiais próprios (não mexe nos zumbis do jogo)
+  _build() {
+    const m = makeZombie();
+    const mats = [];
+    m.root.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material = o.material.clone();
+      if (o.material.emissive) mats.push(o.material);
+      o.renderOrder = 49;
+      o.frustumCulled = false;
+    });
+    m.mats = mats; // (as cópias: piscam vermelho sem mexer nos zumbis do jogo)
+    m.root.scale.setScalar(1);
+    m.mouth = m.head.children.find((c) => c.position.y < 0.1 && c.position.z > 0.1) || null;
+    this.camera.add(m.root);
+    this.m = m;
+  }
+
+  start(onEnd) {
+    if (!this.m) this._build();
+    this.onEnd = onEnd;
+    this.t = 0;
+    this.m.root.visible = true;
+  }
+
+  update(dt) {
+    if (this.t < 0) return;
+    const R = CONFIG.RUSH;
+    this.t += dt;
+    const m = this.m, t = this.t;
+    // 1) pulo: vem de ~1,6 m até colar na cara em LUNGE_S
+    const k = Math.min(1, t / R.LUNGE_S);
+    const e = 1 - Math.pow(1 - k, 3);
+    const z = THREE.MathUtils.lerp(-1.6, R.FACE_DIST, e);
+    // 2) tremendo forte (e cada vez menos no fim)
+    const hold = Math.max(0, t - R.LUNGE_S);
+    const shake = (k < 1 ? 0.5 : 1) * (1 - Math.min(1, hold / R.HOLD_S) * 0.5);
+    const j = () => (Math.random() - 0.5) * 0.035 * shake;
+    // a cabeça do zumbi fica bem no meio da visão
+    m.root.position.set(j(), -1.66 + j(), z - 0.12 + j());
+    m.root.rotation.set(j() * 3, j() * 3, j() * 4);
+    // braços para cima (agarrando), boca bem aberta, cabeça sacudindo
+    m.armL.rotation.set(-2.5 + j() * 6, 0, -0.5);
+    m.armR.rotation.set(-2.5 + j() * 6, 0, 0.5);
+    m.neck.rotation.set(0.1 + j() * 4, j() * 5, j() * 6);
+    if (m.mouth) m.mouth.scale.set(1.3, 3.5 + Math.sin(t * 40) * 1.2, 1);
+    for (const mat of m.mats) mat.emissive && mat.emissive.setHex(Math.sin(t * 30) > 0 ? 0x551111 : 0x220000);
+    if (hold >= R.HOLD_S) {
+      this.t = -1;
+      m.root.visible = false;
+      const fn = this.onEnd; this.onEnd = null;
+      if (fn) fn();
+    }
+  }
+
+  reset() { this.t = -1; this.onEnd = null; if (this.m) this.m.root.visible = false; }
+}
+
 // ===== js/main.js =====
 // Escola Zumbi (antigo Caçador de Sinal) — protótipo. Loop principal e estados do jogo.
 // Estados: boot -> calibration -> tutorial -> playing -> ended
@@ -6869,6 +7024,7 @@ class App {
       onGroanAt: (z) => this.sfx.groanAt(this._v3.copy(z.m.root.position).setY(z.m.root.position.y + 1.6), z.alert),
       onStep: (z) => this.sfx.stepAt(this._v3.copy(z.m.root.position).setY(z.m.root.position.y + 0.1)),
       onScream: (z) => this._scare(z),
+      onRunnerHit: () => this._jumpscare(),
       onWave: (n) => { if (this.state === 'playing') { this.toast(`🧟 Chegaram mais ${n} zumbis!`); this.sfx.alarm(); } },
     });
     this.coach = new Coach(this.camera);
@@ -6881,6 +7037,7 @@ class App {
     this.demo = new DemoHand(this.camera);
     // v25: controle de videogame
     this.swipe = new ArmSwipe(this.camera);
+    this.jump = new Jumpscare(this.camera);
     this.pad = new Pad();
     // v27: grito distante de algum lugar da escola (som 3D), de vez em quando
     this.sfx.onDistant = () => {
@@ -7152,6 +7309,9 @@ class App {
     this.sfx.music(true);
     this._darkUntil = 0;
     this._nextSwipe(true);
+    this._nextRush(true);
+    this._runner = null;
+    this.jump.reset();
     this._scares = 0;
     this._scareT = CONFIG.ZOMBIES.SCARE_FIRST_S;
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
@@ -7805,6 +7965,8 @@ class App {
     this._updateEars(now, dt, active);
     this._updateDark(now);
     this._updateSwipe(dt);
+    this._updateRush(dt);
+    this.jump.update(dt);
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
@@ -7997,6 +8159,41 @@ class App {
     this.sfx.blackout();
   }
 
+  // v29: susto estilo FNAF: o zumbi aparece longe na frente, grita, vem
+  // correndo e, se chegar, pula na sua cara (fica colado na tela um tempo)
+  _nextRush(first = false) {
+    const R = CONFIG.RUSH;
+    this._rushT = (first ? R.FIRST_S : R.EVERY_S) + (Math.random() * 2 - 1) * R.JITTER_S;
+  }
+
+  _updateRush(dt) {
+    const R = CONFIG.RUSH;
+    if (!R.ON || this.state !== 'playing') { if (this.state !== 'playing' && this.jump.active) this.jump.reset(); return; }
+    if (this._runner) {
+      if (this._runner.dead) { this._runner = null; this._nextRush(); }
+      return;
+    }
+    if (this.jump.active) return;
+    this._rushT -= dt;
+    if (this._rushT > 0) return;
+    const z = this.horde.spawnRunner(this.rig.position, this._fwd);
+    if (!z) { this._rushT = 2; return; } // sem lugar livre na frente agora
+    this._runner = z;
+    const p = z.m.root.position;
+    this.sfx.screamAt(this._v3.set(p.x, p.y + 1.6, p.z)); // grita lá de longe (som 3D)
+  }
+
+  _jumpscare() {
+    this.sfx.jumpscare();
+    this.hurtK = 1;
+    this._shakeK = 1.4;
+    this.pad.rumble(1200, 1, 1);
+    this.jump.start(() => {
+      this.swipe.dimK = 1; // visão escura e clareando
+      if (CONFIG.RUSH.DAMAGE > 0 && this.state === 'playing') this._onBite();
+    });
+  }
+
   // v28: susto do braço a cada ~20 s (sorteado), só na partida
   _nextSwipe(first = false) {
     const S = CONFIG.SWIPE;
@@ -8019,6 +8216,7 @@ class App {
         }
       }
     } else if (this.state !== 'playing' && (this.swipe.active || this.swipe.dimK > 0)) this.swipe.reset();
+    // (o escuro depois do susto usa a mesma tela escura do braço)
     this.swipe.update(dt);
   }
 

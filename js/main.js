@@ -24,6 +24,7 @@ import { Melee } from './melee.js';
 import { DemoHand } from './demo.js';
 import { Pad } from './gamepad.js';
 import { ArmSwipe } from './swipe.js';
+import { Jumpscare } from './jumpscare.js';
 
 class App {
   constructor() {
@@ -121,6 +122,7 @@ class App {
       onGroanAt: (z) => this.sfx.groanAt(this._v3.copy(z.m.root.position).setY(z.m.root.position.y + 1.6), z.alert),
       onStep: (z) => this.sfx.stepAt(this._v3.copy(z.m.root.position).setY(z.m.root.position.y + 0.1)),
       onScream: (z) => this._scare(z),
+      onRunnerHit: () => this._jumpscare(),
       onWave: (n) => { if (this.state === 'playing') { this.toast(`🧟 Chegaram mais ${n} zumbis!`); this.sfx.alarm(); } },
     });
     this.coach = new Coach(this.camera);
@@ -133,6 +135,7 @@ class App {
     this.demo = new DemoHand(this.camera);
     // v25: controle de videogame
     this.swipe = new ArmSwipe(this.camera);
+    this.jump = new Jumpscare(this.camera);
     this.pad = new Pad();
     // v27: grito distante de algum lugar da escola (som 3D), de vez em quando
     this.sfx.onDistant = () => {
@@ -404,6 +407,9 @@ class App {
     this.sfx.music(true);
     this._darkUntil = 0;
     this._nextSwipe(true);
+    this._nextRush(true);
+    this._runner = null;
+    this.jump.reset();
     this._scares = 0;
     this._scareT = CONFIG.ZOMBIES.SCARE_FIRST_S;
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
@@ -1057,6 +1063,8 @@ class App {
     this._updateEars(now, dt, active);
     this._updateDark(now);
     this._updateSwipe(dt);
+    this._updateRush(dt);
+    this.jump.update(dt);
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
@@ -1249,6 +1257,41 @@ class App {
     this.sfx.blackout();
   }
 
+  // v29: susto estilo FNAF: o zumbi aparece longe na frente, grita, vem
+  // correndo e, se chegar, pula na sua cara (fica colado na tela um tempo)
+  _nextRush(first = false) {
+    const R = CONFIG.RUSH;
+    this._rushT = (first ? R.FIRST_S : R.EVERY_S) + (Math.random() * 2 - 1) * R.JITTER_S;
+  }
+
+  _updateRush(dt) {
+    const R = CONFIG.RUSH;
+    if (!R.ON || this.state !== 'playing') { if (this.state !== 'playing' && this.jump.active) this.jump.reset(); return; }
+    if (this._runner) {
+      if (this._runner.dead) { this._runner = null; this._nextRush(); }
+      return;
+    }
+    if (this.jump.active) return;
+    this._rushT -= dt;
+    if (this._rushT > 0) return;
+    const z = this.horde.spawnRunner(this.rig.position, this._fwd);
+    if (!z) { this._rushT = 2; return; } // sem lugar livre na frente agora
+    this._runner = z;
+    const p = z.m.root.position;
+    this.sfx.screamAt(this._v3.set(p.x, p.y + 1.6, p.z)); // grita lá de longe (som 3D)
+  }
+
+  _jumpscare() {
+    this.sfx.jumpscare();
+    this.hurtK = 1;
+    this._shakeK = 1.4;
+    this.pad.rumble(1200, 1, 1);
+    this.jump.start(() => {
+      this.swipe.dimK = 1; // visão escura e clareando
+      if (CONFIG.RUSH.DAMAGE > 0 && this.state === 'playing') this._onBite();
+    });
+  }
+
   // v28: susto do braço a cada ~20 s (sorteado), só na partida
   _nextSwipe(first = false) {
     const S = CONFIG.SWIPE;
@@ -1271,6 +1314,7 @@ class App {
         }
       }
     } else if (this.state !== 'playing' && (this.swipe.active || this.swipe.dimK > 0)) this.swipe.reset();
+    // (o escuro depois do susto usa a mesma tela escura do braço)
     this.swipe.update(dt);
   }
 

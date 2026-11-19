@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v28, 19/11/2026)
+# Escola Zumbi: estado do projeto (v29, 19/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -66,6 +66,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v29 | #27 | Susto estilo FNAF: zumbi aparece longe na frente, corre gritando e pula na cara (fica colado na tela); braço e apagão desligados |
 | v28 | #26 | Susto do braço 3D a cada ~20 s (atravessa a visão, som grave, escurece), socos mais fáceis e 2 para matar, 36 zumbis |
 | v27 | #25 | 4 socos; susto de verdade (apagão + zumbi aparece na frente gritando); só 1 zumbi dá a volta por vez; voz dos zumbis mais assustadora e mais fácil de localizar (agudos), música abaixa com zumbi perto, gritos distantes |
 | v26 | #24 | Terror: som 3D dos zumbis (fone), música baixa, coração, zumbis que circulam e pegam por trás, jumpscare, tiro não atravessa parede, controle não gira a visão no óculos |
@@ -106,6 +107,13 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 - **Música:** fundo de terror baixinho (zumbido grave, vento, sininhos). Liga e desliga na opção 🎵 da tela inicial.
 - **Zumbis que vêm por trás:** quando você olha para eles de perto, alguns circulam em volta até ficar atrás e só então mordem. Desde a v27, **só 1 por vez** faz isso. Fora da sua visão, os zumbis andam 12% mais rápido.
 - **Susto (jumpscare), desde a v27:** o primeiro vem aos 25 s da partida e os outros a cada ~50 s, no máximo 4. **As luzes apagam** por meio segundo, com um zumbido elétrico, e um zumbi pálido **aparece na sua frente, a 1,4 m, gritando**. Você tem 1,1 s para reagir antes da mordida. A tela pisca, a câmera treme e o controle vibra. Se não houver lugar livre na frente, ele nasce atrás de você e grita quando chega perto.
+- **Susto estilo FNAF (v29):** o primeiro vem por volta dos 15 s, e os outros a cada ~25 s (sorteado, ±8 s).
+  1. Um zumbi aparece **longe, na sua frente** (7–16 m, onde dá para ver) e grita.
+  2. Ele vem **correndo** a 5,5 m/s. Um tiro na cabeça mata antes de ele chegar.
+  3. Se chegar, **pula na sua cara**: o rosto fica colado na tela por 1,3 s, tremendo, de boca aberta e braços levantados, com um grito muito alto e rasgado.
+  4. Depois a visão escurece e você perde 1 vida.
+
+  Ele não conta no placar. Ajustes em `RUSH`. O braço da v28 e o apagão da v27 ficaram desligados (`SWIPE.ON`, `ZOMBIES.SCARE_MAX`).
 - **Susto do braço (v28):** mais ou menos a cada 20 s, com tempo sorteado (±8 s; o primeiro por volta dos 12 s), um **braço de zumbi em 3D passa voando** bem na frente da visão. Ele entra por uma borda da lente e sai pela outra em 0,3 s, com um vuuush que passa de um ouvido para o outro e um **rugido grave e alto**. Depois a visão fica **escura** e clareia em uns 2,6 s. Não tira vida. Ajustes em `SWIPE`.
 - **Tiro não atravessa parede:** a mira confere a grade da escola na linha da mira e na linha até o zumbi. Na hora do tiro, confere também os triângulos de verdade da escola. Folhas e vidros não seguram o tiro.
 
@@ -155,6 +163,7 @@ js/gun.js           arma de mão: pistolinha, gatilho do polegar, recarga, laser
 js/lobby.js         saguão na lente: contagem, mão aberta para começar e jogar de novo
 js/cenario.js       mundo em volta da escola (céu, ruas, prédios, carros, fogo, fumaça)
 js/demo.js          mão fantasma do tutorial
+js/jumpscare.js     rosto do zumbi colado na tela (susto FNAF)
 js/swipe.js         susto do braço (passa na frente da visão e escurece)
 js/gamepad.js       controle de videogame (Xbox)
 js/melee.js         socos e tapas: mão encostando no zumbi com velocidade
@@ -192,5 +201,6 @@ dist/index.html     jogo inteiro num arquivo só (gerado sozinho pelo GitHub)
 - [ ] Zumbis que estão a mais de 45 m só vagam: não atravessam a escola inteira atrás do jogador.
 - [ ] Os testes automáticos no navegador sem janela travam neste PC (Chrome/Edge). Os testes foram feitos no Node, com scripts que ficaram só na pasta temporária, e no celular.
 - [ ] Branches antigas no GitHub (`escola-3d`, `feira-vr`) podem ser apagadas quando você quiser.
+- [ ] Modelo novo de zumbi (HalfEatenZombie, pacote Unity): o download não terminou (o zip na pasta tem 0 bytes). Com o arquivo completo, converter o FBX para GLB no Blender e trocar o boneco feito por código.
 - [ ] Do plano de melhoria, ainda faltam: texturas KTX2 de 2048 px perto do jogador, sombra "pintada" (bake de luz) no Blender, pré-cálculo de quais salas se enxergam, calibração mais curta.
 - [ ] Ideias: sons de passos dos zumbis, tipos diferentes de zumbi (rápido, forte), placar com zumbis por onda.
