@@ -146,8 +146,9 @@ export class CalibrationFlow {
         <button class="mode ${pad ? '' : 'on'}" data-mode="maos">✋ Mãos<br><span class="small">câmera do celular</span></button>
         <button class="mode ${pad ? 'on' : ''}" data-mode="controle">🎮 Controle<br><span class="small">Xbox (Bluetooth)</span></button>
       </div>
-      ${pad ? `<p class="small">No óculos: <b>analógico esquerdo</b> anda, <b>analógico direito</b> gira, <b>olhe</b> para mirar, <b>RT</b> atira, <b>X</b> soco, <b>Y</b> recentra, <b>A</b> começa. Não precisa de câmera nem de calibrar.</p>
-        <p class="small" id="pad-status"></p>` : ''}`;
+      ${pad ? `<p class="small">No óculos: <b>analógico esquerdo</b> anda, <b>vire o rosto</b> para olhar e mirar, <b>RT</b> atira, <b>X</b> soco, <b>Y</b> recentra, <b>A</b> começa. Não precisa de câmera nem de calibrar.</p>
+        <p class="small" id="pad-status"></p>` : ''}
+      <p class="small">🎧 Use <b>fone de ouvido</b>: os zumbis têm <b>som 3D</b>, você ouve de onde eles vêm (inclusive por trás).</p>`;
     if (auto) {
       this._show(`🧟 Escola Zumbi <span class="small">${CONFIG.VERSION}</span>`, `${modeHtml}
         <p>Toque no botão, <b>coloque o celular no óculos</b> e olhe para frente. O jogo começa sozinho em ${CONFIG.LOBBY.COUNTDOWN_S} s (ou ${pad ? 'aperte <b>A</b>' : 'mostre a <b>✋ mão aberta</b>'}).</p>
@@ -298,6 +299,7 @@ export class CalibrationFlow {
       ${opt('vignette', '🌑 Escurecer bordas ao andar', '⚪ Bordas normais ao andar')}
       ${opt('tutorial', '🎓 Tutorial antes da partida', '⏩ Direto para a partida')}
       ${opt('parado', '🧍 Só atirar (os zumbis vêm até você)', '🚶 Andar pela escola')}
+      ${opt('music', '🎵 Música de terror', '🔕 Sem música')}
     </div>
     <p class="small">Modo feira: partida de ${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min, ${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis, tutorial curto e volta sozinho para o próximo jogador.</p>`;
   }

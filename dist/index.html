@@ -293,7 +293,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v25',
+  VERSION: 'v26',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -448,7 +448,8 @@ const CONFIG = {
     // 'punho' = fechar a mão atira (funciona de qualquer ângulo) · 'polegar' = pistolinha + abaixar o polegar (antigo)
     // v18 'auto' = mão VERMELHA faz a pistolinha e atira sozinha a cada recarga (barra)
     MODE: 'auto',
-    SHOW_MODEL: true,       // v24: pistola 3D aparece na mão da pistolinha
+    SHOW_MODEL: true,
+    MESH_CHECK: true,       // v26: na hora do tiro, confere as paredes de verdade da escola (não atravessa)       // v24: pistola 3D aparece na mão da pistolinha
     // v21: 'cabeca' = mira com a cabeça (ponto no meio da visão), pistolinha atira · 'dedo' = mira pela mão (v20)
     AIM: 'cabeca',
     PISTOL_INDEX: 1.4,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
@@ -496,7 +497,21 @@ const CONFIG = {
     FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
     AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
     GROAN_DIST: 9,
-    ANIM_FAR: 25,           // v24: zumbis mais longe que isso animam com menos frequência
+    ANIM_FAR: 25,
+    // v26: terror
+    FLANK_P: 0.35,          // parte dos zumbis que tenta dar a volta e pegar por trás
+    FLANK_DIST: 9,          //   ...quando estão a menos disso e você está olhando para eles
+    FLANK_R: 1.9,           //   ...circulam a essa distância até ficar atrás de você
+    VIEW_HALF_DEG: 55,      // metade do ângulo da visão (fora disso = "atrás")
+    BEHIND_BOOST: 1.3,      // zumbi fora da visão anda isso × mais rápido
+    SOUND_DIST: 22,         // zumbis a menos disso fazem barulho (som 3D)
+    SCARE_FIRST_S: 40,      // susto (jumpscare): o 1º depois disso na partida...
+    SCARE_EVERY_S: 65,      //   ...e depois a cada ~isso (sorteado ±20 s)
+    SCARE_MAX: 3,           //   no máximo esses por partida
+    SCARE_SPEED: 2.3,       //   corre mais que você (2 m/s)
+    SCARE_SPAWN_MIN: 2.5,   //   nasce atrás de você entre essas distâncias (m)
+    SCARE_SPAWN_MAX: 4,
+    SCARE_DIST: 1.7,        //   grita quando chega a isso           // v24: zumbis mais longe que isso animam com menos frequência
     CORPSE_S: 3,            // corpo fica no chão esse tempo antes de sumir
     DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
   },
@@ -504,6 +519,7 @@ const CONFIG = {
   // ---- Controle de videogame (v25) ----
   PAD: {
     DEADZONE: 0.18,         // folga do analógico (parado = não anda)
+    TURN: false,            // v26: false = a visão só gira virando o rosto (no óculos); no PC sem óculos ainda gira
     TURN_SPEED: 2.4,        // giro com o analógico direito (rad/s no máximo)
     SNAP_DEG: 45,           // LB/RB: giro rápido
     LOOK_PITCH: 1.6,        // fora do óculos e sem sensor: olhar para cima/baixo (rad/s)
@@ -616,6 +632,11 @@ const CONFIG = {
   // ---- Som e vibração ----
   AUDIO: {
     VOLUME: 0.5,
+    MUSIC_VOL: 0.07,        // v26: música de fundo (baixinha)
+    ZOMBIE_VOL: 1.0,        // v26: volume dos gemidos/passos dos zumbis (som 3D)
+    REF_DIST: 1.5,          // v26: som 3D: até essa distância (m) o volume é cheio
+    ROLLOFF: 1.0,           //      quanto o volume cai com a distância
+    HEART_DIST: 5,          // v26: zumbi mais perto que isso = coração batendo
     BEEP_FAR_S: 1.3,        // intervalo do bipe do detector longe da caixa
     BEEP_NEAR_S: 0.14,      // e perto
     BEEP_MAX_DIST: 18,      // além disso o detector fica quieto
@@ -652,7 +673,7 @@ const WIRE_NAMES = ['vermelho', 'verde', 'azul', 'amarelo'];
 // ===== js/options.js =====
 // Opções do jogador (som, vibração, vinheta, modo feira), salvas no aparelho.
 
-const DEFAULTS = { sound: true, vibrate: true, vignette: true, feira: false, tutorial: true, parado: false, controle: false };
+const DEFAULTS = { sound: true, vibrate: true, vignette: true, feira: false, tutorial: true, parado: false, controle: false, music: true };
 
 function loadOptions() {
   let saved = {};
@@ -699,6 +720,10 @@ class Sfx {
         this.master = this.ctx.createGain();
         this.master.gain.value = A.VOLUME;
         this.master.connect(this.ctx.destination);
+        // v26: música baixa num canal separado
+        this.musicBus = this.ctx.createGain();
+        this.musicBus.gain.value = 0;
+        this.musicBus.connect(this.ctx.destination);
       } catch (e) { this.ctx = null; return; }
     }
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
@@ -707,7 +732,7 @@ class Sfx {
   get on() { return this.options.sound && this.ctx && this.ctx.state === 'running'; }
 
   // nota simples com envelope (ataque curto, queda exponencial)
-  _tone(freq, dur, { type = 'sine', gain = 0.5, at = 0, slide = 0 } = {}) {
+  _tone(freq, dur, { type = 'sine', gain = 0.5, at = 0, slide = 0, dest = null } = {}) {
     if (!this.on) return;
     const c = this.ctx, t = c.currentTime + at;
     const o = c.createOscillator(), g = c.createGain();
@@ -717,12 +742,12 @@ class Sfx {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(this.master);
+    o.connect(g).connect(dest || this.master);
     o.start(t);
     o.stop(t + dur + 0.02);
   }
 
-  _noise(dur, { gain = 0.3, at = 0, freq = 2000 } = {}) {
+  _noise(dur, { gain = 0.3, at = 0, freq = 2000, q = 0.8, dest = null } = {}) {
     if (!this.on) return;
     const c = this.ctx, t = c.currentTime + at;
     const n = Math.floor(c.sampleRate * dur);
@@ -732,10 +757,10 @@ class Sfx {
     const src = c.createBufferSource();
     src.buffer = buf;
     const f = c.createBiquadFilter();
-    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.8;
+    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
     const g = c.createGain();
     g.gain.value = gain;
-    src.connect(f).connect(g).connect(this.master);
+    src.connect(f).connect(g).connect(dest || this.master);
     src.start(t);
   }
 
@@ -823,6 +848,110 @@ class Sfx {
     this._tone(110, 0.12, { type: 'sine', gain: 0.5, slide: -60 });
     if (kill) this._tone(200, 0.45, { type: 'sawtooth', gain: 0.18, slide: -140, at: 0.06 });
     this.vibrate(kill ? [40, 30, 60] : 35);
+  }
+
+  // ---------------- v26: som 3D (fone de ouvido) ----------------
+  // Cada som de zumbi sai do lugar onde ele está (HRTF): com fone, dá para
+  // saber se ele vem pela esquerda, pela direita ou por TRÁS.
+  _at(pos) {
+    const c = this.ctx, p = c.createPanner();
+    p.panningModel = 'HRTF';
+    p.distanceModel = 'inverse';
+    p.refDistance = A.REF_DIST;
+    p.maxDistance = 60;
+    p.rolloffFactor = A.ROLLOFF;
+    if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y; p.positionZ.value = pos.z; } else p.setPosition(pos.x, pos.y, pos.z);
+    p.connect(this.master);
+    return p;
+  }
+
+  // posição e direção da cabeça (chamar todo quadro)
+  listener(pos, fwd, up) {
+    if (!this.ctx) return;
+    const L = this.ctx.listener;
+    if (L.positionX) {
+      const t = this.ctx.currentTime;
+      L.positionX.setValueAtTime(pos.x, t); L.positionY.setValueAtTime(pos.y, t); L.positionZ.setValueAtTime(pos.z, t);
+      L.forwardX.setValueAtTime(fwd.x, t); L.forwardY.setValueAtTime(fwd.y, t); L.forwardZ.setValueAtTime(fwd.z, t);
+      L.upX.setValueAtTime(up.x, t); L.upY.setValueAtTime(up.y, t); L.upZ.setValueAtTime(up.z, t);
+    } else {
+      L.setPosition(pos.x, pos.y, pos.z);
+      L.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+    }
+  }
+
+  // gemido de zumbi saindo do lugar dele (alto; o fone faz a direção)
+  groanAt(pos, angry = false) {
+    if (!this.on) return;
+    const dest = this._at(pos);
+    const f = (angry ? 95 : 70) + Math.random() * 45;
+    const g = A.ZOMBIE_VOL;
+    this._tone(f, 1.1, { type: 'sawtooth', gain: 0.5 * g, slide: -30, dest });
+    this._tone(f * 1.48, 0.9, { type: 'square', gain: 0.18 * g, slide: -40, at: 0.06, dest });
+    this._noise(0.8, { gain: 0.35 * g, freq: 420 + Math.random() * 200, q: 3, dest });
+  }
+
+  // passo arrastado
+  stepAt(pos) {
+    if (!this.on) return;
+    const dest = this._at(pos);
+    this._noise(0.09, { gain: 0.55 * A.ZOMBIE_VOL, freq: 160 + Math.random() * 90, q: 1.2, dest });
+    this._tone(58, 0.08, { type: 'sine', gain: 0.25 * A.ZOMBIE_VOL, dest });
+  }
+
+  // grito do susto (jumpscare): bem alto, de onde ele está e também "na cara"
+  screamAt(pos) {
+    if (!this.on) return;
+    const dest = this._at(pos);
+    this._noise(1.0, { gain: 1.2, freq: 2400, q: 0.6, dest });
+    this._tone(520, 0.9, { type: 'sawtooth', gain: 0.6, slide: 900, dest });
+    this._tone(780, 0.8, { type: 'square', gain: 0.35, slide: 700, at: 0.05, dest });
+    this._noise(0.5, { gain: 0.6, freq: 900 });
+    this._tone(60, 0.6, { type: 'sine', gain: 0.8, slide: -30 });
+    this.vibrate([200, 50, 200]);
+  }
+
+  // coração batendo (zumbi perto)
+  heartbeat(k = 1) {
+    if (!this.on) return;
+    this._tone(52, 0.13, { type: 'sine', gain: 0.55 * k });
+    this._tone(48, 0.16, { type: 'sine', gain: 0.45 * k, at: 0.2 });
+  }
+
+  // música de fundo de terror (baixinha): zumbido grave, vento e sininhos
+  music(on) {
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    if (on && !this._mus) {
+      const out = c.createGain(); out.gain.value = 1; out.connect(this.musicBus);
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260; lp.Q.value = 4; lp.connect(out);
+      const o1 = c.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 55;
+      const o2 = c.createOscillator(); o2.type = 'triangle'; o2.frequency.value = 55 * 1.5 + 0.7;
+      const o3 = c.createOscillator(); o3.type = 'sine'; o3.frequency.value = 55 * 1.059;
+      for (const o of [o1, o2, o3]) { o.connect(lp); o.start(); }
+      const lfo = c.createOscillator(); lfo.frequency.value = 0.07; const lg = c.createGain(); lg.gain.value = 120; lfo.connect(lg).connect(lp.frequency); lfo.start();
+      // vento: ruído em loop, filtrado, subindo e descendo
+      const n = c.sampleRate * 3, buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      const src = c.createBufferSource(); src.buffer = buf; src.loop = true;
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 0.7;
+      const wg = c.createGain(); wg.gain.value = 0.25;
+      const lfo2 = c.createOscillator(); lfo2.frequency.value = 0.11; const lg2 = c.createGain(); lg2.gain.value = 0.18; lfo2.connect(lg2).connect(wg.gain); lfo2.start();
+      src.connect(bp).connect(wg).connect(out); src.start();
+      this._mus = { nodes: [o1, o2, o3, lfo, lfo2, src], out };
+      // sininho dissonante de vez em quando
+      this._musT = setInterval(() => {
+        if (!this.on || !this._mus) return;
+        const f = [622, 740, 831, 1108][Math.floor(Math.random() * 4)];
+        const g = c.createGain(); g.connect(this.musicBus);
+        const o = c.createOscillator(); o.frequency.value = f; o.connect(g);
+        const tt = c.currentTime; g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime(0.25, tt + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, tt + 3.5);
+        o.start(tt); o.stop(tt + 3.6);
+      }, 9000);
+    }
+    const vol = on && this.options.sound && this.options.music !== false ? A.MUSIC_VOL : 0;
+    this.musicBus.gain.cancelScheduledValues(t);
+    this.musicBus.gain.setTargetAtTime(vol, t, 0.8);
   }
 
   // gemido: mais alto quanto mais perto
@@ -2376,12 +2505,16 @@ class Horde {
     m.root.position.set(x, y, z);
     m.root.rotation.y = opts.yaw ?? Math.random() * Math.PI * 2;
     this.scene.add(m.root);
+    if (opts.scream) for (const mat of [m.mats[0]]) mat.color.setHex(0xb8c7a8); // pele mais pálida
     const zb = {
       m, hp: opts.hp ?? Z.HP, dead: false, deadT: 0, dummy: !!opts.dummy,
       alert: false, speed: Z.SPEED_MIN + Math.random() * (Z.SPEED_MAX - Z.SPEED_MIN),
       phase: Math.random() * 10, attackT: 0, hitT: 0, losT: Math.random() * 0.3, los: false,
       wander: 0, wanderYaw: Math.random() * 6.28, moving: 0,
       punches: 0, knock: null, animN: 0, animAcc: 0,
+      flank: !opts.dummy && Math.random() < Z.FLANK_P, // v26: tenta pegar por trás
+      groanT: 1 + Math.random() * 4, stepT: Math.random() * 0.5,
+      scream: !!opts.scream, screamed: false,
     };
     this.list.push(zb);
     return zb;
@@ -2641,7 +2774,29 @@ class Horde {
     return !this.world.segmentHit(this._a, this._b);
   }
 
-  update(dt, player) {
+  // v26: susto. Um zumbi rápido nasce ATRÁS do jogador (fora da visão), a
+  // 2,5–4 m, e corre para pegar. Conta no total da partida.
+  spawnScreamer(player, facing) {
+    const back = new THREE.Vector3(-facing.x, 0, -facing.z).normalize();
+    for (let d = Z.SCARE_SPAWN_MAX; d >= Z.SCARE_SPAWN_MIN; d -= 0.25) {
+      for (const off of [0, 0.35, -0.35, 0.7, -0.7]) {
+        const ca = Math.cos(off), sa = Math.sin(off);
+        const x = player.x + (back.x * ca - back.z * sa) * d, zz = player.z + (back.x * sa + back.z * ca) * d;
+        const y = this.world.floorAt(x, zz);
+        if (y == null || Math.abs(y - player.y) > 0.5 || !this._free(x, zz, y)) continue;
+        // precisa dar para chegar até o jogador (sem parede no meio)
+        this._a.set(x, y + 1.2, zz); this._b.set(player.x, player.y + 1.2, player.z);
+        if (this.world.segmentHit(this._a, this._b)) continue;
+        const z = this._add(x, y, zz, { scream: true, yaw: Math.atan2(player.x - x, player.z - zz) });
+        z.alert = true; z.speed = Z.SCARE_SPEED; z.flank = false;
+        this.planned++;
+        return z;
+      }
+    }
+    return null;
+  }
+
+  update(dt, player, facing = null) {
     // ondas
     if (this.pending > 0) {
       this.waveT -= dt;
@@ -2690,6 +2845,26 @@ class Horde {
             mx = Math.sin(z.wanderYaw); mz = Math.cos(z.wanderYaw); sp = Z.WANDER_SPEED * 2;
           }
         }
+        // v26: os que vêm "por trás": vendo o jogador de perto, dão a volta para
+        // chegar pelas costas dele; e todo zumbi fora da visão anda mais rápido
+        if (facing && !z.dummy) {
+          const inView = dist > 0.01 && (-dx * facing.x - dz * facing.z) / dist > Math.cos(THREE.MathUtils.degToRad(Z.VIEW_HALF_DEG));
+          z.behind = !inView;
+          // "front": 1 = bem na sua frente · -1 = bem atrás. Enquanto não está
+          // atrás, ele circula em volta (espiral), e só ataca pelas costas.
+          const front = dist > 0.01 ? (-dx * facing.x - dz * facing.z) / dist : 1;
+          if (z.flank && z.los && dist < Z.FLANK_DIST && dist > 0.9 && front > -0.6) {
+            const rx = -dx / dist, rz = -dz / dist;            // do jogador até o zumbi
+            let tx = -rz, tz = rx;                             // tangente: escolhe a que leva para trás
+            if (tx * facing.x + tz * facing.z > 0) { tx = -tx; tz = -tz; }
+            const k = THREE.MathUtils.clamp((dist - Z.FLANK_R) / 3, -0.6, 1); // longe: aproxima · perto: só circula
+            const ax = tx - rx * k, az = tz - rz * k, al = Math.hypot(ax, az);
+            if (al > 1e-3 && this._free(p.x + ax / al * 0.3, p.z + az / al * 0.3, p.y)) { mx = ax / al; mz = az / al; sp = z.speed * 1.15; }
+          }
+          if (!inView && sp > 0) sp *= Z.BEHIND_BOOST;
+        }
+        // susto: grita quando chega perto (ou quando o jogador vira e vê)
+        if (z.scream && !z.screamed && (dist < Z.SCARE_DIST || (!z.behind && dist < 4.5))) { z.screamed = true; this.hooks.onScream && this.hooks.onScream(z); }
         // ataque
         z.attackT -= dt;
         if (dist < Z.ATTACK_DIST && Math.abs(player.y - p.y) < 1 && z.attackT <= 0) {
@@ -2723,6 +2898,12 @@ class Horde {
         if (f != null) p.y += (f - p.y) * Math.min(1, dt * 10);
       }
       z.moving += (moved - z.moving) * Math.min(1, dt * 6);
+      // v26: sons de cada zumbi (gemido e passos), saindo do lugar dele
+      if (!z.dummy && dist < Z.SOUND_DIST) {
+        z.groanT -= dt;
+        if (z.groanT <= 0) { z.groanT = (z.alert ? 1.8 : 3.5) + Math.random() * 3; this.hooks.onGroanAt && this.hooks.onGroanAt(z, dist); }
+        if (moved > 0.15) { z.stepT -= dt * (0.8 + moved); if (z.stepT <= 0) { z.stepT = 0.55; this.hooks.onStep && this.hooks.onStep(z, dist); } }
+      }
       // vira para onde anda (ou para o jogador quando perto/parado)
       const face = z.alert || z.dummy || moved < 0.05 ? Math.atan2(dx, dz) : Math.atan2(mx, mz);
       if (z.alert || z.dummy || moved > 0.05) {
@@ -2964,6 +3145,7 @@ class Gun {
   // v21 (AIM 'cabeca'): olha para o zumbi = mira; QUALQUER mão fazendo a
   // pistolinha atira sozinha a cada recarga. A barra fica embaixo da mira.
   _updateHead(now, hands, thr, manualFire, findHit) {
+    // (findHit(o, d, true) = conferência completa das paredes, só na hora do tiro)
     // mão fazendo a pistolinha agora (prefere a mesma de antes)
     let ph = null;
     for (const h of hands) {
@@ -5339,8 +5521,9 @@ class CalibrationFlow {
         <button class="mode ${pad ? '' : 'on'}" data-mode="maos">✋ Mãos<br><span class="small">câmera do celular</span></button>
         <button class="mode ${pad ? 'on' : ''}" data-mode="controle">🎮 Controle<br><span class="small">Xbox (Bluetooth)</span></button>
       </div>
-      ${pad ? `<p class="small">No óculos: <b>analógico esquerdo</b> anda, <b>analógico direito</b> gira, <b>olhe</b> para mirar, <b>RT</b> atira, <b>X</b> soco, <b>Y</b> recentra, <b>A</b> começa. Não precisa de câmera nem de calibrar.</p>
-        <p class="small" id="pad-status"></p>` : ''}`;
+      ${pad ? `<p class="small">No óculos: <b>analógico esquerdo</b> anda, <b>vire o rosto</b> para olhar e mirar, <b>RT</b> atira, <b>X</b> soco, <b>Y</b> recentra, <b>A</b> começa. Não precisa de câmera nem de calibrar.</p>
+        <p class="small" id="pad-status"></p>` : ''}
+      <p class="small">🎧 Use <b>fone de ouvido</b>: os zumbis têm <b>som 3D</b>, você ouve de onde eles vêm (inclusive por trás).</p>`;
     if (auto) {
       this._show(`🧟 Escola Zumbi <span class="small">${CONFIG.VERSION}</span>`, `${modeHtml}
         <p>Toque no botão, <b>coloque o celular no óculos</b> e olhe para frente. O jogo começa sozinho em ${CONFIG.LOBBY.COUNTDOWN_S} s (ou ${pad ? 'aperte <b>A</b>' : 'mostre a <b>✋ mão aberta</b>'}).</p>
@@ -5491,6 +5674,7 @@ class CalibrationFlow {
       ${opt('vignette', '🌑 Escurecer bordas ao andar', '⚪ Bordas normais ao andar')}
       ${opt('tutorial', '🎓 Tutorial antes da partida', '⏩ Direto para a partida')}
       ${opt('parado', '🧍 Só atirar (os zumbis vêm até você)', '🚶 Andar pela escola')}
+      ${opt('music', '🎵 Música de terror', '🔕 Sem música')}
     </div>
     <p class="small">Modo feira: partida de ${Math.round(CONFIG.FEIRA.GAME_TIME_S / 60)} min, ${CONFIG.ZOMBIES.FEIRA_COUNT} zumbis, tutorial curto e volta sozinho para o próximo jogador.</p>`;
   }
@@ -6458,10 +6642,17 @@ class App {
     });
     this.horde = new Horde(this.scene, this.world, {
       onHit: () => this._onBite(),
-      onGroan: (d) => this.sfx.groan(d),
+      onGroan: () => {}, // v26: os gemidos agora saem de cada zumbi (som 3D)
+      onGroanAt: (z) => this.sfx.groanAt(this._v3.copy(z.m.root.position).setY(z.m.root.position.y + 1.6), z.alert),
+      onStep: (z) => this.sfx.stepAt(this._v3.copy(z.m.root.position).setY(z.m.root.position.y + 0.1)),
+      onScream: (z) => this._scare(z),
       onWave: (n) => { if (this.state === 'playing') { this.toast(`🧟 Chegaram mais ${n} zumbis!`); this.sfx.alarm(); } },
     });
     this.coach = new Coach(this.camera);
+    this._v3 = new THREE.Vector3();
+    this._fwd = new THREE.Vector3();
+    this._up = new THREE.Vector3();
+    this._shakeK = 0;
     this.lobby = new Lobby(this.camera);
     this.melee = new Melee();
     this.demo = new DemoHand(this.camera);
@@ -6656,6 +6847,7 @@ class App {
     this.lobby.close();
     this.state = 'tutorial';
     this._resetWorld();
+    this.sfx.music(true);
     this.tutorial = { walk: !!this.options.parado, aim: false, shoot: false }; // só atirar: sem passo de andar
     // zumbi de treino na frente do início (parado, 1 tiro)
     const yaw = this.rig.rotation.y;
@@ -6727,6 +6919,9 @@ class App {
     this.lobby.close();
     this.state = 'playing';
     this._resetWorld();
+    this.sfx.music(true);
+    this._scares = 0;
+    this._scareT = CONFIG.ZOMBIES.SCARE_FIRST_S;
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
     this.horde.spawnHorde(n, this.world.spawn);
     // v24: modo "só atirar": você fica parado e todos os zumbis já vêm atrás de você
@@ -6742,15 +6937,37 @@ class App {
   }
 
   // Raio da mira: zumbi mais perto ou parede (o que vier primeiro).
-  _findHit(o, d) {
+  // Raio da mira: zumbi mais perto ou parede (o que vier primeiro).
+  // v26: o tiro NÃO atravessa parede: confere a grade da escola na linha da
+  // mira E na linha até o zumbi (ajuda de mira), e na hora do tiro confere
+  // também os triângulos da escola de verdade.
+  _findHit(o, d, fire = false) {
     const R = CONFIG.GUN.RANGE;
     const zh = this.horde.rayHit(o, d, R);
-    const end = this._hv.copy(o).addScaledVector(d, zh ? zh.dist : R);
-    const wall = this.world.segmentHit(o, end);
-    if (wall && wall.point) {
-      const wd = wall.point.distanceTo(o);
-      if (!zh || wd < zh.dist - 0.05) return { dist: wd, point: wall.point, wall: true };
+    const end = (this._fhEnd || (this._fhEnd = new THREE.Vector3())).copy(o).addScaledVector(d, zh ? zh.dist : R);
+    let wd = Infinity, wp = null;
+    const w1 = this.world.segmentHit(o, end);
+    if (w1 && w1.point) { wd = w1.point.distanceTo(o); wp = w1.point; }
+    if (zh) {
+      const zp = zh.zombie.m.root.position;
+      const zc = (this._fhZ || (this._fhZ = new THREE.Vector3())).set(zp.x, zp.y + 1.2 * zh.zombie.m.scale, zp.z);
+      const w2 = this.world.segmentHit(o, zc);
+      if (w2 && w2.point && w2.point.distanceTo(o) < o.distanceTo(zc) - 0.35) {
+        const dd = w2.point.distanceTo(o);
+        if (dd < wd) { wd = dd; wp = w2.point; }
+      }
     }
+    if (fire && this.world.model && CONFIG.GUN.MESH_CHECK) {
+      const rc = this._rc || (this._rc = new THREE.Raycaster());
+      rc.set(o, d); rc.far = zh ? zh.dist : R; rc.near = 0.05;
+      for (const h of rc.intersectObject(this.world.model, true)) {
+        const m = h.object.material;
+        if (m && (m.alphaTest > 0 || m.transparent)) continue; // folhas e vidros finos não seguram o tiro
+        if (h.distance < wd) { wd = h.distance; wp = h.point; }
+        break;
+      }
+    }
+    if (wp && (!zh || wd < zh.dist - 0.05)) return { dist: wd, point: wp.clone(), wall: true };
     return zh;
   }
 
@@ -6840,6 +7057,7 @@ class App {
   endGame(win) {
     if (this.state !== 'playing') return;
     this.state = 'ended';
+    this.sfx.music(false);
     this.teleport.cancel();
     this.gun.hide();
     document.body.classList.remove('playing');
@@ -7184,9 +7402,9 @@ class App {
     const gp = this.pad.poll();
     if (gp.pressed && this.pad.connected) {
       const P = CONFIG.PAD;
-      this.rig.rotation.y -= gp.look.x * P.TURN_SPEED * dt;
-      if (gp.pressed.lb) this.rig.rotation.y += THREE.MathUtils.degToRad(P.SNAP_DEG);
-      if (gp.pressed.rb) this.rig.rotation.y -= THREE.MathUtils.degToRad(P.SNAP_DEG);
+      // v26: a visão SÓ gira virando o rosto (o analógico direito não gira mais),
+      // a não ser no PC sem sensor (para testar)
+      if (P.TURN && !this.inHeadset()) this.rig.rotation.y -= gp.look.x * P.TURN_SPEED * dt;
       if (!this.xrActive && !this.stereo && !this.orientation.hasData && gp.look.y) this.orientation.addManual(0, gp.look.y * P.LOOK_PITCH * dt * 300);
       if (gp.pressed.y) { this.recenter(); this.toast('⟲ Visão recentrada'); }
     }
@@ -7300,8 +7518,10 @@ class App {
         if (e && !e.miss) this._meleeEvent(e); else if (e) this.sfx.punch(false);
       }
       this.gun.aimFn = (h, out) => this._fingerDir(h, out, CONFIG.GUN.FINGER_BLEND);
-      this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
-      this.horde.update(dt, this.rig.position);
+      this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d, f) => this._findHit(o, d, f));
+      this.camera.getWorldDirection(this._fwd); this._fwd.y = 0; this._fwd.normalize();
+      this.horde.update(dt, this.rig.position, this._fwd);
+      if (this.state === 'playing') this._scareTick(dt);
       if (CONFIG.MELEE.ON) this._updateMelee(now, dt);
       this._collectPointers();
       if (this.state === 'tutorial') this._tutorialStep(now);
@@ -7350,6 +7570,7 @@ class App {
       if (sec <= 10 && sec > 0 && sec !== this._lastTick) { this._lastTick = sec; this.sfx.tick(sec <= 3); }
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
     }
+    this._updateEars(now, dt, active);
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
@@ -7511,6 +7732,43 @@ class App {
     this.edgeArrow.visible = on && Math.floor(now / 200) % 2 === 0;
   }
 
+  // v26: o "ouvido" do som 3D acompanha a cabeça; coração bate com zumbi perto
+  _updateEars(now, dt, active) {
+    this.camera.getWorldPosition(this._camW);
+    this.camera.getWorldDirection(this._v3);
+    this._up.set(0, 1, 0).applyQuaternion(this.camera.getWorldQuaternion(this._q4 || (this._q4 = new THREE.Quaternion())));
+    this.sfx.listener(this._camW, this._v3, this._up);
+    if (active && this.horde.nearest < CONFIG.AUDIO.HEART_DIST) {
+      const d = this.horde.nearest;
+      if (now > (this._heartT || 0)) { this._heartT = now + 450 + d * 140; this.sfx.heartbeat(1 - d / CONFIG.AUDIO.HEART_DIST * 0.6); }
+    }
+    // tremida da câmera depois do susto
+    if (this._shakeK > 0) {
+      this._shakeK = Math.max(0, this._shakeK - dt * 2.2);
+      const k = this._shakeK * 0.03;
+      this.camera.position.set((Math.random() - 0.5) * k, (Math.random() - 0.5) * k, 0);
+    } else if (!this.xrActive && this.camera.position.lengthSq()) this.camera.position.set(0, 0, 0);
+  }
+
+  // v26: hora do próximo susto (só na partida)
+  _scareTick(dt) {
+    const Z = CONFIG.ZOMBIES;
+    if ((this._scares || 0) >= Z.SCARE_MAX) return;
+    this._scareT -= dt;
+    if (this._scareT > 0) return;
+    this._scareT = Z.SCARE_EVERY_S + (Math.random() - 0.5) * 40;
+    if (this.horde.spawnScreamer(this.rig.position, this._fwd)) this._scares = (this._scares || 0) + 1;
+    else this._scareT = 5; // sem lugar atrás agora: tenta de novo daqui a pouco
+  }
+
+  _scare(z) {
+    const p = z.m.root.position;
+    this.sfx.screamAt(this._v3.set(p.x, p.y + 1.6, p.z));
+    this.hurtK = Math.max(this.hurtK, 0.7);
+    this._shakeK = 1;
+    this.pad.rumble(600, 1, 1);
+  }
+
   _recenterGesture(now) {
     const both = this.hands.hands.every((h) => this._isPalm(h));
     if (!both) { this._bothPalmAt = 0; this._recentered = false; return; }
@@ -7578,7 +7836,7 @@ class App {
       shoot: 'Olhando para o zumbi, segure a <b>pistolinha 👉</b>: atira sozinho; a <b>barra</b> embaixo da mira mostra a recarga. De perto, <b>socos</b> 👊 também valem.',
     };
     if (this.padMode) {
-      notes.walk = 'Incline o <b>analógico esquerdo</b> para andar (frente = para onde você olha). O <b>analógico direito</b> gira.';
+      notes.walk = 'Incline o <b>analógico esquerdo</b> para andar (frente = para onde você olha). Para virar, <b>vire o rosto</b>.';
       notes.aim = 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela).';
       notes.shoot = 'Olhando para o zumbi, aperte o <b>RT</b> (gatilho direito). Segurando, atira a cada recarga. <b>X</b> = soco de perto.';
     }

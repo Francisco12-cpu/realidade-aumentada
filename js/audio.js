@@ -27,6 +27,10 @@ export class Sfx {
         this.master = this.ctx.createGain();
         this.master.gain.value = A.VOLUME;
         this.master.connect(this.ctx.destination);
+        // v26: música baixa num canal separado
+        this.musicBus = this.ctx.createGain();
+        this.musicBus.gain.value = 0;
+        this.musicBus.connect(this.ctx.destination);
       } catch (e) { this.ctx = null; return; }
     }
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
@@ -35,7 +39,7 @@ export class Sfx {
   get on() { return this.options.sound && this.ctx && this.ctx.state === 'running'; }
 
   // nota simples com envelope (ataque curto, queda exponencial)
-  _tone(freq, dur, { type = 'sine', gain = 0.5, at = 0, slide = 0 } = {}) {
+  _tone(freq, dur, { type = 'sine', gain = 0.5, at = 0, slide = 0, dest = null } = {}) {
     if (!this.on) return;
     const c = this.ctx, t = c.currentTime + at;
     const o = c.createOscillator(), g = c.createGain();
@@ -45,12 +49,12 @@ export class Sfx {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(this.master);
+    o.connect(g).connect(dest || this.master);
     o.start(t);
     o.stop(t + dur + 0.02);
   }
 
-  _noise(dur, { gain = 0.3, at = 0, freq = 2000 } = {}) {
+  _noise(dur, { gain = 0.3, at = 0, freq = 2000, q = 0.8, dest = null } = {}) {
     if (!this.on) return;
     const c = this.ctx, t = c.currentTime + at;
     const n = Math.floor(c.sampleRate * dur);
@@ -60,10 +64,10 @@ export class Sfx {
     const src = c.createBufferSource();
     src.buffer = buf;
     const f = c.createBiquadFilter();
-    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.8;
+    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
     const g = c.createGain();
     g.gain.value = gain;
-    src.connect(f).connect(g).connect(this.master);
+    src.connect(f).connect(g).connect(dest || this.master);
     src.start(t);
   }
 
@@ -151,6 +155,110 @@ export class Sfx {
     this._tone(110, 0.12, { type: 'sine', gain: 0.5, slide: -60 });
     if (kill) this._tone(200, 0.45, { type: 'sawtooth', gain: 0.18, slide: -140, at: 0.06 });
     this.vibrate(kill ? [40, 30, 60] : 35);
+  }
+
+  // ---------------- v26: som 3D (fone de ouvido) ----------------
+  // Cada som de zumbi sai do lugar onde ele está (HRTF): com fone, dá para
+  // saber se ele vem pela esquerda, pela direita ou por TRÁS.
+  _at(pos) {
+    const c = this.ctx, p = c.createPanner();
+    p.panningModel = 'HRTF';
+    p.distanceModel = 'inverse';
+    p.refDistance = A.REF_DIST;
+    p.maxDistance = 60;
+    p.rolloffFactor = A.ROLLOFF;
+    if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y; p.positionZ.value = pos.z; } else p.setPosition(pos.x, pos.y, pos.z);
+    p.connect(this.master);
+    return p;
+  }
+
+  // posição e direção da cabeça (chamar todo quadro)
+  listener(pos, fwd, up) {
+    if (!this.ctx) return;
+    const L = this.ctx.listener;
+    if (L.positionX) {
+      const t = this.ctx.currentTime;
+      L.positionX.setValueAtTime(pos.x, t); L.positionY.setValueAtTime(pos.y, t); L.positionZ.setValueAtTime(pos.z, t);
+      L.forwardX.setValueAtTime(fwd.x, t); L.forwardY.setValueAtTime(fwd.y, t); L.forwardZ.setValueAtTime(fwd.z, t);
+      L.upX.setValueAtTime(up.x, t); L.upY.setValueAtTime(up.y, t); L.upZ.setValueAtTime(up.z, t);
+    } else {
+      L.setPosition(pos.x, pos.y, pos.z);
+      L.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+    }
+  }
+
+  // gemido de zumbi saindo do lugar dele (alto; o fone faz a direção)
+  groanAt(pos, angry = false) {
+    if (!this.on) return;
+    const dest = this._at(pos);
+    const f = (angry ? 95 : 70) + Math.random() * 45;
+    const g = A.ZOMBIE_VOL;
+    this._tone(f, 1.1, { type: 'sawtooth', gain: 0.5 * g, slide: -30, dest });
+    this._tone(f * 1.48, 0.9, { type: 'square', gain: 0.18 * g, slide: -40, at: 0.06, dest });
+    this._noise(0.8, { gain: 0.35 * g, freq: 420 + Math.random() * 200, q: 3, dest });
+  }
+
+  // passo arrastado
+  stepAt(pos) {
+    if (!this.on) return;
+    const dest = this._at(pos);
+    this._noise(0.09, { gain: 0.55 * A.ZOMBIE_VOL, freq: 160 + Math.random() * 90, q: 1.2, dest });
+    this._tone(58, 0.08, { type: 'sine', gain: 0.25 * A.ZOMBIE_VOL, dest });
+  }
+
+  // grito do susto (jumpscare): bem alto, de onde ele está e também "na cara"
+  screamAt(pos) {
+    if (!this.on) return;
+    const dest = this._at(pos);
+    this._noise(1.0, { gain: 1.2, freq: 2400, q: 0.6, dest });
+    this._tone(520, 0.9, { type: 'sawtooth', gain: 0.6, slide: 900, dest });
+    this._tone(780, 0.8, { type: 'square', gain: 0.35, slide: 700, at: 0.05, dest });
+    this._noise(0.5, { gain: 0.6, freq: 900 });
+    this._tone(60, 0.6, { type: 'sine', gain: 0.8, slide: -30 });
+    this.vibrate([200, 50, 200]);
+  }
+
+  // coração batendo (zumbi perto)
+  heartbeat(k = 1) {
+    if (!this.on) return;
+    this._tone(52, 0.13, { type: 'sine', gain: 0.55 * k });
+    this._tone(48, 0.16, { type: 'sine', gain: 0.45 * k, at: 0.2 });
+  }
+
+  // música de fundo de terror (baixinha): zumbido grave, vento e sininhos
+  music(on) {
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    if (on && !this._mus) {
+      const out = c.createGain(); out.gain.value = 1; out.connect(this.musicBus);
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260; lp.Q.value = 4; lp.connect(out);
+      const o1 = c.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 55;
+      const o2 = c.createOscillator(); o2.type = 'triangle'; o2.frequency.value = 55 * 1.5 + 0.7;
+      const o3 = c.createOscillator(); o3.type = 'sine'; o3.frequency.value = 55 * 1.059;
+      for (const o of [o1, o2, o3]) { o.connect(lp); o.start(); }
+      const lfo = c.createOscillator(); lfo.frequency.value = 0.07; const lg = c.createGain(); lg.gain.value = 120; lfo.connect(lg).connect(lp.frequency); lfo.start();
+      // vento: ruído em loop, filtrado, subindo e descendo
+      const n = c.sampleRate * 3, buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      const src = c.createBufferSource(); src.buffer = buf; src.loop = true;
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 0.7;
+      const wg = c.createGain(); wg.gain.value = 0.25;
+      const lfo2 = c.createOscillator(); lfo2.frequency.value = 0.11; const lg2 = c.createGain(); lg2.gain.value = 0.18; lfo2.connect(lg2).connect(wg.gain); lfo2.start();
+      src.connect(bp).connect(wg).connect(out); src.start();
+      this._mus = { nodes: [o1, o2, o3, lfo, lfo2, src], out };
+      // sininho dissonante de vez em quando
+      this._musT = setInterval(() => {
+        if (!this.on || !this._mus) return;
+        const f = [622, 740, 831, 1108][Math.floor(Math.random() * 4)];
+        const g = c.createGain(); g.connect(this.musicBus);
+        const o = c.createOscillator(); o.frequency.value = f; o.connect(g);
+        const tt = c.currentTime; g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime(0.25, tt + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, tt + 3.5);
+        o.start(tt); o.stop(tt + 3.6);
+      }, 9000);
+    }
+    const vol = on && this.options.sound && this.options.music !== false ? A.MUSIC_VOL : 0;
+    this.musicBus.gain.cancelScheduledValues(t);
+    this.musicBus.gain.setTargetAtTime(vol, t, 0.8);
   }
 
   // gemido: mais alto quanto mais perto

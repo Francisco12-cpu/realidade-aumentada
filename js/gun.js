@@ -182,6 +182,7 @@ export class Gun {
   // v21 (AIM 'cabeca'): olha para o zumbi = mira; QUALQUER mão fazendo a
   // pistolinha atira sozinha a cada recarga. A barra fica embaixo da mira.
   _updateHead(now, hands, thr, manualFire, findHit) {
+    // (findHit(o, d, true) = conferência completa das paredes, só na hora do tiro)
     // mão fazendo a pistolinha agora (prefere a mesma de antes)
     let ph = null;
     for (const h of hands) {

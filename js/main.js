@@ -112,10 +112,17 @@ class App {
     });
     this.horde = new Horde(this.scene, this.world, {
       onHit: () => this._onBite(),
-      onGroan: (d) => this.sfx.groan(d),
+      onGroan: () => {}, // v26: os gemidos agora saem de cada zumbi (som 3D)
+      onGroanAt: (z) => this.sfx.groanAt(this._v3.copy(z.m.root.position).setY(z.m.root.position.y + 1.6), z.alert),
+      onStep: (z) => this.sfx.stepAt(this._v3.copy(z.m.root.position).setY(z.m.root.position.y + 0.1)),
+      onScream: (z) => this._scare(z),
       onWave: (n) => { if (this.state === 'playing') { this.toast(`🧟 Chegaram mais ${n} zumbis!`); this.sfx.alarm(); } },
     });
     this.coach = new Coach(this.camera);
+    this._v3 = new THREE.Vector3();
+    this._fwd = new THREE.Vector3();
+    this._up = new THREE.Vector3();
+    this._shakeK = 0;
     this.lobby = new Lobby(this.camera);
     this.melee = new Melee();
     this.demo = new DemoHand(this.camera);
@@ -310,6 +317,7 @@ class App {
     this.lobby.close();
     this.state = 'tutorial';
     this._resetWorld();
+    this.sfx.music(true);
     this.tutorial = { walk: !!this.options.parado, aim: false, shoot: false }; // só atirar: sem passo de andar
     // zumbi de treino na frente do início (parado, 1 tiro)
     const yaw = this.rig.rotation.y;
@@ -381,6 +389,9 @@ class App {
     this.lobby.close();
     this.state = 'playing';
     this._resetWorld();
+    this.sfx.music(true);
+    this._scares = 0;
+    this._scareT = CONFIG.ZOMBIES.SCARE_FIRST_S;
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
     this.horde.spawnHorde(n, this.world.spawn);
     // v24: modo "só atirar": você fica parado e todos os zumbis já vêm atrás de você
@@ -396,15 +407,37 @@ class App {
   }
 
   // Raio da mira: zumbi mais perto ou parede (o que vier primeiro).
-  _findHit(o, d) {
+  // Raio da mira: zumbi mais perto ou parede (o que vier primeiro).
+  // v26: o tiro NÃO atravessa parede: confere a grade da escola na linha da
+  // mira E na linha até o zumbi (ajuda de mira), e na hora do tiro confere
+  // também os triângulos da escola de verdade.
+  _findHit(o, d, fire = false) {
     const R = CONFIG.GUN.RANGE;
     const zh = this.horde.rayHit(o, d, R);
-    const end = this._hv.copy(o).addScaledVector(d, zh ? zh.dist : R);
-    const wall = this.world.segmentHit(o, end);
-    if (wall && wall.point) {
-      const wd = wall.point.distanceTo(o);
-      if (!zh || wd < zh.dist - 0.05) return { dist: wd, point: wall.point, wall: true };
+    const end = (this._fhEnd || (this._fhEnd = new THREE.Vector3())).copy(o).addScaledVector(d, zh ? zh.dist : R);
+    let wd = Infinity, wp = null;
+    const w1 = this.world.segmentHit(o, end);
+    if (w1 && w1.point) { wd = w1.point.distanceTo(o); wp = w1.point; }
+    if (zh) {
+      const zp = zh.zombie.m.root.position;
+      const zc = (this._fhZ || (this._fhZ = new THREE.Vector3())).set(zp.x, zp.y + 1.2 * zh.zombie.m.scale, zp.z);
+      const w2 = this.world.segmentHit(o, zc);
+      if (w2 && w2.point && w2.point.distanceTo(o) < o.distanceTo(zc) - 0.35) {
+        const dd = w2.point.distanceTo(o);
+        if (dd < wd) { wd = dd; wp = w2.point; }
+      }
     }
+    if (fire && this.world.model && CONFIG.GUN.MESH_CHECK) {
+      const rc = this._rc || (this._rc = new THREE.Raycaster());
+      rc.set(o, d); rc.far = zh ? zh.dist : R; rc.near = 0.05;
+      for (const h of rc.intersectObject(this.world.model, true)) {
+        const m = h.object.material;
+        if (m && (m.alphaTest > 0 || m.transparent)) continue; // folhas e vidros finos não seguram o tiro
+        if (h.distance < wd) { wd = h.distance; wp = h.point; }
+        break;
+      }
+    }
+    if (wp && (!zh || wd < zh.dist - 0.05)) return { dist: wd, point: wp.clone(), wall: true };
     return zh;
   }
 
@@ -494,6 +527,7 @@ class App {
   endGame(win) {
     if (this.state !== 'playing') return;
     this.state = 'ended';
+    this.sfx.music(false);
     this.teleport.cancel();
     this.gun.hide();
     document.body.classList.remove('playing');
@@ -838,9 +872,9 @@ class App {
     const gp = this.pad.poll();
     if (gp.pressed && this.pad.connected) {
       const P = CONFIG.PAD;
-      this.rig.rotation.y -= gp.look.x * P.TURN_SPEED * dt;
-      if (gp.pressed.lb) this.rig.rotation.y += THREE.MathUtils.degToRad(P.SNAP_DEG);
-      if (gp.pressed.rb) this.rig.rotation.y -= THREE.MathUtils.degToRad(P.SNAP_DEG);
+      // v26: a visão SÓ gira virando o rosto (o analógico direito não gira mais),
+      // a não ser no PC sem sensor (para testar)
+      if (P.TURN && !this.inHeadset()) this.rig.rotation.y -= gp.look.x * P.TURN_SPEED * dt;
       if (!this.xrActive && !this.stereo && !this.orientation.hasData && gp.look.y) this.orientation.addManual(0, gp.look.y * P.LOOK_PITCH * dt * 300);
       if (gp.pressed.y) { this.recenter(); this.toast('⟲ Visão recentrada'); }
     }
@@ -954,8 +988,10 @@ class App {
         if (e && !e.miss) this._meleeEvent(e); else if (e) this.sfx.punch(false);
       }
       this.gun.aimFn = (h, out) => this._fingerDir(h, out, CONFIG.GUN.FINGER_BLEND);
-      this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
-      this.horde.update(dt, this.rig.position);
+      this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d, f) => this._findHit(o, d, f));
+      this.camera.getWorldDirection(this._fwd); this._fwd.y = 0; this._fwd.normalize();
+      this.horde.update(dt, this.rig.position, this._fwd);
+      if (this.state === 'playing') this._scareTick(dt);
       if (CONFIG.MELEE.ON) this._updateMelee(now, dt);
       this._collectPointers();
       if (this.state === 'tutorial') this._tutorialStep(now);
@@ -1004,6 +1040,7 @@ class App {
       if (sec <= 10 && sec > 0 && sec !== this._lastTick) { this._lastTick = sec; this.sfx.tick(sec <= 3); }
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
     }
+    this._updateEars(now, dt, active);
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
@@ -1165,6 +1202,43 @@ class App {
     this.edgeArrow.visible = on && Math.floor(now / 200) % 2 === 0;
   }
 
+  // v26: o "ouvido" do som 3D acompanha a cabeça; coração bate com zumbi perto
+  _updateEars(now, dt, active) {
+    this.camera.getWorldPosition(this._camW);
+    this.camera.getWorldDirection(this._v3);
+    this._up.set(0, 1, 0).applyQuaternion(this.camera.getWorldQuaternion(this._q4 || (this._q4 = new THREE.Quaternion())));
+    this.sfx.listener(this._camW, this._v3, this._up);
+    if (active && this.horde.nearest < CONFIG.AUDIO.HEART_DIST) {
+      const d = this.horde.nearest;
+      if (now > (this._heartT || 0)) { this._heartT = now + 450 + d * 140; this.sfx.heartbeat(1 - d / CONFIG.AUDIO.HEART_DIST * 0.6); }
+    }
+    // tremida da câmera depois do susto
+    if (this._shakeK > 0) {
+      this._shakeK = Math.max(0, this._shakeK - dt * 2.2);
+      const k = this._shakeK * 0.03;
+      this.camera.position.set((Math.random() - 0.5) * k, (Math.random() - 0.5) * k, 0);
+    } else if (!this.xrActive && this.camera.position.lengthSq()) this.camera.position.set(0, 0, 0);
+  }
+
+  // v26: hora do próximo susto (só na partida)
+  _scareTick(dt) {
+    const Z = CONFIG.ZOMBIES;
+    if ((this._scares || 0) >= Z.SCARE_MAX) return;
+    this._scareT -= dt;
+    if (this._scareT > 0) return;
+    this._scareT = Z.SCARE_EVERY_S + (Math.random() - 0.5) * 40;
+    if (this.horde.spawnScreamer(this.rig.position, this._fwd)) this._scares = (this._scares || 0) + 1;
+    else this._scareT = 5; // sem lugar atrás agora: tenta de novo daqui a pouco
+  }
+
+  _scare(z) {
+    const p = z.m.root.position;
+    this.sfx.screamAt(this._v3.set(p.x, p.y + 1.6, p.z));
+    this.hurtK = Math.max(this.hurtK, 0.7);
+    this._shakeK = 1;
+    this.pad.rumble(600, 1, 1);
+  }
+
   _recenterGesture(now) {
     const both = this.hands.hands.every((h) => this._isPalm(h));
     if (!both) { this._bothPalmAt = 0; this._recentered = false; return; }
@@ -1232,7 +1306,7 @@ class App {
       shoot: 'Olhando para o zumbi, segure a <b>pistolinha 👉</b>: atira sozinho; a <b>barra</b> embaixo da mira mostra a recarga. De perto, <b>socos</b> 👊 também valem.',
     };
     if (this.padMode) {
-      notes.walk = 'Incline o <b>analógico esquerdo</b> para andar (frente = para onde você olha). O <b>analógico direito</b> gira.';
+      notes.walk = 'Incline o <b>analógico esquerdo</b> para andar (frente = para onde você olha). Para virar, <b>vire o rosto</b>.';
       notes.aim = 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela).';
       notes.shoot = 'Olhando para o zumbi, aperte o <b>RT</b> (gatilho direito). Segurando, atira a cada recarga. <b>X</b> = soco de perto.';
     }
