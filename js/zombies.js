@@ -386,6 +386,30 @@ export class Horde {
     return null;
   }
 
+  // v27: susto de verdade: o zumbi APARECE NA SUA FRENTE, bem perto, gritando.
+  // Procura lugar livre na frente (e um pouco para os lados), sem parede no meio.
+  spawnFrontScare(player, facing) {
+    const f = new THREE.Vector3(facing.x, 0, facing.z).normalize();
+    for (const dd of [Z.SCARE_FRONT_DIST, Z.SCARE_FRONT_DIST + 0.4, Z.SCARE_FRONT_DIST + 0.9]) {
+      for (const off of [0, 0.3, -0.3, 0.6, -0.6]) {
+        const ca = Math.cos(off), sa = Math.sin(off);
+        const x = player.x + (f.x * ca - f.z * sa) * dd, zz = player.z + (f.x * sa + f.z * ca) * dd;
+        const y = this.world.floorAt(x, zz);
+        if (y == null || Math.abs(y - player.y) > 0.5 || !this._free(x, zz, y)) continue;
+        this._a.set(player.x, player.y + 1.4, player.z); this._b.set(x, y + 1.4, zz);
+        if (this.world.segmentHit(this._a, this._b)) continue;
+        const z = this._add(x, y, zz, { scream: true, yaw: Math.atan2(player.x - x, player.z - zz) });
+        z.alert = true; z.speed = Z.SCARE_SPEED; z.flank = false;
+        z.screamed = true;               // já grita ao aparecer
+        z.attackT = Z.SCARE_BITE_S;      // dá um tempinho para reagir
+        z.swing = 0.35;                  // já vem com os braços
+        this.planned++;
+        return z;
+      }
+    }
+    return null;
+  }
+
   update(dt, player, facing = null) {
     // ondas
     if (this.pending > 0) {
@@ -394,6 +418,11 @@ export class Horde {
     }
     let chasing = 0;
     for (const z of this.list) if (!z.dead && z.alert) chasing++;
+    // v27: quem está dando a volta agora (no máximo FLANK_MAX)
+    this._flankers = 0;
+    this._flanker = this.list.find((z) => z._flankNow && !z.dead) || null;
+    if (this._flanker) this._flankers = 1;
+    for (const z of this.list) z._flankNow = false;
     this._flowT -= dt;
     // recalcula o caminho só se o jogador saiu do lugar (ou de tempos em tempos)
     if (chasing && this._flowT <= 0) {
@@ -443,7 +472,10 @@ export class Horde {
           // "front": 1 = bem na sua frente · -1 = bem atrás. Enquanto não está
           // atrás, ele circula em volta (espiral), e só ataca pelas costas.
           const front = dist > 0.01 ? (-dx * facing.x - dz * facing.z) / dist : 1;
-          if (z.flank && z.los && dist < Z.FLANK_DIST && dist > 0.9 && front > -0.6) {
+          // só FLANK_MAX zumbis dão a volta ao mesmo tempo (o mais perto ganha a vez)
+          if (z.flank && z.los && dist < Z.FLANK_DIST && dist > 0.9 && front > -0.6 && (z === this._flanker || this._flankers < Z.FLANK_MAX)) {
+            if (z !== this._flanker) { this._flankers++; }
+            z._flankNow = true;
             const rx = -dx / dist, rz = -dz / dist;            // do jogador até o zumbi
             let tx = -rz, tz = rx;                             // tangente: escolhe a que leva para trás
             if (tx * facing.x + tz * facing.z > 0) { tx = -tx; tz = -tz; }

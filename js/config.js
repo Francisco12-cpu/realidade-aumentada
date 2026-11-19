@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v26',
+  VERSION: 'v27',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -219,15 +219,19 @@ export const CONFIG = {
     GROAN_DIST: 9,
     ANIM_FAR: 25,
     // v26: terror
-    FLANK_P: 0.35,          // parte dos zumbis que tenta dar a volta e pegar por trás
+    FLANK_P: 0.3,           // parte dos zumbis que PODE dar a volta e pegar por trás...
+    FLANK_MAX: 1,           // v27: ...mas só esse tanto ao mesmo tempo (não são todos)
     FLANK_DIST: 9,          //   ...quando estão a menos disso e você está olhando para eles
     FLANK_R: 1.9,           //   ...circulam a essa distância até ficar atrás de você
     VIEW_HALF_DEG: 55,      // metade do ângulo da visão (fora disso = "atrás")
-    BEHIND_BOOST: 1.3,      // zumbi fora da visão anda isso × mais rápido
+    BEHIND_BOOST: 1.12,     // zumbi fora da visão anda isso × mais rápido
     SOUND_DIST: 22,         // zumbis a menos disso fazem barulho (som 3D)
-    SCARE_FIRST_S: 40,      // susto (jumpscare): o 1º depois disso na partida...
-    SCARE_EVERY_S: 65,      //   ...e depois a cada ~isso (sorteado ±20 s)
-    SCARE_MAX: 3,           //   no máximo esses por partida
+    SCARE_FIRST_S: 25,      // susto (jumpscare): o 1º depois disso na partida...
+    SCARE_EVERY_S: 50,      //   ...e depois a cada ~isso (sorteado ±15 s)
+    SCARE_MAX: 4,           //   no máximo esses por partida
+    SCARE_FRONT_DIST: 1.4,  // v27: o zumbi do susto APARECE NA SUA FRENTE a essa distância...
+    SCARE_DARK_MS: 450,     //   ...depois das luzes apagarem esse tempo
+    SCARE_BITE_S: 1.1,      //   ...e morde depois disso se você não reagir
     SCARE_SPEED: 2.3,       //   corre mais que você (2 m/s)
     SCARE_SPAWN_MIN: 2.5,   //   nasce atrás de você entre essas distâncias (m)
     SCARE_SPAWN_MAX: 4,
@@ -269,8 +273,8 @@ export const CONFIG = {
   // ---- Soco / tapa (v19): encostar a mão no zumbi com força ----
   MELEE: {
     ON: true,
-    PUNCHES: 10,            // socos para derrubar um zumbi (o tiro continua matando rápido)
-    DUMMY_PUNCHES: 3,       // zumbi de treino
+    PUNCHES: 4,             // socos para derrubar um zumbi (v27: eram 10)
+    DUMMY_PUNCHES: 2,       // zumbi de treino
     MIN_DIST: 0.15,         // golpe = a mão anda mais que isso (m) em WINDOW_MS (soco, tapa)
     REARM_DIST: 0.07,       // depois de um golpe, a mão precisa quase parar (anda menos que isso) para valer outro
     WINDOW_MS: 200,         // janela para medir o golpe (o tremido da detecção fica bem abaixo de MIN_DIST)
@@ -352,10 +356,10 @@ export const CONFIG = {
   // ---- Som e vibração ----
   AUDIO: {
     VOLUME: 0.5,
-    MUSIC_VOL: 0.07,        // v26: música de fundo (baixinha)
-    ZOMBIE_VOL: 1.0,        // v26: volume dos gemidos/passos dos zumbis (som 3D)
-    REF_DIST: 1.5,          // v26: som 3D: até essa distância (m) o volume é cheio
-    ROLLOFF: 1.0,           //      quanto o volume cai com a distância
+    MUSIC_VOL: 0.05,        // v26: música de fundo (baixinha; abaixa mais com zumbi perto)
+    ZOMBIE_VOL: 2.0,        // v27: volume dos gemidos/passos dos zumbis (som 3D) — mais alto
+    REF_DIST: 2.5,          // v27: som 3D: até essa distância (m) o volume é cheio
+    ROLLOFF: 0.7,           //      quanto o volume cai com a distância (menos = ouve de mais longe)
     HEART_DIST: 5,          // v26: zumbi mais perto que isso = coração batendo
     BEEP_FAR_S: 1.3,        // intervalo do bipe do detector longe da caixa
     BEEP_NEAR_S: 0.14,      // e perto
