@@ -11,7 +11,8 @@ import { CONFIG } from './config.js';
 // botões do mapeamento "standard"
 const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, L3: 10, R3: 11 };
 
-const dz = (v, d) => (Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d));
+// folga do meio + curva: perto do meio anda devagar e preciso, no fim corre (v32)
+const dz = (v, d) => { if (Math.abs(v) < d) return 0; const k = (Math.abs(v) - d) / (1 - d); return Math.sign(v) * Math.pow(k, 1.5); };
 
 export class Pad {
   constructor() {

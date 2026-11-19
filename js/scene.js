@@ -116,7 +116,66 @@ export const TARGET_DEFS = [
 
 // Materiais mais baratos para o celular: Lambert (sem reflexo PBR) e folhas
 // com recorte (alphaTest) em vez de transparência (que é cara e precisa ordenar).
-function simplifyMaterials(root, aniso = 1) {
+// v32: textura de DETALHE para a escola toda (sujeira, manchas, desgaste),
+// feita por código. É aplicada pela posição no mundo (não depende das UVs do
+// modelo), em duas escalas, e escurece o pé das paredes (sombra suave onde a
+// parede encontra o chão). Custo: 2 leituras de textura por pixel.
+let DETAIL = null;
+function detailTex() {
+  if (DETAIL) return DETAIL;
+  const N = 256, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, N, N);
+  let s = 99; const r = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  // manchas grandes e suaves (repetem nas bordas: sem emenda)
+  for (let i = 0; i < 70; i++) {
+    const x = r() * N, y = r() * N, rad = 10 + r() * 46, v = r() < 0.5 ? 70 + r() * 40 : 160 + r() * 50;
+    for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) {
+      const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rad);
+      gr.addColorStop(0, `rgba(${v},${v},${v},0.35)`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`);
+      g.fillStyle = gr; g.fillRect(x + ox - rad, y + oy - rad, rad * 2, rad * 2);
+    }
+  }
+  // granulado fino
+  const img = g.getImageData(0, 0, N, N), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const n = (r() - 0.5) * 34; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  g.putImageData(img, 0, 0);
+  // riscos e rachaduras
+  g.strokeStyle = 'rgba(60,60,60,0.35)'; g.lineWidth = 1;
+  for (let i = 0; i < 18; i++) { let x = r() * N, y = r() * N; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (r() - 0.5) * 24; y += (r() - 0.5) * 24; g.lineTo(x, y); } g.stroke(); }
+  DETAIL = new THREE.CanvasTexture(c);
+  DETAIL.wrapS = DETAIL.wrapT = THREE.RepeatWrapping;
+  DETAIL.anisotropy = 4;
+  return DETAIL;
+}
+
+function addDetail(m, floorY) {
+  const V = CONFIG.VISUAL;
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.detailMap = { value: detailTex() };
+    sh.uniforms.floorY = { value: floorY };
+    sh.uniforms.detailK = { value: V.DETAIL };
+    sh.uniforms.footK = { value: V.FOOT_SHADOW };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vWPos; varying vec3 vWNor;`)
+      .replace('#include <project_vertex>', `#include <project_vertex>
+vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vWNor = normalize(mat3(modelMatrix) * objectNormal);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vWPos; varying vec3 vWNor; uniform sampler2D detailMap; uniform float floorY, detailK, footK;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        vec3 dzAn = abs(vWNor);
+        vec2 dzUv = dzAn.y > 0.6 ? vWPos.xz : (dzAn.x > dzAn.z ? vWPos.zy : vWPos.xy);
+        float dzD = texture2D(detailMap, dzUv * 0.27).r * 0.6 + texture2D(detailMap, dzUv * 1.9).r * 0.4;
+        float dzDet = 1.0 + (dzD - 0.5) * 2.0 * detailK;
+        float dzFoot = dzAn.y < 0.6 ? mix(1.0 - footK, 1.0, smoothstep(0.0, 1.0, vWPos.y - floorY)) : 1.0;
+        diffuseColor.rgb *= dzDet * dzFoot;`);
+  };
+  m.customProgramCacheKey = () => 'detalhe-v32';
+}
+
+function simplifyMaterials(root, aniso = 1, floorY = 0) {
   const cache = new Map();
   root.traverse((o) => {
     if (!o.isMesh) return;
@@ -133,6 +192,7 @@ function simplifyMaterials(root, aniso = 1) {
     });
     // textura do chão/parede mais nítida quando vista de lado (barato)
     if (m.map) { m.map.anisotropy = aniso; m.map.needsUpdate = true; }
+    if (CONFIG.VISUAL.DETAIL > 0 && !leaf) addDetail(m, floorY);
     m.name = old.name;
     cache.set(old, m);
     old.dispose();
@@ -145,7 +205,7 @@ function simplifyMaterials(root, aniso = 1) {
 export async function loadSchool(world, scene, onStatus = () => {}, aniso = 1) {
   const model = await loadSchoolModel((f) => onStatus('Baixando a escola', f * 0.7));
   onStatus('Montando a escola', 0.7);
-  simplifyMaterials(model, aniso);
+  simplifyMaterials(model, aniso, CONFIG.MAP.FLOOR_Y);
   world.details = collectDetails(model);
   model.name = 'escola';
   scene.add(model);

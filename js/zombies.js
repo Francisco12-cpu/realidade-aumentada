@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { playAnim, playOnce } from './zumbimodelo.js';
+import { ZombieInstancer } from './zinst.js';
 
 const Z = CONFIG.ZOMBIES;
 const STEP = CONFIG.MAP.DEGRAU;
@@ -21,6 +22,7 @@ const GEO = {
   arm: box(0.13, 0.62, 0.13, -0.31),
   eye: box(0.06, 0.035, 0.02),
   mouth: box(0.12, 0.04, 0.02),
+  stain: box(0.16, 0.14, 0.02),
 };
 const EYE = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
 const DARK = new THREE.MeshBasicMaterial({ color: 0x1a0d0d });
@@ -43,9 +45,10 @@ export function makeZombie() {
   const head = new THREE.Mesh(GEO.head, skin); neck.add(head);
   const eL = new THREE.Mesh(GEO.eye, EYE); eL.position.set(-0.065, 0.19, 0.14);
   const eR = new THREE.Mesh(GEO.eye, EYE); eR.position.set(0.065, 0.19, 0.14);
+  eL.userData.eye = eR.userData.eye = true; // (brilho dos olhos)
   const mouth = new THREE.Mesh(GEO.mouth, DARK); mouth.position.set(0, 0.07, 0.14);
   head.add(eL, eR, mouth);
-  const stain = new THREE.Mesh(box(0.16, 0.14, 0.02), BLOOD); stain.position.set(0.1, 0.35, 0.145); torso.add(stain);
+  const stain = new THREE.Mesh(GEO.stain, BLOOD); stain.position.set(0.1, 0.35, 0.145); torso.add(stain);
   const armL = new THREE.Group(); armL.position.set(-0.32, 0.55, 0); torso.add(armL);
   const armR = new THREE.Group(); armR.position.set(0.32, 0.55, 0); torso.add(armR);
   armL.add(new THREE.Mesh(GEO.arm, skin)); armR.add(new THREE.Mesh(GEO.arm, skin));
@@ -60,6 +63,8 @@ export class Horde {
     this.world = world;
     this.hooks = hooks;
     this.factory = null; // v31: se tiver o modelo 3D (models/zumbi.glb), cria a partir dele
+    // v32: zumbis desenhados juntos (muito mais FPS), brilho dos olhos e sombra
+    this.inst = Z.INSTANCED ? new ZombieInstancer(scene) : null;
     this.list = [];
     this.planned = 0;
     this.pending = 0;
@@ -85,6 +90,7 @@ export class Horde {
       for (const m of z.m.mats) m.dispose();
     }
     this.list = [];
+    if (this.inst) this.inst.sync([]);
     this.flow = null;
     this._flowAt = null;
     this.planned = 0;
@@ -111,6 +117,7 @@ export class Horde {
       extra: !!opts.extra, runner: !!opts.runner, born: 0,
     };
     this.list.push(zb);
+    if (this.inst && !m.gltf) this.inst.register(zb);
     return zb;
   }
 
@@ -580,6 +587,7 @@ export class Horde {
       this.hooks.onGroan && this.hooks.onGroan(nearest);
     }
     this.nearest = nearest;
+    if (this.inst) this.inst.sync(this.list);
   }
 
   // v31: zumbi do modelo 3D: escolhe a animação pelo que ele está fazendo

@@ -134,6 +134,10 @@ export class Runner {
       this._fwd.y = 0;
       if (this._fwd.lengthSq() < 1e-6) return;
       this._fwd.normalize();
+      // v32: a direção muda suave (a cabeça treme um pouco: o andar não treme junto)
+      if (!this._sf || this.speed < 0.05) this._sf = this._fwd.clone();
+      else this._sf.lerp(this._fwd, 1 - Math.exp(-dt * R.TURN_SMOOTH)).normalize();
+      this._fwd.copy(this._sf);
       const step = this.speed * dt;
       const pos = this.rig.position;
       const r = CONFIG.TELEPORT.PLAYER_RADIUS;

@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v31, 19/11/2026)
+# Escola Zumbi: estado do projeto (v32, 19/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -66,6 +66,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v32 | #30 | Otimização: zumbis desenhados juntos (360→9 desenhos); mãos com detecção maior e previsão do movimento; esquerda/direita mais estável; andar mais suave; textura de detalhe e sombra no pé das paredes; brilho nos olhos, sombra dos zumbis, poeira, brilho do sol |
 | v31 | #29 | Susto da borda preta (mãos saindo do preto + rosto), suporte a modelo 3D de zumbi com animações (models/zumbi.glb + tools/zumbi-modelo.py), trailer automático (trailer.html) |
 | v30 | #28 | Gritos gravados no susto (grito de longe em 3D e grito na cara), recortados de um som do Pixabay |
 | v29 | #27 | Susto estilo FNAF: zumbi aparece longe na frente, corre gritando e pula na cara (fica colado na tela); braço e apagão desligados |
@@ -150,6 +151,29 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 - **⏺ Gravar trailer** grava o vídeo (.webm, com som) e mostra o botão para baixar no fim. Não troque de aba durante a gravação. Depois dá para converter para MP4 (YouTube/Reels) com o ffmpeg.
 - O roteiro está em `js/trailer.js`, com cada cena e seus tempos. Os números aleatórios são fixos, então o trailer sai sempre igual.
 
+## Otimização e visual (v32)
+
+- **FPS:** os zumbis feitos por código são desenhados juntos (`js/zinst.js`). Cada tipo de pedaço, como pernas, tronco, cabeça e olhos, vira um desenho só para todos os zumbis. Com 36 zumbis, foram de ~360 desenhos por quadro para 9. O painel 🐞 mostra os desenhos por quadro. Para voltar ao modo antigo, use `ZOMBIES.INSTANCED: false`.
+- **Mãos:**
+  - a imagem do detector passou para 544 px;
+  - a confiança mínima ficou mais baixa (acha a mão mais fácil);
+  - a mão é **adiantada pela velocidade dela** (45 ms), o que tira o atraso da câmera (`HANDS.PREDICT_S`).
+- **Esquerda/direita:** a memória de posição ficou mais longa (1,1 s), o lado da imagem tem mais peso e a média do rótulo ficou mais lenta (mais estável).
+- **Movimento:**
+  - aceleração e frenagem mais suaves;
+  - a direção de andar muda suave (`RUN.TURN_SMOOTH`), então o andar não treme junto com a cabeça;
+  - o balanço do passo ficou menor;
+  - o analógico do controle ficou mais preciso perto do meio.
+- **Visual:**
+  - textura de detalhe (sujeira, manchas, riscos) em toda a escola, aplicada pela posição no mundo;
+  - sombra suave no pé das paredes;
+  - brilho vermelho em volta dos olhos dos zumbis;
+  - sombra suave embaixo de cada zumbi;
+  - poeira flutuando na luz;
+  - brilho do sol no céu.
+
+  Ajustes em `VISUAL` e `ZOMBIES.EYE_GLOW`.
+
 ## O mundo em volta (v24, `js/cenario.js`)
 
 - É todo feito por código, sem arquivos: céu com nuvens (esfera que acompanha o jogador; antes o céu ficava parado no começo do mapa e sumia no meio da escola), chão de terra e grama, ruas com faixa e calçadas em volta da escola, duas fileiras de prédios com janelas (acesas, escuras e quebradas), carros batidos, postes, árvores, barris pegando fogo e colunas de fumaça ao longe.
@@ -197,6 +221,7 @@ js/lobby.js         saguão na lente: contagem, mão aberta para começar e joga
 js/cenario.js       mundo em volta da escola (céu, ruas, prédios, carros, fogo, fumaça)
 js/demo.js          mão fantasma do tutorial
 js/borda.js         susto da borda preta do óculos
+js/zinst.js         zumbis desenhados juntos (FPS), brilho dos olhos e sombras
 js/zumbimodelo.js   modelo 3D de zumbi com animações (se existir models/zumbi.glb)
 js/trailer.js       trailer automático (trailer.html)
 js/jumpscare.js     rosto do zumbi colado na tela (susto FNAF)

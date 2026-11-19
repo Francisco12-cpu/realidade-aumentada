@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v31',
+  VERSION: 'v32',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -21,10 +21,11 @@ export const CONFIG = {
   RUN: {
     WALK_SPEED: 2.0,        // m/s no modo 'palma' (andar rápido)
     MAX_SPEED: 3.2,         // m/s no modo 'correr' com balanço máximo
-    ACCEL: 6,               // m/s² para ganhar velocidade
-    DECEL: 8,               // m/s² para parar
+    ACCEL: 4,               // m/s² para ganhar velocidade (v32: mais suave)
+    DECEL: 6,               // m/s² para parar
+    TURN_SMOOTH: 7,         // v32: suavização da direção de andar (1/s; menor = curva mais suave)
     ENERGY_SMOOTH: 6,       // suavização da intensidade (1/s)
-    BOB: 0.045,             // balanço do passo (m)
+    BOB: 0.02,              // balanço do passo (m) · v32: menor (menos enjoo, mais fluido)
     USE_HANDS: true,        // balançar as mãos na frente da câmera
     USE_JOG: true,          // correr parado (sensor de movimento do celular)
     SWING_WINDOW_MS: 900,   // janela para medir o balanço
@@ -64,13 +65,15 @@ export const CONFIG = {
     VIDEO_W: 640,
     VIDEO_H: 480,
     USE_WORKER: true,           // detecção numa thread separada (muito mais FPS)
-    WORKER_MAX_SIDE: 480,       // reduz a imagem enviada ao worker (px do lado maior)
-    WORKER_MIN_SIDE: 480,       // (igual ao máximo: diminuir a imagem piorava a detecção das mãos)
+    WORKER_MAX_SIDE: 544,       // imagem enviada ao detector (px do lado maior) · v32: maior = acha a mão mais longe
+    WORKER_MIN_SIDE: 544,       // (igual ao máximo: diminuir a imagem piorava a detecção das mãos)
+    PREDICT_S: 0.045,           // v32: adianta a mão esse tempo (s) pela velocidade dela: tira o atraso da câmera
+    PREDICT_MAX: 0.06,          // ...no máximo isso (m)
     MAX_DETECT_HZ: 30,          // detecções por segundo, no máximo
     DETECT_EVERY_N_FRAMES: 1,   // (modo normal) 2 = detecta em quadros alternados
-    MIN_DETECTION_CONF: 0.4,    // mais baixo = acha a mão mais fácil (com pouca luz também)
-    MIN_PRESENCE_CONF: 0.4,
-    MIN_TRACKING_CONF: 0.4,
+    MIN_DETECTION_CONF: 0.35,   // mais baixo = acha a mão mais fácil (com pouca luz também) · v32: 0,35
+    MIN_PRESENCE_CONF: 0.35,
+    MIN_TRACKING_CONF: 0.3,
     // MediaPipe supõe imagem espelhada (selfie). Na câmera traseira o rótulo
     // vem invertido, então por padrão invertemos. A calibração confirma.
     FLIP_HANDEDNESS: true,
@@ -83,10 +86,10 @@ export const CONFIG = {
     CAM_FOV_LONG: 64,           // ângulo de visão da câmera traseira no lado maior da imagem (graus)
     REAL_NEAR: 0.2,             // (real) distância mínima/máxima da mão (m)
     REAL_FAR: 0.75,
-    TRACK_MEMORY_MS: 600,       // memória de posição p/ não trocar esquerda/direita
+    TRACK_MEMORY_MS: 1100,      // memória de posição p/ não trocar esquerda/direita · v32: mais longa
     LABEL_WEIGHT: 1.0,          // peso do rótulo do MediaPipe na atribuição
-    SIDE_WEIGHT: 0.8,           // v22: peso do lado da imagem (esquerda/direita) na atribuição
-    SIDE_AVG: 0.12,             // v22: média do rótulo por detecção (~1 s)
+    SIDE_WEIGHT: 1.1,           // v22: peso do lado da imagem (esquerda/direita) na atribuição · v32: mais peso
+    SIDE_AVG: 0.08,             // v22: média do rótulo por detecção (~1,5 s) · v32: mais estável
     SWAP_BELOW: 0.25,           // v22: se a média do rótulo cair abaixo disso, a mão troca de lado
     POS_WEIGHT: 4.0,            // peso da continuidade de posição
     // Profundidade virtual (distância da mão à câmera no mundo 3D, em m)
@@ -218,6 +221,8 @@ export const CONFIG = {
     AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
     GROAN_DIST: 9,
     ANIM_FAR: 25,
+    INSTANCED: true,        // v32: zumbis desenhados juntos (muito mais FPS)
+    EYE_GLOW: 0.32,         // v32: tamanho do brilho vermelho em volta dos olhos (m)
     // v31: modelo 3D de zumbi (se o arquivo existir; senão, o boneco feito por código)
     MODEL_URLS: ['models/zumbi.glb', '../models/zumbi.glb'],
     MODEL_HEIGHT: 1.75,     // altura do zumbi no jogo (m): o modelo é ajustado para isso
@@ -363,11 +368,20 @@ export const CONFIG = {
     DIST_MIN: 3,            // distância mínima entre lugares (m)
     LONGE_DO_INICIO: 8,     // nenhum ponto a menos disso do início (m)
     DETAIL_DIST: 28,        // detalhes (carros, pessoas, plantas, móveis) somem além disso (m)
+    FLOOR_Y: 0,             // v32: altura do piso térreo (para a sombra no pé das paredes)
     FOG_NEAR: 18,
     FOG_FAR: 55,
     FOG_COLOR: 0xc4baa8,    // v24: neblina poeirenta (combina com o céu do apocalipse)
     VIEW_FAR: 230,          // v24: até onde a câmera enxerga (prédios e céu no horizonte)
     CHUNK_CULL: true,       // v24: blocos da escola além da neblina não são desenhados
+  },
+
+  // ---- Visual (v32) ----
+  VISUAL: {
+    DETAIL: 0.22,           // força da textura de detalhe (sujeira/manchas) nas paredes e no chão (0 = desliga)
+    FOOT_SHADOW: 0.35,      // sombra suave no pé das paredes (0 = desliga)
+    DUST: 140,              // pontinhos de poeira flutuando na luz perto de você (0 = desliga)
+    SUN_GLOW: true,         // brilho suave do sol no céu
   },
 
   // ---- Cenário em volta da escola (v24) ----
