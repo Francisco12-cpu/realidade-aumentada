@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v27',
+  VERSION: 'v28',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -192,12 +192,12 @@ export const CONFIG = {
 
   // ---- Zumbis ----
   ZOMBIES: {
-    COUNT: 24,              // zumbis na partida (total, contando as ondas)
-    FEIRA_COUNT: 14,        // no modo feira
-    START_COUNT: 6,         // já estão na escola no começo (longe da porta)
+    COUNT: 36,              // zumbis na partida (total, contando as ondas) · v28: eram 24
+    FEIRA_COUNT: 20,        // no modo feira (eram 14)
+    START_COUNT: 8,         // já estão na escola no começo (longe da porta)
     FIRST_WAVE_S: 20,       // a 1ª onda chega depois disso
-    WAVE_EVERY_S: 15,       // depois, uma onda a cada
-    WAVE_SIZE: 4,           // zumbis por onda
+    WAVE_EVERY_S: 12,       // depois, uma onda a cada
+    WAVE_SIZE: 5,           // zumbis por onda
     WAVE_MIN_DIST: 15,      // a onda nasce escondida entre essas distâncias do jogador
     WAVE_MAX_DIST: 35,
     HP: 2,                  // tiros no corpo para matar (cabeça mata na hora)
@@ -249,6 +249,17 @@ export const CONFIG = {
     LOOK_PITCH: 1.6,        // fora do óculos e sem sensor: olhar para cima/baixo (rad/s)
   },
 
+  // ---- Susto do braço (v28) ----
+  SWIPE: {
+    ON: true,
+    FIRST_S: 12,            // o 1º vem mais ou menos aqui na partida...
+    EVERY_S: 20,            // ...e depois a cada ~isso
+    JITTER_S: 8,            // sorteado ± isso (nunca no tempo exato)
+    DUR_MS: 300,            // o braço atravessa a visão nesse tempo (muito rápido)
+    DIM_S: 2.6,             // a visão fica escura e clareia nesse tempo
+    DIM_MAX: 0.88,          // quão escura fica (1 = preto)
+  },
+
   // ---- Começar no óculos (v14) ----
   LOBBY: {
     COUNTDOWN_S: 10,        // tempo para pôr o óculos no rosto antes de começar sozinho
@@ -273,17 +284,17 @@ export const CONFIG = {
   // ---- Soco / tapa (v19): encostar a mão no zumbi com força ----
   MELEE: {
     ON: true,
-    PUNCHES: 4,             // socos para derrubar um zumbi (v27: eram 10)
-    DUMMY_PUNCHES: 2,       // zumbi de treino
-    MIN_DIST: 0.15,         // golpe = a mão anda mais que isso (m) em WINDOW_MS (soco, tapa)
-    REARM_DIST: 0.07,       // depois de um golpe, a mão precisa quase parar (anda menos que isso) para valer outro
-    WINDOW_MS: 200,         // janela para medir o golpe (o tremido da detecção fica bem abaixo de MIN_DIST)
-    RANGE: 1.25,            // zumbi a até essa distância do jogador (m) leva o golpe
-    ANGLE_DEG: 50,          // e na direção da mão (graus de folga)
-    COOLDOWN_MS: 300,       // tempo mínimo entre golpes da mesma mão
+    PUNCHES: 2,             // socos para derrubar um zumbi (v28: 2)
+    DUMMY_PUNCHES: 1,       // zumbi de treino
+    MIN_DIST: 0.12,         // v28: golpe = a mão anda mais que isso (m) em WINDOW_MS (era 0,15: mais fácil)
+    REARM_DIST: 0.05,       // depois de um golpe, a mão precisa quase parar (anda menos que isso) para valer outro
+    WINDOW_MS: 220,         // janela para medir o golpe (o tremido da detecção fica abaixo de MIN_DIST)
+    RANGE: 1.6,             // v28: zumbi a até essa distância do jogador (m) leva o golpe (era 1,25)
+    ANGLE_DEG: 65,          // v28: e na direção da mão (graus de folga; era 50)
+    COOLDOWN_MS: 250,       // tempo mínimo entre golpes da mesma mão
     GAP_MS: 700,            // v22: mão sumiu menos que isso e voltou longe = golpe
     VANISH_MS: 120,         // v22: mão que vinha se mexendo e sumiu por isso = golpe (borrão do soco)
-    VANISH_MOVE: 0.06,      // v22: ...se tinha andado pelo menos isso (m) logo antes
+    VANISH_MOVE: 0.04,      // v22: ...se tinha andado pelo menos isso (m) logo antes (v28: 0,04)
     KNOCK_SPEED: 1.6,       // empurrão para trás (m/s, some rápido)
     STAGGER_S: 0.6,         // o zumbi demora pelo menos isso para morder depois de apanhar
   },
@@ -360,7 +371,8 @@ export const CONFIG = {
     ZOMBIE_VOL: 2.0,        // v27: volume dos gemidos/passos dos zumbis (som 3D) — mais alto
     REF_DIST: 2.5,          // v27: som 3D: até essa distância (m) o volume é cheio
     ROLLOFF: 0.7,           //      quanto o volume cai com a distância (menos = ouve de mais longe)
-    HEART_DIST: 5,          // v26: zumbi mais perto que isso = coração batendo
+    HEART_DIST: 5,
+    SCARE_VOL: 1.3,         // v28: volume do susto do braço (alto e grave)          // v26: zumbi mais perto que isso = coração batendo
     BEEP_FAR_S: 1.3,        // intervalo do bipe do detector longe da caixa
     BEEP_NEAR_S: 0.14,      // e perto
     BEEP_MAX_DIST: 18,      // além disso o detector fica quieto

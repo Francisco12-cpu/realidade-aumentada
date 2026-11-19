@@ -23,6 +23,7 @@ import { Lobby } from './lobby.js';
 import { Melee } from './melee.js';
 import { DemoHand } from './demo.js';
 import { Pad } from './gamepad.js';
+import { ArmSwipe } from './swipe.js';
 
 class App {
   constructor() {
@@ -131,6 +132,7 @@ class App {
     this.melee = new Melee();
     this.demo = new DemoHand(this.camera);
     // v25: controle de videogame
+    this.swipe = new ArmSwipe(this.camera);
     this.pad = new Pad();
     // v27: grito distante de algum lugar da escola (som 3D), de vez em quando
     this.sfx.onDistant = () => {
@@ -401,6 +403,7 @@ class App {
     this._resetWorld();
     this.sfx.music(true);
     this._darkUntil = 0;
+    this._nextSwipe(true);
     this._scares = 0;
     this._scareT = CONFIG.ZOMBIES.SCARE_FIRST_S;
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
@@ -1053,6 +1056,7 @@ class App {
     }
     this._updateEars(now, dt, active);
     this._updateDark(now);
+    this._updateSwipe(dt);
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
@@ -1243,6 +1247,31 @@ class App {
     // v27: as luzes apagam um instante... e o zumbi aparece NA SUA FRENTE gritando
     this._darkUntil = performance.now() + Z.SCARE_DARK_MS;
     this.sfx.blackout();
+  }
+
+  // v28: susto do braço a cada ~20 s (sorteado), só na partida
+  _nextSwipe(first = false) {
+    const S = CONFIG.SWIPE;
+    this._swipeT = (first ? S.FIRST_S : S.EVERY_S) + (Math.random() * 2 - 1) * S.JITTER_S;
+  }
+
+  _updateSwipe(dt) {
+    const S = CONFIG.SWIPE;
+    if (S.ON && this.state === 'playing') {
+      this._swipeT -= dt;
+      if (this._swipeT <= 0) {
+        if (this._darkUntil || this.swipe.active) this._swipeT = 3; // não junta com o outro susto
+        else {
+          const dir = Math.random() < 0.5 ? 1 : -1;
+          this.swipe.start(dir);
+          this.sfx.swipe(dir);
+          this._shakeK = Math.max(this._shakeK, 0.6);
+          this.pad.rumble(350, 1, 0.7);
+          this._nextSwipe();
+        }
+      }
+    } else if (this.state !== 'playing' && (this.swipe.active || this.swipe.dimK > 0)) this.swipe.reset();
+    this.swipe.update(dt);
   }
 
   // chamado todo quadro: escuridão do apagão e a hora de o zumbi aparecer
