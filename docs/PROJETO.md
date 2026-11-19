@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v24, 18/11/2026)
+# Escola Zumbi: estado do projeto (v25, 19/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -37,6 +37,19 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
   - Você tem **5 vidas**; cada mordida tira uma.
   - **Tiro na cabeça** mata na hora; no corpo são 2 tiros. Tem uma ajuda de mira de 4°.
   - Tempo: 5 min (3 min no modo feira). Pontos: 100 por zumbi + 2 por segundo que sobrou, se você eliminar todos.
+- **Modo 🎮 Controle (v25):** na tela inicial, escolha **✋ Mãos** ou **🎮 Controle**. O controle é de Xbox, ligado pelo Bluetooth do celular. Continua no óculos de VR e não usa a câmera nem a calibração.
+
+| Controle | O que faz |
+|---|---|
+| analógico esquerdo | anda (frente = para onde você olha; também de lado e para trás) |
+| analógico direito | gira · LB/RB = giro rápido de 45° |
+| olhar | mira (ponto no meio da visão) |
+| RT (ou LT) | atira; segurando, atira a cada recarga |
+| X (ou B) | soco no zumbi da frente (10 para derrubar) |
+| Y | recentra a visão |
+| A / Start | começa, e joga de novo no fim |
+
+  O controle vibra ao levar mordida, ao acertar e ao dar soco. No modo mãos, um controle ligado também funciona.
 - **Sem câmera (PC):**
   - **W** anda.
   - **Espaço**, o botão **🔫 Atirar** ou um toque rápido na tela atiram no centro.
@@ -53,6 +66,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v25 | #23 | Modo 🎮 Controle (Xbox): escolha Mãos ou Controle na tela inicial; analógico anda/gira, RT atira, X soco, Y recentra, A começa; vibração |
 | v24 | #22 | Mundo em volta (céu com nuvens que acompanha o jogador, chão, ruas, calçadas, prédios, carros batidos, postes, árvores, fogo, fumaça), blocos além da neblina não são desenhados; pistola 3D na mão, contorno nas mãos, seta quando a mão sai da câmera, mão fantasma no tutorial, modo "só atirar", foveação no VR do Chrome, zumbis longe animam menos |
 | v23 | #21 | Conserto: mãos não detectadas de novo. O vídeo da câmera fica atrás do jogo (o navegador não pausa mais), e se ele parar mesmo assim a imagem vem direto da câmera (ImageCapture). O painel 🐞 mostra de onde vem a imagem |
 | v22 | #20 | Camada esquerda/direita (rótulo + lado + continuidade); só a direita atira e só a esquerda anda; palma tem que estar bem aberta e segurada para andar; soco conta mesmo quando a mão some no borrão |
@@ -110,6 +124,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | Distância em que os detalhes somem | `MAP.DETAIL_DIST` |
 | Mundo em volta | `CENARIO` (ruas, prédios, carros, fogo, fumaça, céu) · `MAP.VIEW_FAR`, `MAP.FOG_COLOR`, `MAP.CHUNK_CULL` |
 | Pistola 3D, seta da mão, foveação, zumbi longe | `GUN.SHOW_MODEL`, `HANDS.EDGE_MARGIN`, `QUALITY.XR_FOVEATION`, `ZOMBIES.ANIM_FAR` |
+| Controle (folga, giro) | `PAD` (`DEADZONE`, `TURN_SPEED`, `SNAP_DEG`, `LOOK_PITCH`) |
 | Tempo da partida | `GAME_TIME_S` (5 min) e `FEIRA.GAME_TIME_S` (3 min) |
 
 Depois de mudar o código, **mude também `VERSION`** no `config.js`: é o número que aparece na tela inicial e mostra que o celular pegou a versão nova.
@@ -127,6 +142,7 @@ js/gun.js           arma de mão: pistolinha, gatilho do polegar, recarga, laser
 js/lobby.js         saguão na lente: contagem, mão aberta para começar e jogar de novo
 js/cenario.js       mundo em volta da escola (céu, ruas, prédios, carros, fogo, fumaça)
 js/demo.js          mão fantasma do tutorial
+js/gamepad.js       controle de videogame (Xbox)
 js/melee.js         socos e tapas: mão encostando no zumbi com velocidade
 js/coach.js         dica dos gestos no canto da tela (e painel 3D no óculos)
 js/mapa.js          carrega a escola e monta a grade de colisão (chão/paredes)

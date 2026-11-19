@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v24',
+  VERSION: 'v25',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -219,6 +219,14 @@ export const CONFIG = {
     ANIM_FAR: 25,           // v24: zumbis mais longe que isso animam com menos frequência
     CORPSE_S: 3,            // corpo fica no chão esse tempo antes de sumir
     DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
+  },
+
+  // ---- Controle de videogame (v25) ----
+  PAD: {
+    DEADZONE: 0.18,         // folga do analógico (parado = não anda)
+    TURN_SPEED: 2.4,        // giro com o analógico direito (rad/s no máximo)
+    SNAP_DEG: 45,           // LB/RB: giro rápido
+    LOOK_PITCH: 1.6,        // fora do óculos e sem sensor: olhar para cima/baixo (rad/s)
   },
 
   // ---- Começar no óculos (v14) ----

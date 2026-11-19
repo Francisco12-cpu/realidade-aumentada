@@ -206,6 +206,11 @@ body.stereo #coach, body.xr #coach { display: none; }
 #btn-skip { display: none; position: fixed; right: 10px; bottom: 74px; z-index: 6; }
 body.tutorial:not(.stereo):not(.xr) #btn-skip { display: block; }
 
+/* v25: escolha do modo (mãos / controle) */
+#overlay .modes { display: flex; gap: 8px; margin: 4px 0 8px; }
+#overlay .modes .mode { flex: 1; min-height: 58px; font-size: 17px; line-height: 1.2; opacity: 0.6; }
+#overlay .modes .mode.on { opacity: 1; background: var(--accent); color: #00222a; font-weight: 600; border-color: transparent; }
+
 /* v14: botão grande "Jogar no óculos" e código do perfil */
 #overlay .btns button.big { flex: 1 1 100%; min-height: 64px; font-size: 20px; }
 #overlay textarea { width: 100%; box-sizing: border-box; font: 12px monospace; background: #0b1118; color: #d8e2ea; border: 1px solid #2a3a48; border-radius: 8px; padding: 6px; word-break: break-all; }
@@ -288,7 +293,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v24',
+  VERSION: 'v25',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -496,6 +501,14 @@ const CONFIG = {
     DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
   },
 
+  // ---- Controle de videogame (v25) ----
+  PAD: {
+    DEADZONE: 0.18,         // folga do analógico (parado = não anda)
+    TURN_SPEED: 2.4,        // giro com o analógico direito (rad/s no máximo)
+    SNAP_DEG: 45,           // LB/RB: giro rápido
+    LOOK_PITCH: 1.6,        // fora do óculos e sem sensor: olhar para cima/baixo (rad/s)
+  },
+
   // ---- Começar no óculos (v14) ----
   LOBBY: {
     COUNTDOWN_S: 10,        // tempo para pôr o óculos no rosto antes de começar sozinho
@@ -639,7 +652,7 @@ const WIRE_NAMES = ['vermelho', 'verde', 'azul', 'amarelo'];
 // ===== js/options.js =====
 // Opções do jogador (som, vibração, vinheta, modo feira), salvas no aparelho.
 
-const DEFAULTS = { sound: true, vibrate: true, vignette: true, feira: false, tutorial: true, parado: false };
+const DEFAULTS = { sound: true, vibrate: true, vignette: true, feira: false, tutorial: true, parado: false, controle: false };
 
 function loadOptions() {
   let saved = {};
@@ -2964,7 +2977,8 @@ class Gun {
     } else if (this.pistol && now - this._pistolSeen > G.GRACE_MS) { this.pistol = false; this.side = null; }
     const cur = this.pistol ? hands.find((h) => h.side === this.side && h.visible) || null : null;
     const reloadK = Math.min(1, (now - this.lastShot) / G.RELOAD_MS);
-    this.state = !this.pistol ? 'off' : reloadK < 1 ? 'reload' : 'ready';
+    const armed = this.pistol || !!this.trigger; // v25: gatilho do controle também
+    this.state = !armed ? 'off' : reloadK < 1 ? 'reload' : 'ready';
     this.aiming = this.pistol;
     // mira = centro da visão
     this.camera.getWorldPosition(this._o);
@@ -2976,7 +2990,7 @@ class Gun {
     // mira: amarela em cima de zumbi, vermelha com a pistolinha, branca parada
     const hit = findHit(this._o, this._sd, false);
     const onZ = !!(hit && hit.zombie);
-    const col = onZ ? 0xffe14d : this.pistol ? 0xff3030 : 0xffffff;
+    const col = onZ ? 0xffe14d : armed ? 0xff3030 : 0xffffff;
     this.retRing.material.color.setHex(col);
     this.retDot.material.color.setHex(col);
     this.retRing.scale.setScalar(onZ ? 1.25 : 1);
@@ -2990,7 +3004,7 @@ class Gun {
     this.barBg.scale.set(w + 0.005, hgt + 0.005, 1);
     this.barFill.position.x = -w / 2;
     this.barFill.scale.set(Math.max(0.001, w * reloadK), hgt, 1);
-    this.barFill.material.color.setHex(reloadK < 1 ? 0xffb020 : this.pistol ? 0xff3030 : 0x5be37d);
+    this.barFill.material.color.setHex(reloadK < 1 ? 0xffb020 : armed ? 0xff3030 : 0x5be37d);
     const fx = now < this._fxUntil;
     this.flash.visible = fx && now < this._fxUntil - 60;
     this.tracer.visible = fx;
@@ -3183,6 +3197,13 @@ class Gun {
 // No tutorial, marca o passo atual; na partida, acende o gesto que está sendo feito.
 // Aparece no canto (HTML) e, no óculos, num painel pequeno preso à visão (3D).
 
+// v25: no modo controle
+const COACH_PAD = [
+  { id: 'walk', icon: '🕹', text: 'Analógico esq. = anda' },
+  { id: 'aim', icon: '🎯', text: 'Olhe para o zumbi = mira' },
+  { id: 'shoot', icon: '🔫', text: 'RT = atira · X = soco' },
+];
+
 const COACH_STEPS = [
   { id: 'walk', icon: '✋', text: 'Esquerda aberta = anda' },
   { id: 'aim', icon: '🎯', text: 'Olhe para o zumbi = mira' },
@@ -3218,7 +3239,7 @@ class Coach {
     if (key === this._key) return;
     this._key = key;
     // HTML (tela normal)
-    const rows = COACH_STEPS.map((s) => {
+    const rows = (st.pad ? COACH_PAD : COACH_STEPS).map((s) => {
       const cls = [st.done[s.id] ? 'done' : '', st.cur === s.id ? 'cur' : '', st.active[s.id] ? 'act' : ''].join(' ');
       return `<div class="row ${cls}"><span class="ic">${s.icon}</span><span>${s.text}</span>${st.done[s.id] ? '<span class="ok">✔</span>' : ''}</div>`;
     }).join('');
@@ -3238,7 +3259,7 @@ class Coach {
       c.fillStyle = '#ffd36b'; c.font = 'bold 30px system-ui, sans-serif'; c.textAlign = 'left';
       c.fillText(st.title, 22, y, W - 44); y += 46;
     }
-    for (const s of COACH_STEPS) {
+    for (const s of (st.pad ? COACH_PAD : COACH_STEPS)) {
       const on = st.active[s.id], cur = st.cur === s.id;
       if (cur || on) { c.fillStyle = cur ? 'rgba(255,60,60,0.35)' : 'rgba(80,220,120,0.3)'; rr(c, 12, y - 26, W - 24, 52, 14); c.fill(); }
       c.font = '34px system-ui, sans-serif'; c.textAlign = 'left';
@@ -5311,18 +5332,27 @@ class CalibrationFlow {
     // ?auto no link: tela inicial só com o botão grande (bom para a feira)
     let auto = false;
     try { auto = new URLSearchParams(location.search).has('auto') && !this._full; } catch (e) { /* */ }
-    const headset = { label: '▶ Jogar no óculos', cls: 'primary big', onClick: () => this.app.playInHeadset() };
+    const pad = !!this.app.options.controle;
+    const headset = { label: pad ? '▶ Jogar no óculos (🎮 controle)' : '▶ Jogar no óculos (✋ mãos)', cls: 'primary big', onClick: () => this.app.playInHeadset() };
+    // v25: escolha do modo, sempre no topo
+    const modeHtml = `<div class="modes">
+        <button class="mode ${pad ? '' : 'on'}" data-mode="maos">✋ Mãos<br><span class="small">câmera do celular</span></button>
+        <button class="mode ${pad ? 'on' : ''}" data-mode="controle">🎮 Controle<br><span class="small">Xbox (Bluetooth)</span></button>
+      </div>
+      ${pad ? `<p class="small">No óculos: <b>analógico esquerdo</b> anda, <b>analógico direito</b> gira, <b>olhe</b> para mirar, <b>RT</b> atira, <b>X</b> soco, <b>Y</b> recentra, <b>A</b> começa. Não precisa de câmera nem de calibrar.</p>
+        <p class="small" id="pad-status"></p>` : ''}`;
     if (auto) {
-      this._show(`🧟 Escola Zumbi <span class="small">${CONFIG.VERSION}</span>`, `
-        <p>Toque no botão, <b>coloque o celular no óculos</b> e olhe para frente. O jogo começa sozinho em ${CONFIG.LOBBY.COUNTDOWN_S} s (ou mostre a <b>✋ mão aberta</b>).</p>
+      this._show(`🧟 Escola Zumbi <span class="small">${CONFIG.VERSION}</span>`, `${modeHtml}
+        <p>Toque no botão, <b>coloque o celular no óculos</b> e olhe para frente. O jogo começa sozinho em ${CONFIG.LOBBY.COUNTDOWN_S} s (ou ${pad ? 'aperte <b>A</b>' : 'mostre a <b>✋ mão aberta</b>'}).</p>
         ${saved ? '<p class="ok">✔ Usando a calibração salva.</p>' : '<p class="small">Sem calibração salva: usa o padrão.</p>'}
         <p class="small" id="map-status">${this.app.mapText}</p>`, [
         headset,
         { label: 'Mais opções', onClick: () => { this._full = true; this.welcome(); } },
       ]);
+      this._wireModes();
       return;
     }
-    const html = `
+    const html = `${modeHtml}
       <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
       <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🎯 olhe para o zumbi = mira</b> (ponto no meio da visão), <b>👉 pistolinha da mão DIREITA = atira</b> sozinho a cada recarga (barra) e <b>✋ palma aberta da mão ESQUERDA = anda</b> para onde você olha. <b>👊 Soco rápido</b> de perto também vale.</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
@@ -5333,7 +5363,9 @@ class CalibrationFlow {
       <p class="small" id="offline"></p>
       <p class="small">Dica: o botão 🐞 mostra o painel de depuração (FPS, gestos, prévia da câmera).</p>`;
     const btns = [headset];
-    if (saved) {
+    if (pad) {
+      // modo controle: não precisa de câmera nem de calibração
+    } else if (saved) {
       btns.push({ label: 'Usar calibração salva → tutorial (sem óculos)', onClick: () => this._startWithSaved(saved, 'tutorial') });
       btns.push({ label: 'Ir direto para a partida', onClick: () => this._startWithSaved(saved, 'game') });
       btns.push({ label: 'Recalibrar', onClick: () => this._startFresh() });
@@ -5346,7 +5378,31 @@ class CalibrationFlow {
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show(`🧟 Escola Zumbi — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
     this._wireOptions(() => this.welcome());
+    this._wireModes();
     this._checkOffline();
+  }
+
+  // v25: botões ✋ Mãos / 🎮 Controle e o aviso de controle conectado
+  _wireModes() {
+    for (const b of this.el.querySelectorAll('[data-mode]')) {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.app.setOption('controle', b.dataset.mode === 'controle');
+        this.welcome();
+      });
+    }
+    const st = this.el.querySelector('#pad-status');
+    if (!st) return;
+    const tick = () => {
+      if (!st.isConnected) { clearInterval(this._padT); return; }
+      const p = this.app.pad;
+      p.poll();
+      st.innerHTML = p.connected ? `<span class="ok">✔ Controle conectado: ${p.name.replace(/\(.*\)/, '').trim() || 'controle'}</span>`
+        : '<span class="bad">Controle não encontrado.</span> Ligue o controle no Bluetooth do celular e <b>aperte qualquer botão</b> dele.';
+    };
+    clearInterval(this._padT);
+    tick();
+    this._padT = setInterval(tick, 500);
   }
 
   // Tela entre um visitante e outro (calibração e permissões continuam valendo).
@@ -5979,6 +6035,13 @@ class Lobby {
 
   close() { this.active = false; this.mesh.visible = false; }
 
+  // v25: botão A/Start do controle = começar na hora (respeita o tempo de espera)
+  press(now, ready = true) {
+    if (!this.active || !ready) return;
+    if (this.opts.armMs && now - this.t0 < this.opts.armMs) return;
+    this._go();
+  }
+
   setStatus(s) { this.status = s; }
 
   // palm: tem mão aberta agora? ready: câmera/mãos prontas (contagem só anda pronta)
@@ -6063,6 +6126,32 @@ class Melee {
     this._dir = new THREE.Vector3();
     this._hw = new THREE.Vector3();
     this._eye = new THREE.Vector3();
+  }
+
+  // v25: soco pelo controle (botão X): o zumbi mais perto na frente da visão
+  strike(now, horde, player, camera) {
+    const M = CONFIG.MELEE;
+    if (now - (this._padLast || -1e9) < M.COOLDOWN_MS) return null;
+    camera.getWorldDirection(this._hw); this._hw.y = 0;
+    if (this._hw.lengthSq() < 1e-6) return null;
+    this._hw.normalize();
+    let best = null, bd = Infinity;
+    for (const z of horde.list) {
+      if (z.dead) continue;
+      const zp = z.m.root.position;
+      this._dir.set(zp.x - player.x, 0, zp.z - player.z);
+      const d = this._dir.length();
+      if (d > M.RANGE || d < 1e-3 || Math.abs(zp.y - player.y) > 1) continue;
+      this._dir.divideScalar(d);
+      if (THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(this._dir.dot(this._hw), -1, 1))) > M.ANGLE_DEG) continue;
+      if (d < bd) { bd = d; best = z; }
+    }
+    this._padLast = now;
+    if (!best) return { miss: true };
+    const zp = best.m.root.position;
+    this._dir.set(zp.x - player.x, 0, zp.z - player.z).normalize();
+    const kill = horde.punch(best, this._dir);
+    return { zombie: best, kill, point: new THREE.Vector3(zp.x - this._dir.x * 0.28, zp.y + 1.25 * best.m.scale, zp.z - this._dir.z * 0.28), need: best.dummy ? M.DUMMY_PUNCHES : M.PUNCHES };
   }
 
   // hands · horde · player (posição do rig) · camera
@@ -6198,6 +6287,85 @@ class DemoHand {
   }
 }
 
+// ===== js/gamepad.js =====
+// Controle de videogame (v25): Xbox (Bluetooth/USB) ou qualquer controle no
+// padrão "standard" do navegador. Modo para quem não tem câmera boa: perde um
+// pouco da imersão, mas é mais fácil e não depende do rastreamento das mãos.
+//
+//  analógico esquerdo = andar (frente/trás/lados, para onde você olha)
+//  analógico direito  = girar (e olhar para cima/baixo fora do óculos)
+//  RT (ou A no jogo)  = atirar (segurar = atira a cada recarga)
+//  X = soco · Y = recentrar · LB/RB = giro rápido de 45° · A/Start = começar
+
+// botões do mapeamento "standard"
+const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, L3: 10, R3: 11 };
+
+const dz = (v, d) => (Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d));
+
+class Pad {
+  constructor() {
+    this.connected = false;
+    this.name = '';
+    this.state = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, fire: false, punch: false };
+    this._prev = [];
+    this.gp = null;
+    window.addEventListener('gamepadconnected', (e) => { this.name = e.gamepad.id; this.onConnect && this.onConnect(e.gamepad); });
+    window.addEventListener('gamepaddisconnected', () => { this.onDisconnect && this.onDisconnect(); });
+  }
+
+  _get() {
+    if (!navigator.getGamepads) return null;
+    let best = null;
+    for (const g of navigator.getGamepads() || []) {
+      if (!g || !g.connected) continue;
+      if (g.mapping === 'standard') return g;
+      best = best || g;
+    }
+    return best;
+  }
+
+  // Chamar uma vez por quadro. Retorna o estado (com "pressed" = acabou de apertar).
+  poll() {
+    const g = this._get();
+    const s = this.state;
+    this.gp = g;
+    this.connected = !!g;
+    const P = CONFIG.PAD;
+    const pressedNow = [];
+    if (!g) {
+      s.move.x = s.move.y = s.look.x = s.look.y = 0;
+      s.fire = s.punch = false; s.pressed = {};
+      this._prev = [];
+      return s;
+    }
+    this.name = g.id;
+    const ax = g.axes || [];
+    s.move.x = dz(ax[0] || 0, P.DEADZONE);
+    s.move.y = dz(ax[1] || 0, P.DEADZONE);
+    s.look.x = dz(ax[2] || 0, P.DEADZONE);
+    s.look.y = dz(ax[3] || 0, P.DEADZONE);
+    const btn = (i) => { const b = g.buttons[i]; return !!b && (b.pressed || b.value > 0.5); };
+    for (let i = 0; i < g.buttons.length; i++) pressedNow[i] = btn(i) && !this._prev[i];
+    this._prev = g.buttons.map((b, i) => btn(i));
+    s.fire = btn(B.RT) || btn(B.LT);
+    s.punch = btn(B.X) || btn(B.B);
+    s.pressed = {
+      a: !!pressedNow[B.A], start: !!pressedNow[B.START], y: !!pressedNow[B.Y],
+      x: !!pressedNow[B.X] || !!pressedNow[B.B], lb: !!pressedNow[B.LB], rb: !!pressedNow[B.RB],
+      any: pressedNow.some(Boolean),
+    };
+    return s;
+  }
+
+  // vibração (se o controle tiver)
+  rumble(ms = 120, strong = 0.6, weak = 0.4) {
+    const g = this.gp;
+    const a = g && g.vibrationActuator;
+    if (!a || !a.playEffect) return;
+    try { a.playEffect('dual-rumble', { duration: ms, strongMagnitude: strong, weakMagnitude: weak }); } catch (e) { /* */ }
+  }
+}
+
 // ===== js/main.js =====
 // Escola Zumbi (antigo Caçador de Sinal) — protótipo. Loop principal e estados do jogo.
 // Estados: boot -> calibration -> tutorial -> playing -> ended
@@ -6297,6 +6465,10 @@ class App {
     this.lobby = new Lobby(this.camera);
     this.melee = new Melee();
     this.demo = new DemoHand(this.camera);
+    // v25: controle de videogame
+    this.pad = new Pad();
+    this.pad.onConnect = (g) => this.toast(`🎮 Controle conectado${/xbox/i.test(g.id) ? ' (Xbox)' : ''}`);
+    this.pad.onDisconnect = () => this.toast('🎮 Controle desconectado');
     // v24: seta na borda da visão quando a mão sai da câmera
     this.edgeArrow = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.03, 3), new THREE.MeshBasicMaterial({ color: 0xffd36b, depthTest: false, transparent: true }));
     this.edgeArrow.renderOrder = 53;
@@ -6309,6 +6481,7 @@ class App {
     this._hv = new THREE.Vector3();
     this._eyeP = new THREE.Vector3();
     this._camW = new THREE.Vector3();
+    this._padDir = new THREE.Vector3();
     this._walkDir = new THREE.Vector3(0, 0, -1);
     this._dirB = new THREE.Vector3();
     this.handHint = new HandHint(this);
@@ -6589,6 +6762,7 @@ class App {
     if (hit.zombie) {
       const z = hit.zombie;
       const kill = this.horde.damage(z, hit.part);
+      this.pad.rumble(kill ? 160 : 70, kill ? 0.8 : 0.35, 0.5);
       this.sfx.zombieHit(kill);
       this._puff(hit.point, 0x8a0d0d, kill ? 0.35 : 0.22);
       if (!kill) return;
@@ -6609,6 +6783,7 @@ class App {
     if (this.state !== 'playing') return;
     this.hp--;
     this.hurtK = 1;
+    this.pad.rumble(300, 1, 0.8);
     this.sfx.hurt();
     this.toast(this.hp > 0 ? `🩸 Mordida! ${'❤'.repeat(this.hp)}` : '🩸 Os zumbis te pegaram!');
     if (this.hp <= 0) { this._loseReason = 'bitten'; this.endGame(false); }
@@ -6692,7 +6867,7 @@ class App {
     if (this.inHeadset()) {
       this.lobby.open({
         title: win ? '🎉 Escola salva!' : bitten ? '🧟 Te pegaram!' : '⏰ Acabou o tempo',
-        lines: [`${rec.points} pontos · zumbis ${fixed}/${all.length}`, '✋ mão aberta = jogar de novo'],
+        lines: [`${rec.points} pontos · zumbis ${fixed}/${all.length}`, this.padMode ? 'aperte A = jogar de novo' : '✋ mão aberta = jogar de novo'],
         holdMs: CONFIG.LOBBY.HOLD_MS * 1.3,
         armMs: 2500,
         onGo: () => { clearInterval(this._autoT); this.recenter(); this.startGame(); },
@@ -6748,12 +6923,20 @@ class App {
   // ---------------------------------------------------------------
   inHeadset() { return this.stereo || this.xrActive; }
 
+  get padMode() { return !!this.options.controle; }
+
   playInHeadset() {
     if (!this.inHeadset()) this.toggleVR(); // 1ª coisa do toque
     const saved = loadCalib();
     Object.assign(this.calib, saved || defaultCalib());
     this.calibration.hide();
     this._openLobby(true);
+    if (this.padMode) {
+      // v25: modo controle: não liga a câmera
+      this.lobby.setStatus(this.pad.connected ? '🎮 Controle pronto' : '🎮 Aperte um botão do controle');
+      this.initDevices(() => {}, false);
+      return;
+    }
     this.lobby.setStatus('Ligando a câmera…');
     this.initDevices((m) => this.lobby.setStatus(String(m).replace(/<[^>]+>/g, '')), true).then((ok) => {
       if (ok) { this.lobby.setStatus(saved ? 'Calibração salva carregada' : 'Sem calibração: usando o padrão'); return; }
@@ -6780,9 +6963,11 @@ class App {
     const L = CONFIG.LOBBY;
     this.lobby.open({
       title: title || (countdown ? '👓 Coloque o óculos no rosto' : '👤 Próximo jogador'),
-      lines: countdown
-        ? ['Olhe para frente.', `Começa sozinho, ou ✋ mão aberta = já`]
-        : ['Olhe para frente e mostre', '✋ a mão aberta para começar'],
+      lines: this.padMode
+        ? (countdown ? ['Olhe para frente.', 'Começa sozinho, ou aperte A = já'] : ['Olhe para frente e', 'aperte A no controle'])
+        : countdown
+          ? ['Olhe para frente.', `Começa sozinho, ou ✋ mão aberta = já`]
+          : ['Olhe para frente e mostre', '✋ a mão aberta para começar'],
       countdownS: countdown ? L.COUNTDOWN_S : 0,
       holdMs: L.HOLD_MS,
       armMs: countdown ? 0 : 1000,
@@ -6995,6 +7180,16 @@ class App {
       this.orientation.update();
     }
     if (this.locoMode !== 'correr' && (input.move.f || input.move.r)) this._debugWalk(dt, input.move);
+    // v25: controle: girar (analógico direito, LB/RB), olhar para cima/baixo sem sensor, Y = recentrar
+    const gp = this.pad.poll();
+    if (gp.pressed && this.pad.connected) {
+      const P = CONFIG.PAD;
+      this.rig.rotation.y -= gp.look.x * P.TURN_SPEED * dt;
+      if (gp.pressed.lb) this.rig.rotation.y += THREE.MathUtils.degToRad(P.SNAP_DEG);
+      if (gp.pressed.rb) this.rig.rotation.y -= THREE.MathUtils.degToRad(P.SNAP_DEG);
+      if (!this.xrActive && !this.stereo && !this.orientation.hasData && gp.look.y) this.orientation.addManual(0, gp.look.y * P.LOOK_PITCH * dt * 300);
+      if (gp.pressed.y) { this.recenter(); this.toast('⟲ Visão recentrada'); }
+    }
     this._followFloor(dt);
     this.rig.updateMatrixWorld(true);
 
@@ -7028,6 +7223,17 @@ class App {
       else this._palmSince = 0;
       if (now - this.lastPalm < CONFIG.PLAYER.WALK_STOP_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.dir = null;
+      const mv = gp.move, ml = Math.hypot(mv.x, mv.y);
+      if (this.pad.connected && ml > 0 && !this.options.parado) {
+        // frente = para onde você olha; lados = de lado (anda na direção do analógico)
+        this.camera.getWorldDirection(this._hv); this._hv.y = 0; this._hv.normalize();
+        this._padDir.set(-this._hv.z, 0, this._hv.x); // direita
+        this._padDir.multiplyScalar(mv.x).addScaledVector(this._hv, -mv.y).normalize();
+        this._walkDir.copy(this._padDir);
+        this.runner.dir = this._walkDir;
+        manual = Math.max(manual, Math.min(1, ml));
+        this.runner.manualSource = 'controle';
+      }
       this.runner.useSwing = false;
       this.runner.maxSpeed = CONFIG.RUN.WALK_SPEED;
       this.runner.update(now, dt, this.hands.hands, manual, false);
@@ -7085,8 +7291,14 @@ class App {
 
     // 4) arma e zumbis
     if (active) {
-      const fire = !!input.fire;
+      const fire = !!input.fire || (this.pad.connected && gp.fire);
       input.fire = false;
+      this.gun.trigger = this.pad.connected && gp.fire;
+      if (this.gun.trigger && this.state === 'tutorial' && !this.tutorial.aim) { this.tutorial.aim = true; this.sfx.cock(); }
+      if (this.pad.connected && gp.pressed.x) {
+        const e = this.melee.strike(now, this.horde, this.rig.position, this.camera);
+        if (e && !e.miss) this._meleeEvent(e); else if (e) this.sfx.punch(false);
+      }
       this.gun.aimFn = (h, out) => this._fingerDir(h, out, CONFIG.GUN.FINGER_BLEND);
       this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
       this.horde.update(dt, this.rig.position);
@@ -7101,7 +7313,8 @@ class App {
       const palm = this.hands.hands.some((h) => this._isPalm(h));
       const st = this._lobbyStatus();
       if (st) this.lobby.setStatus(st);
-      this.lobby.update(now, palm || !!input.fire, this._lobbyReady());
+      this.lobby.update(now, (palm && !this.padMode) || !!input.fire, this._lobbyReady());
+      if (gp.pressed && (gp.pressed.a || gp.pressed.start)) this.lobby.press(now, this._lobbyReady());
       input.fire = false;
     }
     // durante o jogo: as DUAS mãos abertas paradas = recentrar a visão
@@ -7110,7 +7323,7 @@ class App {
     // mão fantasma do tutorial mostrando o gesto do passo atual
     const tt = this.tutorial;
     const step = this.state === 'tutorial' && !this._tutDoneAt ? (!tt.walk && !this.options.parado ? 'walk' : !tt.shoot ? 'aim' : null) : null;
-    this.demo.update(dt, step);
+    this.demo.update(dt, this.padMode ? null : step);
     for (const v of this.handViews) {
       if (CONFIG.GUN.AIM === 'cabeca') {
         // a cor mostra o que a mão está fazendo: vermelha = pistolinha, azul = palma (andando)
@@ -7242,14 +7455,19 @@ class App {
 
   // v19: soco/tapa (lógica em melee.js); aqui só os efeitos e o placar
   _updateMelee(now, dt) {
-    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position, this.camera)) {
+    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position, this.camera)) this._meleeEvent(e);
+  }
+
+  _meleeEvent(e) {
+    {
       const z = e.zombie;
+      this.pad.rumble(e.kill ? 220 : 90, e.kill ? 1 : 0.7, 0.4);
       this.sfx.punch(e.kill);
       this._pow(e.point, e.kill);
-      if (!e.kill) { this.toast(`👊 ${z.punches}/${e.need}`); continue; }
+      if (!e.kill) { this.toast(`👊 ${z.punches}/${e.need}`); return; }
       if (z.dummy) {
         if (this.state === 'tutorial') { this.tutorial.shoot = true; this.tutorial.aim = true; this.toast('👊 Nocaute no zumbi de treino!'); }
-        continue;
+        return;
       }
       const left = this.horde.alive;
       this.toast(`👊 Nocaute! Faltam ${left}`);
@@ -7359,8 +7577,14 @@ class App {
       aim: 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela). Mão <b>DIREITA</b> (vermelha): faça a <b>pistolinha 👉</b>.',
       shoot: 'Olhando para o zumbi, segure a <b>pistolinha 👉</b>: atira sozinho; a <b>barra</b> embaixo da mira mostra a recarga. De perto, <b>socos</b> 👊 também valem.',
     };
+    if (this.padMode) {
+      notes.walk = 'Incline o <b>analógico esquerdo</b> para andar (frente = para onde você olha). O <b>analógico direito</b> gira.';
+      notes.aim = 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela).';
+      notes.shoot = 'Olhando para o zumbi, aperte o <b>RT</b> (gatilho direito). Segurando, atira a cada recarga. <b>X</b> = soco de perto.';
+    }
     const g = this.gun.state;
     this.coach.update({
+      pad: this.padMode,
       show: active,
       stereo: this.stereo || this.xrActive,
       title: tut ? (cur ? 'Tutorial' : 'Pronto! Começando…') : '',

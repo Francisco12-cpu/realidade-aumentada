@@ -22,6 +22,7 @@ import { Coach } from './coach.js';
 import { Lobby } from './lobby.js';
 import { Melee } from './melee.js';
 import { DemoHand } from './demo.js';
+import { Pad } from './gamepad.js';
 
 class App {
   constructor() {
@@ -118,6 +119,10 @@ class App {
     this.lobby = new Lobby(this.camera);
     this.melee = new Melee();
     this.demo = new DemoHand(this.camera);
+    // v25: controle de videogame
+    this.pad = new Pad();
+    this.pad.onConnect = (g) => this.toast(`🎮 Controle conectado${/xbox/i.test(g.id) ? ' (Xbox)' : ''}`);
+    this.pad.onDisconnect = () => this.toast('🎮 Controle desconectado');
     // v24: seta na borda da visão quando a mão sai da câmera
     this.edgeArrow = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.03, 3), new THREE.MeshBasicMaterial({ color: 0xffd36b, depthTest: false, transparent: true }));
     this.edgeArrow.renderOrder = 53;
@@ -130,6 +135,7 @@ class App {
     this._hv = new THREE.Vector3();
     this._eyeP = new THREE.Vector3();
     this._camW = new THREE.Vector3();
+    this._padDir = new THREE.Vector3();
     this._walkDir = new THREE.Vector3(0, 0, -1);
     this._dirB = new THREE.Vector3();
     this.handHint = new HandHint(this);
@@ -410,6 +416,7 @@ class App {
     if (hit.zombie) {
       const z = hit.zombie;
       const kill = this.horde.damage(z, hit.part);
+      this.pad.rumble(kill ? 160 : 70, kill ? 0.8 : 0.35, 0.5);
       this.sfx.zombieHit(kill);
       this._puff(hit.point, 0x8a0d0d, kill ? 0.35 : 0.22);
       if (!kill) return;
@@ -430,6 +437,7 @@ class App {
     if (this.state !== 'playing') return;
     this.hp--;
     this.hurtK = 1;
+    this.pad.rumble(300, 1, 0.8);
     this.sfx.hurt();
     this.toast(this.hp > 0 ? `🩸 Mordida! ${'❤'.repeat(this.hp)}` : '🩸 Os zumbis te pegaram!');
     if (this.hp <= 0) { this._loseReason = 'bitten'; this.endGame(false); }
@@ -513,7 +521,7 @@ class App {
     if (this.inHeadset()) {
       this.lobby.open({
         title: win ? '🎉 Escola salva!' : bitten ? '🧟 Te pegaram!' : '⏰ Acabou o tempo',
-        lines: [`${rec.points} pontos · zumbis ${fixed}/${all.length}`, '✋ mão aberta = jogar de novo'],
+        lines: [`${rec.points} pontos · zumbis ${fixed}/${all.length}`, this.padMode ? 'aperte A = jogar de novo' : '✋ mão aberta = jogar de novo'],
         holdMs: CONFIG.LOBBY.HOLD_MS * 1.3,
         armMs: 2500,
         onGo: () => { clearInterval(this._autoT); this.recenter(); this.startGame(); },
@@ -569,12 +577,20 @@ class App {
   // ---------------------------------------------------------------
   inHeadset() { return this.stereo || this.xrActive; }
 
+  get padMode() { return !!this.options.controle; }
+
   playInHeadset() {
     if (!this.inHeadset()) this.toggleVR(); // 1ª coisa do toque
     const saved = loadCalib();
     Object.assign(this.calib, saved || defaultCalib());
     this.calibration.hide();
     this._openLobby(true);
+    if (this.padMode) {
+      // v25: modo controle: não liga a câmera
+      this.lobby.setStatus(this.pad.connected ? '🎮 Controle pronto' : '🎮 Aperte um botão do controle');
+      this.initDevices(() => {}, false);
+      return;
+    }
     this.lobby.setStatus('Ligando a câmera…');
     this.initDevices((m) => this.lobby.setStatus(String(m).replace(/<[^>]+>/g, '')), true).then((ok) => {
       if (ok) { this.lobby.setStatus(saved ? 'Calibração salva carregada' : 'Sem calibração: usando o padrão'); return; }
@@ -601,9 +617,11 @@ class App {
     const L = CONFIG.LOBBY;
     this.lobby.open({
       title: title || (countdown ? '👓 Coloque o óculos no rosto' : '👤 Próximo jogador'),
-      lines: countdown
-        ? ['Olhe para frente.', `Começa sozinho, ou ✋ mão aberta = já`]
-        : ['Olhe para frente e mostre', '✋ a mão aberta para começar'],
+      lines: this.padMode
+        ? (countdown ? ['Olhe para frente.', 'Começa sozinho, ou aperte A = já'] : ['Olhe para frente e', 'aperte A no controle'])
+        : countdown
+          ? ['Olhe para frente.', `Começa sozinho, ou ✋ mão aberta = já`]
+          : ['Olhe para frente e mostre', '✋ a mão aberta para começar'],
       countdownS: countdown ? L.COUNTDOWN_S : 0,
       holdMs: L.HOLD_MS,
       armMs: countdown ? 0 : 1000,
@@ -816,6 +834,16 @@ class App {
       this.orientation.update();
     }
     if (this.locoMode !== 'correr' && (input.move.f || input.move.r)) this._debugWalk(dt, input.move);
+    // v25: controle: girar (analógico direito, LB/RB), olhar para cima/baixo sem sensor, Y = recentrar
+    const gp = this.pad.poll();
+    if (gp.pressed && this.pad.connected) {
+      const P = CONFIG.PAD;
+      this.rig.rotation.y -= gp.look.x * P.TURN_SPEED * dt;
+      if (gp.pressed.lb) this.rig.rotation.y += THREE.MathUtils.degToRad(P.SNAP_DEG);
+      if (gp.pressed.rb) this.rig.rotation.y -= THREE.MathUtils.degToRad(P.SNAP_DEG);
+      if (!this.xrActive && !this.stereo && !this.orientation.hasData && gp.look.y) this.orientation.addManual(0, gp.look.y * P.LOOK_PITCH * dt * 300);
+      if (gp.pressed.y) { this.recenter(); this.toast('⟲ Visão recentrada'); }
+    }
     this._followFloor(dt);
     this.rig.updateMatrixWorld(true);
 
@@ -849,6 +877,17 @@ class App {
       else this._palmSince = 0;
       if (now - this.lastPalm < CONFIG.PLAYER.WALK_STOP_MS) { manual = 1; this.runner.manualSource = 'palma aberta'; }
       this.runner.dir = null;
+      const mv = gp.move, ml = Math.hypot(mv.x, mv.y);
+      if (this.pad.connected && ml > 0 && !this.options.parado) {
+        // frente = para onde você olha; lados = de lado (anda na direção do analógico)
+        this.camera.getWorldDirection(this._hv); this._hv.y = 0; this._hv.normalize();
+        this._padDir.set(-this._hv.z, 0, this._hv.x); // direita
+        this._padDir.multiplyScalar(mv.x).addScaledVector(this._hv, -mv.y).normalize();
+        this._walkDir.copy(this._padDir);
+        this.runner.dir = this._walkDir;
+        manual = Math.max(manual, Math.min(1, ml));
+        this.runner.manualSource = 'controle';
+      }
       this.runner.useSwing = false;
       this.runner.maxSpeed = CONFIG.RUN.WALK_SPEED;
       this.runner.update(now, dt, this.hands.hands, manual, false);
@@ -906,8 +945,14 @@ class App {
 
     // 4) arma e zumbis
     if (active) {
-      const fire = !!input.fire;
+      const fire = !!input.fire || (this.pad.connected && gp.fire);
       input.fire = false;
+      this.gun.trigger = this.pad.connected && gp.fire;
+      if (this.gun.trigger && this.state === 'tutorial' && !this.tutorial.aim) { this.tutorial.aim = true; this.sfx.cock(); }
+      if (this.pad.connected && gp.pressed.x) {
+        const e = this.melee.strike(now, this.horde, this.rig.position, this.camera);
+        if (e && !e.miss) this._meleeEvent(e); else if (e) this.sfx.punch(false);
+      }
       this.gun.aimFn = (h, out) => this._fingerDir(h, out, CONFIG.GUN.FINGER_BLEND);
       this.gun.update(now, this.hands.hands, this.calib.thresholds, fresh, fire, (o, d) => this._findHit(o, d));
       this.horde.update(dt, this.rig.position);
@@ -922,7 +967,8 @@ class App {
       const palm = this.hands.hands.some((h) => this._isPalm(h));
       const st = this._lobbyStatus();
       if (st) this.lobby.setStatus(st);
-      this.lobby.update(now, palm || !!input.fire, this._lobbyReady());
+      this.lobby.update(now, (palm && !this.padMode) || !!input.fire, this._lobbyReady());
+      if (gp.pressed && (gp.pressed.a || gp.pressed.start)) this.lobby.press(now, this._lobbyReady());
       input.fire = false;
     }
     // durante o jogo: as DUAS mãos abertas paradas = recentrar a visão
@@ -931,7 +977,7 @@ class App {
     // mão fantasma do tutorial mostrando o gesto do passo atual
     const tt = this.tutorial;
     const step = this.state === 'tutorial' && !this._tutDoneAt ? (!tt.walk && !this.options.parado ? 'walk' : !tt.shoot ? 'aim' : null) : null;
-    this.demo.update(dt, step);
+    this.demo.update(dt, this.padMode ? null : step);
     for (const v of this.handViews) {
       if (CONFIG.GUN.AIM === 'cabeca') {
         // a cor mostra o que a mão está fazendo: vermelha = pistolinha, azul = palma (andando)
@@ -1063,14 +1109,19 @@ class App {
 
   // v19: soco/tapa (lógica em melee.js); aqui só os efeitos e o placar
   _updateMelee(now, dt) {
-    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position, this.camera)) {
+    for (const e of this.melee.update(now, dt, this.hands.hands, this.horde, this.rig.position, this.camera)) this._meleeEvent(e);
+  }
+
+  _meleeEvent(e) {
+    {
       const z = e.zombie;
+      this.pad.rumble(e.kill ? 220 : 90, e.kill ? 1 : 0.7, 0.4);
       this.sfx.punch(e.kill);
       this._pow(e.point, e.kill);
-      if (!e.kill) { this.toast(`👊 ${z.punches}/${e.need}`); continue; }
+      if (!e.kill) { this.toast(`👊 ${z.punches}/${e.need}`); return; }
       if (z.dummy) {
         if (this.state === 'tutorial') { this.tutorial.shoot = true; this.tutorial.aim = true; this.toast('👊 Nocaute no zumbi de treino!'); }
-        continue;
+        return;
       }
       const left = this.horde.alive;
       this.toast(`👊 Nocaute! Faltam ${left}`);
@@ -1180,8 +1231,14 @@ class App {
       aim: 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela). Mão <b>DIREITA</b> (vermelha): faça a <b>pistolinha 👉</b>.',
       shoot: 'Olhando para o zumbi, segure a <b>pistolinha 👉</b>: atira sozinho; a <b>barra</b> embaixo da mira mostra a recarga. De perto, <b>socos</b> 👊 também valem.',
     };
+    if (this.padMode) {
+      notes.walk = 'Incline o <b>analógico esquerdo</b> para andar (frente = para onde você olha). O <b>analógico direito</b> gira.';
+      notes.aim = 'A <b>mira é o ponto no meio da visão</b>: olhe para o zumbi (a mira fica amarela).';
+      notes.shoot = 'Olhando para o zumbi, aperte o <b>RT</b> (gatilho direito). Segurando, atira a cada recarga. <b>X</b> = soco de perto.';
+    }
     const g = this.gun.state;
     this.coach.update({
+      pad: this.padMode,
       show: active,
       stereo: this.stereo || this.xrActive,
       title: tut ? (cur ? 'Tutorial' : 'Pronto! Começando…') : '',
