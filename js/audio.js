@@ -228,6 +228,34 @@ export class Sfx {
     this._tone(58, 0.08, { type: 'sine', gain: 0.3 * A.ZOMBIE_VOL, dest });
   }
 
+  // v28: susto do braço: "vuuush" que passa de um lado para o outro do fone
+  // (acompanha o braço) + rugido GRAVE e pancada funda. Bem alto.
+  swipe(dir = 1) {
+    if (!this.on) return;
+    const c = this.ctx, t = c.currentTime;
+    const pan = c.createStereoPanner ? c.createStereoPanner() : null;
+    const out = c.createGain(); out.gain.value = 1;
+    if (pan) {
+      pan.pan.setValueAtTime(-dir, t);
+      pan.pan.linearRampToValueAtTime(dir, t + 0.3);
+      out.connect(pan).connect(this.master);
+    } else out.connect(this.master);
+    // vento do golpe: ruído com filtro que sobe rápido
+    const n = Math.floor(c.sampleRate * 0.5), buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / n);
+    const src = c.createBufferSource(); src.buffer = buf;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(250, t); bp.frequency.exponentialRampToValueAtTime(2800, t + 0.22); bp.frequency.exponentialRampToValueAtTime(600, t + 0.45);
+    const wg = c.createGain(); wg.gain.value = 1.6 * A.SCARE_VOL;
+    src.connect(bp).connect(wg).connect(out); src.start(t);
+    // rugido grave e pancada funda (no meio, nos dois ouvidos)
+    this._tone(62, 0.9, { type: 'sawtooth', gain: 0.9 * A.SCARE_VOL, slide: -24, at: 0.05 });
+    this._tone(41, 1.1, { type: 'square', gain: 0.5 * A.SCARE_VOL, slide: -12, at: 0.06 });
+    this._tone(34, 0.5, { type: 'sine', gain: 1.2 * A.SCARE_VOL, slide: -14, at: 0.12 });
+    this._noise(0.35, { gain: 0.9 * A.SCARE_VOL, freq: 140, q: 0.7, at: 0.12 });
+    this.vibrate([180, 40, 120]);
+  }
+
   // v27: apagão (zumbido elétrico que cai) antes do susto
   blackout() {
     if (!this.on) return;

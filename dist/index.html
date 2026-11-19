@@ -293,7 +293,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v27',
+  VERSION: 'v28',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -472,12 +472,12 @@ const CONFIG = {
 
   // ---- Zumbis ----
   ZOMBIES: {
-    COUNT: 24,              // zumbis na partida (total, contando as ondas)
-    FEIRA_COUNT: 14,        // no modo feira
-    START_COUNT: 6,         // já estão na escola no começo (longe da porta)
+    COUNT: 36,              // zumbis na partida (total, contando as ondas) · v28: eram 24
+    FEIRA_COUNT: 20,        // no modo feira (eram 14)
+    START_COUNT: 8,         // já estão na escola no começo (longe da porta)
     FIRST_WAVE_S: 20,       // a 1ª onda chega depois disso
-    WAVE_EVERY_S: 15,       // depois, uma onda a cada
-    WAVE_SIZE: 4,           // zumbis por onda
+    WAVE_EVERY_S: 12,       // depois, uma onda a cada
+    WAVE_SIZE: 5,           // zumbis por onda
     WAVE_MIN_DIST: 15,      // a onda nasce escondida entre essas distâncias do jogador
     WAVE_MAX_DIST: 35,
     HP: 2,                  // tiros no corpo para matar (cabeça mata na hora)
@@ -529,6 +529,17 @@ const CONFIG = {
     LOOK_PITCH: 1.6,        // fora do óculos e sem sensor: olhar para cima/baixo (rad/s)
   },
 
+  // ---- Susto do braço (v28) ----
+  SWIPE: {
+    ON: true,
+    FIRST_S: 12,            // o 1º vem mais ou menos aqui na partida...
+    EVERY_S: 20,            // ...e depois a cada ~isso
+    JITTER_S: 8,            // sorteado ± isso (nunca no tempo exato)
+    DUR_MS: 300,            // o braço atravessa a visão nesse tempo (muito rápido)
+    DIM_S: 2.6,             // a visão fica escura e clareia nesse tempo
+    DIM_MAX: 0.88,          // quão escura fica (1 = preto)
+  },
+
   // ---- Começar no óculos (v14) ----
   LOBBY: {
     COUNTDOWN_S: 10,        // tempo para pôr o óculos no rosto antes de começar sozinho
@@ -553,17 +564,17 @@ const CONFIG = {
   // ---- Soco / tapa (v19): encostar a mão no zumbi com força ----
   MELEE: {
     ON: true,
-    PUNCHES: 4,             // socos para derrubar um zumbi (v27: eram 10)
-    DUMMY_PUNCHES: 2,       // zumbi de treino
-    MIN_DIST: 0.15,         // golpe = a mão anda mais que isso (m) em WINDOW_MS (soco, tapa)
-    REARM_DIST: 0.07,       // depois de um golpe, a mão precisa quase parar (anda menos que isso) para valer outro
-    WINDOW_MS: 200,         // janela para medir o golpe (o tremido da detecção fica bem abaixo de MIN_DIST)
-    RANGE: 1.25,            // zumbi a até essa distância do jogador (m) leva o golpe
-    ANGLE_DEG: 50,          // e na direção da mão (graus de folga)
-    COOLDOWN_MS: 300,       // tempo mínimo entre golpes da mesma mão
+    PUNCHES: 2,             // socos para derrubar um zumbi (v28: 2)
+    DUMMY_PUNCHES: 1,       // zumbi de treino
+    MIN_DIST: 0.12,         // v28: golpe = a mão anda mais que isso (m) em WINDOW_MS (era 0,15: mais fácil)
+    REARM_DIST: 0.05,       // depois de um golpe, a mão precisa quase parar (anda menos que isso) para valer outro
+    WINDOW_MS: 220,         // janela para medir o golpe (o tremido da detecção fica abaixo de MIN_DIST)
+    RANGE: 1.6,             // v28: zumbi a até essa distância do jogador (m) leva o golpe (era 1,25)
+    ANGLE_DEG: 65,          // v28: e na direção da mão (graus de folga; era 50)
+    COOLDOWN_MS: 250,       // tempo mínimo entre golpes da mesma mão
     GAP_MS: 700,            // v22: mão sumiu menos que isso e voltou longe = golpe
     VANISH_MS: 120,         // v22: mão que vinha se mexendo e sumiu por isso = golpe (borrão do soco)
-    VANISH_MOVE: 0.06,      // v22: ...se tinha andado pelo menos isso (m) logo antes
+    VANISH_MOVE: 0.04,      // v22: ...se tinha andado pelo menos isso (m) logo antes (v28: 0,04)
     KNOCK_SPEED: 1.6,       // empurrão para trás (m/s, some rápido)
     STAGGER_S: 0.6,         // o zumbi demora pelo menos isso para morder depois de apanhar
   },
@@ -640,7 +651,8 @@ const CONFIG = {
     ZOMBIE_VOL: 2.0,        // v27: volume dos gemidos/passos dos zumbis (som 3D) — mais alto
     REF_DIST: 2.5,          // v27: som 3D: até essa distância (m) o volume é cheio
     ROLLOFF: 0.7,           //      quanto o volume cai com a distância (menos = ouve de mais longe)
-    HEART_DIST: 5,          // v26: zumbi mais perto que isso = coração batendo
+    HEART_DIST: 5,
+    SCARE_VOL: 1.3,         // v28: volume do susto do braço (alto e grave)          // v26: zumbi mais perto que isso = coração batendo
     BEEP_FAR_S: 1.3,        // intervalo do bipe do detector longe da caixa
     BEEP_NEAR_S: 0.14,      // e perto
     BEEP_MAX_DIST: 18,      // além disso o detector fica quieto
@@ -923,6 +935,34 @@ class Sfx {
     this._noise(0.1, { gain: 0.6 * A.ZOMBIE_VOL, freq: 170 + Math.random() * 90, q: 1.2, dest });
     this._noise(0.22, { gain: 0.3 * A.ZOMBIE_VOL, freq: 2600 + Math.random() * 1200, q: 1.5, at: 0.03, dest });
     this._tone(58, 0.08, { type: 'sine', gain: 0.3 * A.ZOMBIE_VOL, dest });
+  }
+
+  // v28: susto do braço: "vuuush" que passa de um lado para o outro do fone
+  // (acompanha o braço) + rugido GRAVE e pancada funda. Bem alto.
+  swipe(dir = 1) {
+    if (!this.on) return;
+    const c = this.ctx, t = c.currentTime;
+    const pan = c.createStereoPanner ? c.createStereoPanner() : null;
+    const out = c.createGain(); out.gain.value = 1;
+    if (pan) {
+      pan.pan.setValueAtTime(-dir, t);
+      pan.pan.linearRampToValueAtTime(dir, t + 0.3);
+      out.connect(pan).connect(this.master);
+    } else out.connect(this.master);
+    // vento do golpe: ruído com filtro que sobe rápido
+    const n = Math.floor(c.sampleRate * 0.5), buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / n);
+    const src = c.createBufferSource(); src.buffer = buf;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(250, t); bp.frequency.exponentialRampToValueAtTime(2800, t + 0.22); bp.frequency.exponentialRampToValueAtTime(600, t + 0.45);
+    const wg = c.createGain(); wg.gain.value = 1.6 * A.SCARE_VOL;
+    src.connect(bp).connect(wg).connect(out); src.start(t);
+    // rugido grave e pancada funda (no meio, nos dois ouvidos)
+    this._tone(62, 0.9, { type: 'sawtooth', gain: 0.9 * A.SCARE_VOL, slide: -24, at: 0.05 });
+    this._tone(41, 1.1, { type: 'square', gain: 0.5 * A.SCARE_VOL, slide: -12, at: 0.06 });
+    this._tone(34, 0.5, { type: 'sine', gain: 1.2 * A.SCARE_VOL, slide: -14, at: 0.12 });
+    this._noise(0.35, { gain: 0.9 * A.SCARE_VOL, freq: 140, q: 0.7, at: 0.12 });
+    this.vibrate([180, 40, 120]);
   }
 
   // v27: apagão (zumbido elétrico que cai) antes do susto
@@ -6639,6 +6679,96 @@ class Pad {
   }
 }
 
+// ===== js/swipe.js =====
+// Susto do braço (v28): um braço de zumbi passa MUITO rápido bem na frente
+// da visão, atravessando as bordas da lente (entra de fora e sai do outro
+// lado), com som alto e grave. Depois a visão fica escura por um tempo.
+// Preso à câmera: funciona na tela, no óculos próprio e no VR do Chrome.
+
+function makeArm() {
+  const skin = new THREE.MeshLambertMaterial({ color: 0x8a9f78, depthTest: false });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x5f6e52, depthTest: false });
+  const blood = new THREE.MeshBasicMaterial({ color: 0x5a0606, depthTest: false });
+  const nail = new THREE.MeshLambertMaterial({ color: 0x2b2a22, depthTest: false });
+  const arm = new THREE.Group();
+  // antebraço (vem de fora da tela, comprido) e manga rasgada
+  const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.5, 10), skin);
+  fore.rotation.z = Math.PI / 2; fore.position.x = -0.3; arm.add(fore);
+  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.16, 8), new THREE.MeshLambertMaterial({ color: 0x3b2f2a, depthTest: false }));
+  sleeve.rotation.z = Math.PI / 2; sleeve.position.x = -0.52; arm.add(sleeve);
+  const cut = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.012, 0.05), blood); cut.position.set(-0.28, 0.03, 0.02); arm.add(cut);
+  // mão aberta com garras
+  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.03, 0.085), dark); palm.position.x = 0.0; arm.add(palm);
+  for (let i = 0; i < 4; i++) {
+    const f = new THREE.Group();
+    f.position.set(0.045, 0, -0.033 + i * 0.022);
+    f.rotation.y = (i - 1.5) * 0.12;
+    const s1 = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.014, 0.014), skin); s1.position.x = 0.025; f.add(s1);
+    const s2 = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.012, 0.012), skin); s2.position.x = 0.062; s2.rotation.z = -0.5; f.add(s2);
+    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.006, 0.025, 5), nail); claw.rotation.z = -Math.PI / 2 - 0.6; claw.position.set(0.085, -0.012, 0); f.add(claw);
+    arm.add(f);
+  }
+  const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.014, 0.016), skin); thumb.position.set(0.02, 0, 0.05); thumb.rotation.y = -0.7; arm.add(thumb);
+  arm.traverse((o) => { o.renderOrder = 48; o.frustumCulled = false; });
+  return arm;
+}
+
+class ArmSwipe {
+  constructor(camera) {
+    this.arm = makeArm();
+    this.arm.visible = false;
+    camera.add(this.arm);
+    this.t = -1;
+    // tela escura depois do susto (avermelhada)
+    this.dim = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0x0c0000, transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
+    this.dim.position.z = -0.104; this.dim.renderOrder = 43; this.dim.frustumCulled = false; this.dim.visible = false;
+    camera.add(this.dim);
+    this.dimK = 0;
+    this._a = new THREE.Vector3(); this._b = new THREE.Vector3();
+  }
+
+  get active() { return this.t >= 0; }
+
+  // começa um golpe: dir = +1 (esquerda→direita) ou -1
+  start(dir = Math.random() < 0.5 ? 1 : -1) {
+    const S = CONFIG.SWIPE;
+    this.dir = dir;
+    this.t = 0;
+    // entra por uma borda (fora da visão) e sai pela outra, em diagonal
+    const up = Math.random() < 0.5 ? 1 : -1;
+    this._a.set(-dir * 0.62, up * (0.16 + Math.random() * 0.1), -0.36);
+    this._b.set(dir * 0.62, -up * (0.12 + Math.random() * 0.12), -0.3);
+    this.roll = up * 0.5;
+    this.arm.visible = true;
+    this.dur = S.DUR_MS / 1000;
+  }
+
+  update(dt) {
+    const S = CONFIG.SWIPE;
+    if (this.t >= 0) {
+      this.t += dt;
+      const k = Math.min(1, this.t / this.dur);
+      const e = k * k * (3 - 2 * k); // acelera e freia (golpe)
+      this.arm.position.lerpVectors(this._a, this._b, e);
+      // o braço aponta para onde vai (garras na frente) e gira um pouco
+      this.arm.rotation.set(0.25, this.dir > 0 ? 0 : Math.PI, this.roll * (1 - 2 * e) * this.dir);
+      if (k >= 1) {
+        this.t = -1;
+        this.arm.visible = false;
+        this.dimK = 1; // escurece a visão
+      }
+    }
+    if (this.dimK > 0) {
+      this.dimK = Math.max(0, this.dimK - dt / S.DIM_S);
+      // fica bem escuro no começo e clareia devagar
+      this.dim.material.opacity = S.DIM_MAX * Math.pow(this.dimK, 0.6);
+    }
+    this.dim.visible = this.dimK > 0.01;
+  }
+
+  reset() { this.t = -1; this.arm.visible = false; this.dimK = 0; this.dim.visible = false; }
+}
+
 // ===== js/main.js =====
 // Escola Zumbi (antigo Caçador de Sinal) — protótipo. Loop principal e estados do jogo.
 // Estados: boot -> calibration -> tutorial -> playing -> ended
@@ -6750,6 +6880,7 @@ class App {
     this.melee = new Melee();
     this.demo = new DemoHand(this.camera);
     // v25: controle de videogame
+    this.swipe = new ArmSwipe(this.camera);
     this.pad = new Pad();
     // v27: grito distante de algum lugar da escola (som 3D), de vez em quando
     this.sfx.onDistant = () => {
@@ -7020,6 +7151,7 @@ class App {
     this._resetWorld();
     this.sfx.music(true);
     this._darkUntil = 0;
+    this._nextSwipe(true);
     this._scares = 0;
     this._scareT = CONFIG.ZOMBIES.SCARE_FIRST_S;
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
@@ -7672,6 +7804,7 @@ class App {
     }
     this._updateEars(now, dt, active);
     this._updateDark(now);
+    this._updateSwipe(dt);
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
@@ -7862,6 +7995,31 @@ class App {
     // v27: as luzes apagam um instante... e o zumbi aparece NA SUA FRENTE gritando
     this._darkUntil = performance.now() + Z.SCARE_DARK_MS;
     this.sfx.blackout();
+  }
+
+  // v28: susto do braço a cada ~20 s (sorteado), só na partida
+  _nextSwipe(first = false) {
+    const S = CONFIG.SWIPE;
+    this._swipeT = (first ? S.FIRST_S : S.EVERY_S) + (Math.random() * 2 - 1) * S.JITTER_S;
+  }
+
+  _updateSwipe(dt) {
+    const S = CONFIG.SWIPE;
+    if (S.ON && this.state === 'playing') {
+      this._swipeT -= dt;
+      if (this._swipeT <= 0) {
+        if (this._darkUntil || this.swipe.active) this._swipeT = 3; // não junta com o outro susto
+        else {
+          const dir = Math.random() < 0.5 ? 1 : -1;
+          this.swipe.start(dir);
+          this.sfx.swipe(dir);
+          this._shakeK = Math.max(this._shakeK, 0.6);
+          this.pad.rumble(350, 1, 0.7);
+          this._nextSwipe();
+        }
+      }
+    } else if (this.state !== 'playing' && (this.swipe.active || this.swipe.dimK > 0)) this.swipe.reset();
+    this.swipe.update(dt);
   }
 
   // chamado todo quadro: escuridão do apagão e a hora de o zumbi aparecer

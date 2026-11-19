@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v27, 19/11/2026)
+# Escola Zumbi: estado do projeto (v28, 19/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -15,7 +15,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | 🎯 **olhar** | a **mira é o ponto no meio da visão** (fica amarela em cima de um zumbi) |
 | 👉 **pistolinha da mão DIREITA** (indicador esticado, médio dobrado) | a mão fica **vermelha** e **atira sozinha** para onde você olha; a **barra embaixo da mira** enche em 0,8 s e atira de novo enquanto a pistolinha continuar |
 | ✋ **palma bem aberta da mão ESQUERDA** (segurada 0,25 s) | a mão fica **azul** e você **anda para onde olha**; abaixar ou fechar a mão = para |
-| 👊 **soco ou tapa rápido** (a mão anda 15 cm em 0,2 s, **ou some no borrão do movimento**, ou volta longe de onde sumiu) com um zumbi a até 1,25 m, na direção da mão | **golpe**: estrela de pancada, som, vibração e o zumbi é empurrado para trás. São **4 socos** para derrubar (2 no zumbi de treino). A mão parada não bate: depois de um golpe ela precisa parar antes do próximo |
+| 👊 **soco ou tapa rápido** (a mão anda 12 cm em 0,22 s, com um zumbi a até 1,6 m, **ou some no borrão do movimento**, ou volta longe de onde sumiu) com um zumbi a até 1,25 m, na direção da mão | **golpe**: estrela de pancada, som, vibração e o zumbi é empurrado para trás. São **2 socos** para derrubar (1 no zumbi de treino). A mão parada não bate: depois de um golpe ela precisa parar antes do próximo |
 
 > Desde a v21 a mira é a **cabeça**. A câmera de trás vê a mão por trás, e a direção do dedo saía errada. A cor da mão mostra o que ela está fazendo, e não o lado. A mira pelo dedo (v20) continua em `GUN.AIM: 'dedo'`. Desde a v22, uma **camada de esquerda/direita** junta o rótulo do MediaPipe (média de ~1 s), o lado da imagem e a continuidade. Só a direita atira e só a esquerda anda (`ROLES.STRICT_SIDES`; troca com "Direita anda" na calibração). A cor fraca mostra o lado, e a cor forte, o gesto.
 
@@ -30,9 +30,9 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 - **Começo:** você começa **na porta** (portão do muro oeste), olhando para dentro da escola.
 - **Tutorial:** um zumbi de treino fica parado na frente. A dica no canto da tela mostra os passos: andar, mirar e atirar. Quando os três estão feitos, a partida começa sozinha em 3 s.
 - **Partida:**
-  - São **24 zumbis**, 14 no modo feira.
+  - São **36 zumbis**, 20 no modo feira (desde a v28).
   - No começo, 6 já estão espalhados longe da porta (a mais de 25 m).
-  - Depois chegam em **ondas** de 4 a cada 15 s, a primeira depois de 20 s. Eles nascem escondidos a 15–35 m e vêm atrás de você.
+  - Depois chegam em **ondas** de 5 a cada 12 s, a primeira depois de 20 s. Eles nascem escondidos a 15–35 m e vêm atrás de você.
   - Os zumbis enxergam até 13 m, ouvem até 5 m e escutam tiros até 20 m. Eles perseguem pelo caminho a pé: contornam paredes e passam pelas portas.
   - Você tem **5 vidas**; cada mordida tira uma.
   - **Tiro na cabeça** mata na hora; no corpo são 2 tiros. Tem uma ajuda de mira de 4°.
@@ -45,7 +45,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | virar o rosto | olha e mira (desde a v26 o controle **não gira** a visão no óculos) |
 | olhar | mira (ponto no meio da visão) |
 | RT (ou LT) | atira; segurando, atira a cada recarga |
-| X (ou B) | soco no zumbi da frente (4 para derrubar) |
+| X (ou B) | soco no zumbi da frente (2 para derrubar) |
 | Y | recentra a visão |
 | A / Start | começa, e joga de novo no fim |
 
@@ -66,6 +66,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v28 | #26 | Susto do braço 3D a cada ~20 s (atravessa a visão, som grave, escurece), socos mais fáceis e 2 para matar, 36 zumbis |
 | v27 | #25 | 4 socos; susto de verdade (apagão + zumbi aparece na frente gritando); só 1 zumbi dá a volta por vez; voz dos zumbis mais assustadora e mais fácil de localizar (agudos), música abaixa com zumbi perto, gritos distantes |
 | v26 | #24 | Terror: som 3D dos zumbis (fone), música baixa, coração, zumbis que circulam e pegam por trás, jumpscare, tiro não atravessa parede, controle não gira a visão no óculos |
 | v25 | #23 | Modo 🎮 Controle (Xbox): escolha Mãos ou Controle na tela inicial; analógico anda/gira, RT atira, X soco, Y recentra, A começa; vibração |
@@ -105,6 +106,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 - **Música:** fundo de terror baixinho (zumbido grave, vento, sininhos). Liga e desliga na opção 🎵 da tela inicial.
 - **Zumbis que vêm por trás:** quando você olha para eles de perto, alguns circulam em volta até ficar atrás e só então mordem. Desde a v27, **só 1 por vez** faz isso. Fora da sua visão, os zumbis andam 12% mais rápido.
 - **Susto (jumpscare), desde a v27:** o primeiro vem aos 25 s da partida e os outros a cada ~50 s, no máximo 4. **As luzes apagam** por meio segundo, com um zumbido elétrico, e um zumbi pálido **aparece na sua frente, a 1,4 m, gritando**. Você tem 1,1 s para reagir antes da mordida. A tela pisca, a câmera treme e o controle vibra. Se não houver lugar livre na frente, ele nasce atrás de você e grita quando chega perto.
+- **Susto do braço (v28):** mais ou menos a cada 20 s, com tempo sorteado (±8 s; o primeiro por volta dos 12 s), um **braço de zumbi em 3D passa voando** bem na frente da visão. Ele entra por uma borda da lente e sai pela outra em 0,3 s, com um vuuush que passa de um ouvido para o outro e um **rugido grave e alto**. Depois a visão fica **escura** e clareia em uns 2,6 s. Não tira vida. Ajustes em `SWIPE`.
 - **Tiro não atravessa parede:** a mira confere a grade da escola na linha da mira e na linha até o zumbi. Na hora do tiro, confere também os triângulos de verdade da escola. Folhas e vidros não seguram o tiro.
 
 ## O mundo em volta (v24, `js/cenario.js`)
@@ -153,6 +155,7 @@ js/gun.js           arma de mão: pistolinha, gatilho do polegar, recarga, laser
 js/lobby.js         saguão na lente: contagem, mão aberta para começar e jogar de novo
 js/cenario.js       mundo em volta da escola (céu, ruas, prédios, carros, fogo, fumaça)
 js/demo.js          mão fantasma do tutorial
+js/swipe.js         susto do braço (passa na frente da visão e escurece)
 js/gamepad.js       controle de videogame (Xbox)
 js/melee.js         socos e tapas: mão encostando no zumbi com velocidade
 js/coach.js         dica dos gestos no canto da tela (e painel 3D no óculos)
