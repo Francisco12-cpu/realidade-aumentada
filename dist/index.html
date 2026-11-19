@@ -277,6 +277,8 @@ body.tutorial:not(.stereo):not(.xr) #btn-skip { display: block; }
   <noscript>Este protótipo precisa de JavaScript.</noscript>
   <script type="module">
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 // ===== js/config.js =====
 // =====================================================================
 // Caçador de Sinal — configuração central.
@@ -293,7 +295,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v30',
+  VERSION: 'v31',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -498,6 +500,11 @@ const CONFIG = {
     AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
     GROAN_DIST: 9,
     ANIM_FAR: 25,
+    // v31: modelo 3D de zumbi (se o arquivo existir; senão, o boneco feito por código)
+    MODEL_URLS: ['models/zumbi.glb', '../models/zumbi.glb'],
+    MODEL_HEIGHT: 1.75,     // altura do zumbi no jogo (m): o modelo é ajustado para isso
+    MODEL_ROT_Y: 0,         // gira o modelo se ele vier de costas (Math.PI = meia volta)
+    RUN_ANIM_SPEED: 1.6,    // acima dessa velocidade (m/s) usa a animação de correr
     // v26: terror
     FLANK_P: 0.3,           // parte dos zumbis que PODE dar a volta e pegar por trás...
     FLANK_MAX: 1,           // v27: ...mas só esse tanto ao mesmo tempo (não são todos)
@@ -544,6 +551,20 @@ const CONFIG = {
     FACE_DIST: -0.5,        // posição do zumbi na cara (a frente do rosto fica a ~22 cm: enche a visão sem cortar)
     HOLD_S: 1.3,            // tempo colado na tela
     DAMAGE: 1,              // vidas que tira (0 = só susto)
+  },
+
+  // ---- Susto da borda preta do óculos (v31): sorteado junto com o FNAF ----
+  BORDA: {
+    ON: true,
+    CHANCE: 0.45,           // dos sustos, essa parte é da borda (o resto é o FNAF)
+    BIG_CHANCE: 0.55,       // dos da borda, essa parte é o grande (mãos + rosto); o resto só mãos
+    CLOSE_S: 1.4,           // a escuridão fecha nesse tempo
+    INNER_MIN: 0.42,        // até onde ela fecha (menor = mais fechada)
+    HANDS_S: 1.0,           // as mãos saem do preto nesse tempo
+    HAND_REACH: 0.3,        // quanto as mãos entram na visão
+    RETREAT_S: 0.5,         // (susto pequeno) as mãos voltam para o preto
+    RELEASE_S: 0.9,         // a escuridão vai embora
+    DAMAGE: 0,              // o da borda não tira vida (não dá para fugir dele)
   },
 
   // ---- Susto do braço (v28): desligado na v29 (o susto agora é o FNAF) ----
@@ -995,6 +1016,17 @@ class Sfx {
     if (!this._sample('longe', 1.6 * A.SCARE_VOL, this._at(pos))) this.screamAt(pos);
   }
 
+  // v31: unhas arranhando, vindo de um lado (3D): avisa de onde a mão vai sair
+  scratchAt(pos) {
+    if (!this.on) return;
+    const dest = this._at(pos);
+    for (let i = 0; i < 4; i++) {
+      this._noise(0.16, { gain: 0.7 * A.ZOMBIE_VOL, freq: 3000 + Math.random() * 2500, q: 4, at: i * 0.22 + Math.random() * 0.05, dest });
+      this._noise(0.12, { gain: 0.35 * A.ZOMBIE_VOL, freq: 900, q: 2, at: i * 0.22, dest });
+    }
+    this._tone(70, 1.2, { type: 'sawtooth', gain: 0.25 * A.ZOMBIE_VOL, slide: -20, dest });
+  }
+
   // v29: susto estilo FNAF (o zumbi na cara): grito MUITO alto, rasgado,
   // com rugido grave por baixo. Não é 3D: é "na cara" mesmo.
   jumpscare() {
@@ -1319,7 +1351,6 @@ class HandHint {
 //  - coberto: tem laje/telhado em cima (usado para escolher pontos dentro das salas).
 // Os pontos de sinal (caixas) são escolhidos sozinhos: lugares alcançáveis a pé,
 // encostados em parede, bem espalhados, agrupados em áreas.
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const M = CONFIG.MAP;
 const BAND = 0.15;          // altura de cada faixa da parede (m)
@@ -2605,6 +2636,110 @@ function makeShadowTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+// ===== js/zumbimodelo.js =====
+// Modelo 3D de zumbi (v31): se existir models/zumbi.glb (com esqueleto e
+// animações), os zumbis do jogo usam ele; senão continua o boneco feito por
+// código. As animações são achadas pelo nome (andar/correr/atacar/morrer...).
+
+// nomes de animação mais comuns (Mixamo, Quaternius, Unity...)
+const CLIP_NAMES = {
+  idle: /idle|stand|breath/i,
+  walk: /walk|shamble|move/i,
+  run: /run|sprint|chase|jog/i,
+  attack: /attack|bite|punch|claw|swing|hit(?!.?react)/i,
+  hit: /hit.?react|react|hurt|damage|stagger/i,
+  death: /death|die|dead|dying|fall/i,
+};
+
+async function loadZombieModel(onStatus = () => {}) {
+  const Z = CONFIG.ZOMBIES;
+  if (!Z.MODEL_URLS || !Z.MODEL_URLS.length) return null;
+  const loader = new GLTFLoader();
+  for (const url of Z.MODEL_URLS) {
+    try {
+      const g = await new Promise((ok, no) => loader.load(url, ok, undefined, no));
+      const scene = g.scene;
+      let skinned = false;
+      scene.traverse((o) => { if (o.isSkinnedMesh) skinned = true; });
+      const box = new THREE.Box3().setFromObject(scene);
+      const h = box.max.y - box.min.y;
+      if (!(h > 0.01)) continue;
+      const clips = {};
+      for (const [k, re] of Object.entries(CLIP_NAMES)) {
+        const c = g.animations.find((a) => re.test(a.name) && !(k === 'walk' && CLIP_NAMES.run.test(a.name)));
+        if (c) clips[k] = c;
+      }
+      if (!clips.walk && g.animations.length) clips.walk = g.animations[0];
+      onStatus(`🧟 Modelo de zumbi carregado (${g.animations.length} animações)`);
+      return { scene, clips, norm: Z.MODEL_HEIGHT / h, minY: box.min.y, skinned, names: g.animations.map((a) => a.name) };
+    } catch (e) { /* tenta o próximo endereço; sem arquivo = boneco feito por código */ }
+  }
+  return null;
+}
+
+// Cria um zumbi a partir do modelo, no mesmo formato do boneco feito por
+// código (root, mats, scale), mais o mixer de animação.
+function makeModelZombie(asset) {
+  const Z = CONFIG.ZOMBIES;
+  const root = new THREE.Group();
+  const body = new THREE.Group(); // tudo que cai/inclina
+  root.add(body);
+  const model = SkeletonUtils.clone(asset.scene);
+  model.scale.setScalar(asset.norm);
+  model.position.y = -asset.minY * asset.norm;
+  model.rotation.y = Z.MODEL_ROT_Y || 0;
+  body.add(model);
+  const mats = [];
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false; // (a malha animada sai da caixa original)
+    o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+    for (const m of [].concat(o.material)) if (m.emissive) mats.push(m);
+  });
+  let head = null;
+  model.traverse((o) => { if (!head && o.isBone && /head/i.test(o.name)) head = o; });
+  const s = 0.92 + Math.random() * 0.16;
+  root.scale.setScalar(s);
+  const mixer = new THREE.AnimationMixer(model);
+  const actions = {};
+  for (const [k, c] of Object.entries(asset.clips)) actions[k] = mixer.clipAction(c);
+  if (actions.attack) { actions.attack.setLoop(THREE.LoopOnce, 1); actions.attack.clampWhenFinished = false; }
+  if (actions.death) { actions.death.setLoop(THREE.LoopOnce, 1); actions.death.clampWhenFinished = true; }
+  if (actions.hit) { actions.hit.setLoop(THREE.LoopOnce, 1); }
+  const m = { root, body, model, mats, scale: s, gltf: true, mixer, actions, cur: null, headBone: head };
+  playAnim(m, actions.idle ? 'idle' : 'walk');
+  // começa a animação num ponto sorteado (os zumbis não andam todos iguais)
+  mixer.update(Math.random() * 2);
+  return m;
+}
+
+// troca de animação com transição suave
+function playAnim(m, name, fade = 0.25) {
+  const a = m.actions[name] || (name === 'run' ? m.actions.walk : null) || (name === 'idle' ? m.actions.walk : null);
+  if (!a || m.cur === a) return a;
+  a.reset().setEffectiveWeight(1).fadeIn(fade).play();
+  if (m.cur) m.cur.fadeOut(fade);
+  m.cur = a;
+  return a;
+}
+
+// ação "por cima" (ataque, levar golpe), volta para a de antes sozinha
+function playOnce(m, name) {
+  const a = m.actions[name];
+  if (!a) return false;
+  const back = m.cur;
+  a.reset().setEffectiveWeight(1).fadeIn(0.08).play();
+  if (back && back !== a) back.fadeOut(0.08);
+  m.cur = a;
+  const done = (e) => {
+    if (e.action !== a) return;
+    m.mixer.removeEventListener('finished', done);
+    if (m.cur === a && !m.dead) { a.fadeOut(0.15); m.cur = null; playAnim(m, m.wantLoop || 'walk', 0.15); }
+  };
+  m.mixer.addEventListener('finished', done);
+  return true;
+}
+
 // ===== js/zombies.js =====
 // Zumbis: bonecos feitos no código (sem arquivos), espalhados pela escola.
 //  - parados balançando até verem/ouvirem o jogador (ou ouvirem um tiro);
@@ -2664,6 +2799,7 @@ class Horde {
     this.scene = scene;
     this.world = world;
     this.hooks = hooks;
+    this.factory = null; // v31: se tiver o modelo 3D (models/zumbi.glb), cria a partir dele
     this.list = [];
     this.planned = 0;
     this.pending = 0;
@@ -2698,11 +2834,11 @@ class Horde {
   }
 
   _add(x, y, z, opts = {}) {
-    const m = makeZombie();
+    const m = this.factory ? this.factory() : makeZombie();
     m.root.position.set(x, y, z);
     m.root.rotation.y = opts.yaw ?? Math.random() * Math.PI * 2;
     this.scene.add(m.root);
-    if (opts.scream) for (const mat of [m.mats[0]]) mat.color.setHex(0xb8c7a8); // pele mais pálida
+    if (opts.scream && !m.gltf && m.mats[0]) m.mats[0].color.setHex(0xb8c7a8); // pele mais pálida
     const zb = {
       m, hp: opts.hp ?? Z.HP, dead: false, deadT: 0, dummy: !!opts.dummy,
       alert: false, speed: Z.SPEED_MIN + Math.random() * (Z.SPEED_MAX - Z.SPEED_MIN),
@@ -3186,7 +3322,26 @@ class Horde {
     this.nearest = nearest;
   }
 
+  // v31: zumbi do modelo 3D: escolhe a animação pelo que ele está fazendo
+  _animModel(z, dt) {
+    const m = z.m;
+    if (z.swing > 0 && !z._swung) { z._swung = true; playOnce(m, 'attack'); }
+    if (z.swing <= 0) z._swung = false;
+    if (z.swing > 0) z.swing -= dt;
+    if (z.hitT > 0 && !z._hitAnim && m.actions.hit && !z._swung) { z._hitAnim = true; playOnce(m, 'hit'); }
+    if (z.hitT <= 0) z._hitAnim = false;
+    m.wantLoop = z.moving > CONFIG.ZOMBIES.RUN_ANIM_SPEED ? 'run' : z.moving > 0.08 ? 'walk' : 'idle';
+    const once = m.cur && (m.cur === m.actions.attack || m.cur === m.actions.hit);
+    if (!once) playAnim(m, m.wantLoop);
+    if (m.cur && (m.cur === m.actions.walk || m.cur === m.actions.run)) m.cur.timeScale = THREE.MathUtils.clamp(z.moving / (m.cur === m.actions.run ? 3 : 0.8), 0.6, 1.8);
+    m.mixer.update(dt);
+    if (z.hitT > 0) z.hitT -= dt;
+    const fl = z.hitT > 0;
+    for (const mat of m.mats) mat.emissive.setHex(fl ? 0x993333 : 0x000000);
+  }
+
   _animWalk(z, dt) {
+    if (z.m.gltf) { this._animModel(z, dt); return; }
     const m = z.m;
     const k = Math.min(1, z.moving / 0.6);
     z.phase += dt * (2.5 + z.moving * 5);
@@ -3212,8 +3367,16 @@ class Horde {
     const m = z.m;
     z.deadT += dt;
     const t = Math.min(1, z.deadT / 0.6);
-    m.body.rotation.x = -t * t * 1.5 * z.fallDir;
-    m.body.position.y = Math.sin(t * Math.PI) * 0.1;
+    if (m.gltf && m.actions.death) {
+      // modelo 3D com animação de morte: toca ela
+      if (!m.dead) { m.dead = true; playAnim(m, 'death', 0.1); }
+      m.mixer.update(dt);
+    } else {
+      if (m.gltf && !m.dead) { m.dead = true; if (m.cur) m.cur.fadeOut(0.1); }
+      if (m.gltf) m.mixer.update(dt);
+      m.body.rotation.x = -t * t * 1.5 * z.fallDir;
+      m.body.position.y = Math.sin(t * Math.PI) * 0.1;
+    }
     for (const mat of m.mats) mat.emissive.setHex(0x000000);
     if (z.deadT > Z.CORPSE_S) {
       m.root.position.y -= dt * 0.4; // afunda no chão e some
@@ -6917,6 +7080,7 @@ class Jumpscare {
 
   // monta o rosto (uma vez) com materiais próprios (não mexe nos zumbis do jogo)
   _build() {
+    if (this.factory) return this._buildModel();
     const m = makeZombie();
     const mats = [];
     m.root.traverse((o) => {
@@ -6933,8 +7097,25 @@ class Jumpscare {
     this.m = m;
   }
 
+  // com o modelo 3D: o rosto é o modelo de verdade, atacando, com a cabeça no meio da visão
+  _buildModel() {
+    const m = this.factory();
+    m.root.scale.setScalar(1);
+    m.root.traverse((o) => { if (o.isMesh) o.renderOrder = 49; });
+    // altura da cabeça (osso "head" se tiver; senão ~92% da altura)
+    m.root.updateMatrixWorld(true);
+    const hp = new THREE.Vector3();
+    if (m.headBone) m.headBone.getWorldPosition(hp); else hp.set(0, CONFIG.ZOMBIES.MODEL_HEIGHT * 0.92, 0.1);
+    m.headY = hp.y; m.headZ = hp.z;
+    playAnim(m, m.actions.attack ? 'attack' : 'walk', 0);
+    if (m.actions.attack) m.actions.attack.setLoop(THREE.LoopRepeat, Infinity);
+    this.camera.add(m.root);
+    this.m = m;
+  }
+
   start(onEnd) {
     if (!this.m) this._build();
+    if (this.m._hp) this.m._hp = null; // recomeça centralizando
     this.onEnd = onEnd;
     this.t = 0;
     this.m.root.visible = true;
@@ -6954,6 +7135,21 @@ class Jumpscare {
     const shake = (k < 1 ? 0.5 : 1) * (1 - Math.min(1, hold / R.HOLD_S) * 0.5);
     const j = () => (Math.random() - 0.5) * 0.035 * shake;
     // a cabeça do zumbi fica bem no meio da visão
+    if (m.gltf) {
+      m.root.rotation.set(j() * 3, j() * 3, j() * 4);
+      m.mixer.update(dt * 1.6);
+      // segue a cabeça a cada quadro (a animação mexe ela): fica sempre no meio da visão
+      if (!m._hp) { m._hp = new THREE.Vector3(); m.root.position.set(0, -m.headY, z - m.headZ); }
+      m.root.updateMatrixWorld(true);
+      if (m.headBone) { m.headBone.getWorldPosition(m._hp); this.camera.worldToLocal(m._hp); }
+      else m._hp.set(m.root.position.x, m.root.position.y + m.headY, m.root.position.z + m.headZ);
+      m.root.position.x += (j() - m._hp.x);
+      m.root.position.y += (j() - m._hp.y);
+      m.root.position.z += (z + j() - m._hp.z);
+      for (const mat of m.mats) mat.emissive.setHex(Math.sin(t * 30) > 0 ? 0x551111 : 0x220000);
+      if (hold >= R.HOLD_S) { this.t = -1; m.root.visible = false; const fn = this.onEnd; this.onEnd = null; if (fn) fn(); }
+      return;
+    }
     m.root.position.set(j(), -1.66 + j(), z - 0.12 + j());
     m.root.rotation.set(j() * 3, j() * 3, j() * 4);
     // braços para cima (agarrando), boca bem aberta, cabeça sacudindo
@@ -6971,6 +7167,117 @@ class Jumpscare {
   }
 
   reset() { this.t = -1; this.onEnd = null; if (this.m) this.m.root.visible = false; }
+}
+
+// ===== js/borda.js =====
+// Susto da borda preta do óculos (v31). A borda escura da lente é um lugar
+// que o jogador "esquece": a escuridão avança devagar para dentro, mãos com
+// garras saem do preto agarrando para dentro da visão e, no susto grande, o
+// rosto do zumbi rompe a escuridão e pula na sua cara.
+//  big = true: mãos + rosto (susto grande) · false: só as mãos (susto pequeno)
+
+// escuridão que fecha a partir da borda (pelo ângulo do centro da visão)
+function makeDark() {
+  const D = 0.11;
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthTest: false, depthWrite: false,
+    uniforms: { strength: { value: 0 }, inner: { value: 0.8 }, outer: { value: 1.2 }, t: { value: 0 } },
+    vertexShader: 'varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform float strength, inner, outer, t; varying vec2 vP;
+      void main(){
+        float r = length(vP) / ${D.toFixed(3)};
+        float ang = atan(vP.y, vP.x);
+        // borda "viva": a escuridão ondula (parece algo se mexendo no preto)
+        float wob = 0.06 * sin(ang * 7.0 + t * 3.0) + 0.04 * sin(ang * 13.0 - t * 5.0);
+        float a = smoothstep(inner + wob, outer + wob, r) * strength;
+        gl_FragColor = vec4(0.0, 0.0, 0.0, a);
+      }`,
+  });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(D * 10, D * 10), mat);
+  m.position.z = -D;
+  m.renderOrder = 47;
+  m.frustumCulled = false;
+  m.visible = false;
+  return m;
+}
+
+class BorderScare {
+  constructor(camera) {
+    this.dark = makeDark();
+    camera.add(this.dark);
+    this.arms = [makeArm(), makeArm()];
+    for (const a of this.arms) { a.visible = false; camera.add(a); }
+    this.t = -1;
+    this._p = new THREE.Vector3();
+  }
+
+  get active() { return this.t >= 0; }
+
+  // onFace: chamado quando o rosto deve pular (susto grande); onEnd: no fim
+  start(big, { onFace, onEnd, onHands } = {}) {
+    this.big = big;
+    this.t = 0;
+    this.onFace = onFace; this.onEnd = onEnd; this.onHands = onHands;
+    this._faceDone = false; this._handsDone = false;
+    // lados por onde as mãos saem: esquerda, direita, de cima (uma ou duas mãos)
+    const sides = ['left', 'right', 'top'].sort(() => Math.random() - 0.5);
+    this.sides = big ? sides.slice(0, 2) : sides.slice(0, 1);
+    this.dark.visible = true;
+  }
+
+  // posição da mão saindo da borda: k = 0 (escondida no preto) .. 1 (para dentro)
+  _place(arm, side, k, t, i) {
+    const B = CONFIG.BORDA;
+    const out = 0.62, inn = 0.62 - B.HAND_REACH * k;
+    const claw = Math.sin(t * 9 + i * 2) * 0.12 * k; // garras arranhando
+    const z = -0.42;
+    if (side === 'left') { arm.position.set(-inn, -0.05 + Math.sin(t * 2 + i) * 0.03, z); arm.rotation.set(0.3, 0, claw - 0.15); }
+    else if (side === 'right') { arm.position.set(inn, -0.02 + Math.sin(t * 2.3 + i) * 0.03, z); arm.rotation.set(0.3, Math.PI, claw - 0.15); }
+    else { arm.position.set(Math.sin(t * 1.7 + i) * 0.05, out * 0.72 - B.HAND_REACH * 0.7 * k, z); arm.rotation.set(0.3, 0, -Math.PI / 2 + claw); }
+    arm.visible = k > 0.02;
+  }
+
+  update(dt) {
+    if (this.t < 0) return;
+    const B = CONFIG.BORDA;
+    this.t += dt;
+    const t = this.t, u = this.dark.material.uniforms;
+    u.t.value = t;
+    // 1) a escuridão fecha devagar (com uma "respiração")
+    const close = Math.min(1, t / B.CLOSE_S);
+    const breathe = 0.04 * Math.sin(t * 5);
+    const end = this.big ? B.CLOSE_S + B.HANDS_S : B.CLOSE_S + B.HANDS_S + B.RETREAT_S;
+    let release = 0;
+    if (t > end) release = Math.min(1, (t - end) / B.RELEASE_S);
+    u.strength.value = Math.min(1, close * 1.2) * (1 - release);
+    u.inner.value = THREE.MathUtils.lerp(0.95, B.INNER_MIN, close) + breathe + release * 0.5;
+    u.outer.value = u.inner.value + 0.35;
+    // 2) mãos saindo do preto (e voltando no susto pequeno)
+    const h0 = B.CLOSE_S * 0.5;
+    let k = THREE.MathUtils.clamp((t - h0) / B.HANDS_S, 0, 1);
+    if (!this.big && t > B.CLOSE_S + B.HANDS_S) k = 1 - Math.min(1, (t - B.CLOSE_S - B.HANDS_S) / B.RETREAT_S);
+    if (this.big && t > B.CLOSE_S + B.HANDS_S) k = 1; // seguram até o rosto pular
+    k = k * k * (3 - 2 * k);
+    if (k > 0.05 && !this._handsDone) { this._handsDone = true; this.onHands && this.onHands(this.sides[0]); }
+    this.arms.forEach((a, i) => { if (i < this.sides.length) this._place(a, this.sides[i], k, t, i); else a.visible = false; });
+    // 3) susto grande: o rosto rompe a escuridão
+    if (this.big && !this._faceDone && t > B.CLOSE_S + B.HANDS_S) {
+      this._faceDone = true;
+      for (const a of this.arms) a.visible = false;
+      this.onFace && this.onFace();
+    }
+    if (release >= 1) this._finish();
+  }
+
+  _finish() {
+    this.t = -1;
+    this.dark.visible = false;
+    for (const a of this.arms) a.visible = false;
+    const fn = this.onEnd; this.onEnd = null;
+    if (fn) fn();
+  }
+
+  reset() { this.t = -1; this.dark.visible = false; for (const a of this.arms) a.visible = false; this.onEnd = null; }
 }
 
 // ===== js/main.js =====
@@ -7087,6 +7394,15 @@ class App {
     // v25: controle de videogame
     this.swipe = new ArmSwipe(this.camera);
     this.jump = new Jumpscare(this.camera);
+    this.border = new BorderScare(this.camera);
+    // v31: modelo 3D de zumbi (models/zumbi.glb), se existir
+    loadZombieModel().then((asset) => {
+      if (!asset) return;
+      this.zombieModel = asset;
+      this.horde.factory = () => makeModelZombie(asset);
+      this.jump.factory = () => makeModelZombie(asset);
+      console.log('Modelo de zumbi:', asset.names.join(', '));
+    }).catch(() => {});
     this.pad = new Pad();
     // v27: grito distante de algum lugar da escola (som 3D), de vez em quando
     this.sfx.onDistant = () => {
@@ -7361,6 +7677,7 @@ class App {
     this._nextRush(true);
     this._runner = null;
     this.jump.reset();
+    this.border.reset();
     this._scares = 0;
     this._scareT = CONFIG.ZOMBIES.SCARE_FIRST_S;
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
@@ -8016,6 +8333,7 @@ class App {
     this._updateSwipe(dt);
     this._updateRush(dt);
     this.jump.update(dt);
+    this.border.update(dt);
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
@@ -8217,7 +8535,11 @@ class App {
 
   _updateRush(dt) {
     const R = CONFIG.RUSH;
-    if (!R.ON || this.state !== 'playing') { if (this.state !== 'playing' && this.jump.active) this.jump.reset(); return; }
+    if (!R.ON || this.state !== 'playing') {
+      if (this.state !== 'playing') { if (this.jump.active) this.jump.reset(); if (this.border.active) this.border.reset(); }
+      return;
+    }
+    if (this.border.active) return;
     if (this._runner) {
       if (this._runner.dead) { this._runner = null; this._nextRush(); }
       return;
@@ -8225,6 +8547,9 @@ class App {
     if (this.jump.active) return;
     this._rushT -= dt;
     if (this._rushT > 0) return;
+    // v31: sorteia o tipo de susto: borda preta (grande ou pequeno) ou FNAF
+    const B = CONFIG.BORDA;
+    if (B.ON && Math.random() < B.CHANCE) { this._borderScare(Math.random() < B.BIG_CHANCE); return; }
     const z = this.horde.spawnRunner(this.rig.position, this._fwd);
     if (!z) { this._rushT = 2; return; } // sem lugar livre na frente agora
     this._runner = z;
@@ -8232,14 +8557,31 @@ class App {
     this.sfx.screamFar(this._v3.set(p.x, p.y + 1.6, p.z)); // grita lá de longe (som 3D, grito gravado)
   }
 
-  _jumpscare() {
+  _borderScare(big) {
+    this.border.start(big, {
+      onHands: (side) => {
+        // arranhão vindo do lado de onde a mão sai (som 3D)
+        this.camera.getWorldPosition(this._camW);
+        this.camera.getWorldDirection(this._v3); this._v3.y = 0; this._v3.normalize();
+        const sx = side === 'left' ? -1 : side === 'right' ? 1 : 0;
+        const p = this._camW.clone().addScaledVector(this._v3, 0.6);
+        p.x += -this._v3.z * sx * 0.8; p.z += this._v3.x * sx * 0.8; if (!sx) p.y += 0.5;
+        this.sfx.scratchAt(p);
+        this.pad.rumble(250, 0.4, 0.3);
+      },
+      onFace: () => this._jumpscare(CONFIG.BORDA.DAMAGE),
+      onEnd: () => this._nextRush(),
+    });
+  }
+
+  _jumpscare(damage = CONFIG.RUSH.DAMAGE) {
     this.sfx.jumpscare();
     this.hurtK = 1;
     this._shakeK = 1.4;
     this.pad.rumble(1200, 1, 1);
     this.jump.start(() => {
       this.swipe.dimK = 1; // visão escura e clareando
-      if (CONFIG.RUSH.DAMAGE > 0 && this.state === 'playing') this._onBite();
+      if (damage > 0 && this.state === 'playing') this._onBite();
     });
   }
 

@@ -25,6 +25,8 @@ import { DemoHand } from './demo.js';
 import { Pad } from './gamepad.js';
 import { ArmSwipe } from './swipe.js';
 import { Jumpscare } from './jumpscare.js';
+import { BorderScare } from './borda.js';
+import { loadZombieModel, makeModelZombie } from './zumbimodelo.js';
 
 class App {
   constructor() {
@@ -136,6 +138,15 @@ class App {
     // v25: controle de videogame
     this.swipe = new ArmSwipe(this.camera);
     this.jump = new Jumpscare(this.camera);
+    this.border = new BorderScare(this.camera);
+    // v31: modelo 3D de zumbi (models/zumbi.glb), se existir
+    loadZombieModel().then((asset) => {
+      if (!asset) return;
+      this.zombieModel = asset;
+      this.horde.factory = () => makeModelZombie(asset);
+      this.jump.factory = () => makeModelZombie(asset);
+      console.log('Modelo de zumbi:', asset.names.join(', '));
+    }).catch(() => {});
     this.pad = new Pad();
     // v27: grito distante de algum lugar da escola (som 3D), de vez em quando
     this.sfx.onDistant = () => {
@@ -410,6 +421,7 @@ class App {
     this._nextRush(true);
     this._runner = null;
     this.jump.reset();
+    this.border.reset();
     this._scares = 0;
     this._scareT = CONFIG.ZOMBIES.SCARE_FIRST_S;
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
@@ -1065,6 +1077,7 @@ class App {
     this._updateSwipe(dt);
     this._updateRush(dt);
     this.jump.update(dt);
+    this.border.update(dt);
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
@@ -1266,7 +1279,11 @@ class App {
 
   _updateRush(dt) {
     const R = CONFIG.RUSH;
-    if (!R.ON || this.state !== 'playing') { if (this.state !== 'playing' && this.jump.active) this.jump.reset(); return; }
+    if (!R.ON || this.state !== 'playing') {
+      if (this.state !== 'playing') { if (this.jump.active) this.jump.reset(); if (this.border.active) this.border.reset(); }
+      return;
+    }
+    if (this.border.active) return;
     if (this._runner) {
       if (this._runner.dead) { this._runner = null; this._nextRush(); }
       return;
@@ -1274,6 +1291,9 @@ class App {
     if (this.jump.active) return;
     this._rushT -= dt;
     if (this._rushT > 0) return;
+    // v31: sorteia o tipo de susto: borda preta (grande ou pequeno) ou FNAF
+    const B = CONFIG.BORDA;
+    if (B.ON && Math.random() < B.CHANCE) { this._borderScare(Math.random() < B.BIG_CHANCE); return; }
     const z = this.horde.spawnRunner(this.rig.position, this._fwd);
     if (!z) { this._rushT = 2; return; } // sem lugar livre na frente agora
     this._runner = z;
@@ -1281,14 +1301,31 @@ class App {
     this.sfx.screamFar(this._v3.set(p.x, p.y + 1.6, p.z)); // grita lá de longe (som 3D, grito gravado)
   }
 
-  _jumpscare() {
+  _borderScare(big) {
+    this.border.start(big, {
+      onHands: (side) => {
+        // arranhão vindo do lado de onde a mão sai (som 3D)
+        this.camera.getWorldPosition(this._camW);
+        this.camera.getWorldDirection(this._v3); this._v3.y = 0; this._v3.normalize();
+        const sx = side === 'left' ? -1 : side === 'right' ? 1 : 0;
+        const p = this._camW.clone().addScaledVector(this._v3, 0.6);
+        p.x += -this._v3.z * sx * 0.8; p.z += this._v3.x * sx * 0.8; if (!sx) p.y += 0.5;
+        this.sfx.scratchAt(p);
+        this.pad.rumble(250, 0.4, 0.3);
+      },
+      onFace: () => this._jumpscare(CONFIG.BORDA.DAMAGE),
+      onEnd: () => this._nextRush(),
+    });
+  }
+
+  _jumpscare(damage = CONFIG.RUSH.DAMAGE) {
     this.sfx.jumpscare();
     this.hurtK = 1;
     this._shakeK = 1.4;
     this.pad.rumble(1200, 1, 1);
     this.jump.start(() => {
       this.swipe.dimK = 1; // visão escura e clareando
-      if (CONFIG.RUSH.DAMAGE > 0 && this.state === 'playing') this._onBite();
+      if (damage > 0 && this.state === 'playing') this._onBite();
     });
   }
 

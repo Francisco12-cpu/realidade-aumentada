@@ -264,6 +264,17 @@ export class Sfx {
     if (!this._sample('longe', 1.6 * A.SCARE_VOL, this._at(pos))) this.screamAt(pos);
   }
 
+  // v31: unhas arranhando, vindo de um lado (3D): avisa de onde a mão vai sair
+  scratchAt(pos) {
+    if (!this.on) return;
+    const dest = this._at(pos);
+    for (let i = 0; i < 4; i++) {
+      this._noise(0.16, { gain: 0.7 * A.ZOMBIE_VOL, freq: 3000 + Math.random() * 2500, q: 4, at: i * 0.22 + Math.random() * 0.05, dest });
+      this._noise(0.12, { gain: 0.35 * A.ZOMBIE_VOL, freq: 900, q: 2, at: i * 0.22, dest });
+    }
+    this._tone(70, 1.2, { type: 'sawtooth', gain: 0.25 * A.ZOMBIE_VOL, slide: -20, dest });
+  }
+
   // v29: susto estilo FNAF (o zumbi na cara): grito MUITO alto, rasgado,
   // com rugido grave por baixo. Não é 3D: é "na cara" mesmo.
   jumpscare() {

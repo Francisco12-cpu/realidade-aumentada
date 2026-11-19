@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v30, 19/11/2026)
+# Escola Zumbi: estado do projeto (v31, 19/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -66,6 +66,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v31 | #29 | Susto da borda preta (mãos saindo do preto + rosto), suporte a modelo 3D de zumbi com animações (models/zumbi.glb + tools/zumbi-modelo.py), trailer automático (trailer.html) |
 | v30 | #28 | Gritos gravados no susto (grito de longe em 3D e grito na cara), recortados de um som do Pixabay |
 | v29 | #27 | Susto estilo FNAF: zumbi aparece longe na frente, corre gritando e pula na cara (fica colado na tela); braço e apagão desligados |
 | v28 | #26 | Susto do braço 3D a cada ~20 s (atravessa a visão, som grave, escurece), socos mais fáceis e 2 para matar, 36 zumbis |
@@ -115,8 +116,39 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
   4. Depois a visão escurece e você perde 1 vida.
 
   Desde a v30, os gritos são **gravados**: o grito de longe (em 3D) e o grito na cara ficam em `sons/` e são recortes de um som de grito de zumbi do Pixabay, de licença livre. Se não carregarem, o jogo usa os gritos feitos por código. Ele não conta no placar. Ajustes em `RUSH`. O braço da v28 e o apagão da v27 ficaram desligados (`SWIPE.ON`, `ZOMBIES.SCARE_MAX`).
+- **Susto da borda preta (v31):** é sorteado junto com o FNAF (45% das vezes; `BORDA`).
+  1. A escuridão da borda da lente fecha devagar e ondula, como se algo se mexesse no preto.
+  2. Vem um arranhão de unhas em 3D do lado de onde a mão vai sair.
+  3. Mãos com garras saem do preto, agarrando para dentro da visão.
+  4. No susto grande (55%), o rosto do zumbi rompe a escuridão e pula na cara. No pequeno, as mãos voltam para o preto.
+
+  Esse susto não tira vida, porque não dá para fugir dele.
 - **Susto do braço (v28):** mais ou menos a cada 20 s, com tempo sorteado (±8 s; o primeiro por volta dos 12 s), um **braço de zumbi em 3D passa voando** bem na frente da visão. Ele entra por uma borda da lente e sai pela outra em 0,3 s, com um vuuush que passa de um ouvido para o outro e um **rugido grave e alto**. Depois a visão fica **escura** e clareia em uns 2,6 s. Não tira vida. Ajustes em `SWIPE`.
 - **Tiro não atravessa parede:** a mira confere a grade da escola na linha da mira e na linha até o zumbi. Na hora do tiro, confere também os triângulos de verdade da escola. Folhas e vidros não seguram o tiro.
+
+## Modelo 3D de zumbi (v31)
+
+- Se existir `models/zumbi.glb` (com esqueleto e animações), os zumbis e o rosto do susto usam ele. Senão, continua o boneco feito por código.
+- As animações são achadas pelo nome (`js/zumbimodelo.js`): parado (idle), andar (walk), correr (run), atacar (attack/bite), levar golpe (hit/react) e morrer (death/die). Elas trocam sozinhas pelo que o zumbi está fazendo.
+- A altura é ajustada para 1,75 m (`ZOMBIES.MODEL_HEIGHT`). Se o modelo vier de costas, use `ZOMBIES.MODEL_ROT_Y: Math.PI`.
+- Para converter um modelo (FBX, GLB ou BLEND), use o Blender:
+  `blender -b --python tools/zumbi-modelo.py -- ENTRADA.fbx models/zumbi.glb 7000 [animacoes.fbx ...]`
+  O script reduz a malha para ~7 mil triângulos, as texturas para 1024 px e exporta todas as animações. Animações em arquivos separados, como as do Mixamo, também servem.
+- Testado com um zumbi de teste feito no Blender: andar, correr, atacar, morrer e o susto.
+- Sugestão de modelo grátis: o Zombie Apocalypse Kit do Quaternius (CC0).
+
+## Trailer (v31, `trailer.html`)
+
+- Abra `trailer.html` no Chrome do PC, pelo site ou pelo servidor local. A página monta o jogo de verdade e filma um roteiro de 45 s em 1920×1080, com títulos e som:
+  1. drone sobre a escola, com o título;
+  2. corredor com zumbis vagando;
+  3. tiros na cabeça em 1ª pessoa;
+  4. soco em câmera lenta;
+  5. visto de fora: zumbi chegando por trás;
+  6. o corredor grita e pula na cara;
+  7. cartela final.
+- **⏺ Gravar trailer** grava o vídeo (.webm, com som) e mostra o botão para baixar no fim. Não troque de aba durante a gravação. Depois dá para converter para MP4 (YouTube/Reels) com o ffmpeg.
+- O roteiro está em `js/trailer.js`, com cada cena e seus tempos. Os números aleatórios são fixos, então o trailer sai sempre igual.
 
 ## O mundo em volta (v24, `js/cenario.js`)
 
@@ -164,6 +196,9 @@ js/gun.js           arma de mão: pistolinha, gatilho do polegar, recarga, laser
 js/lobby.js         saguão na lente: contagem, mão aberta para começar e jogar de novo
 js/cenario.js       mundo em volta da escola (céu, ruas, prédios, carros, fogo, fumaça)
 js/demo.js          mão fantasma do tutorial
+js/borda.js         susto da borda preta do óculos
+js/zumbimodelo.js   modelo 3D de zumbi com animações (se existir models/zumbi.glb)
+js/trailer.js       trailer automático (trailer.html)
 js/jumpscare.js     rosto do zumbi colado na tela (susto FNAF)
 js/swipe.js         susto do braço (passa na frente da visão e escurece)
 js/gamepad.js       controle de videogame (Xbox)
@@ -203,6 +238,6 @@ dist/index.html     jogo inteiro num arquivo só (gerado sozinho pelo GitHub)
 - [ ] Zumbis que estão a mais de 45 m só vagam: não atravessam a escola inteira atrás do jogador.
 - [ ] Os testes automáticos no navegador sem janela travam neste PC (Chrome/Edge). Os testes foram feitos no Node, com scripts que ficaram só na pasta temporária, e no celular.
 - [ ] Branches antigas no GitHub (`escola-3d`, `feira-vr`) podem ser apagadas quando você quiser.
-- [ ] Modelo novo de zumbi (HalfEatenZombie, pacote Unity): o download não terminou (o zip na pasta tem 0 bytes). Com o arquivo completo, converter o FBX para GLB no Blender e trocar o boneco feito por código.
+- [ ] Modelo novo de zumbi: o jogo já está pronto (v31). Falta o arquivo: o HalfEatenZombie não terminou de baixar. Com o arquivo completo, rodar `tools/zumbi-modelo.py` para gerar `models/zumbi.glb`.
 - [ ] Do plano de melhoria, ainda faltam: texturas KTX2 de 2048 px perto do jogador, sombra "pintada" (bake de luz) no Blender, pré-cálculo de quais salas se enxergam, calibração mais curta.
 - [ ] Ideias: sons de passos dos zumbis, tipos diferentes de zumbi (rápido, forte), placar com zumbis por onda.
