@@ -4,6 +4,13 @@
 // Aparece no canto (HTML) e, no óculos, num painel pequeno preso à visão (3D).
 import * as THREE from 'three';
 
+// v25: no modo controle
+export const COACH_PAD = [
+  { id: 'walk', icon: '🕹', text: 'Analógico esq. = anda' },
+  { id: 'aim', icon: '🎯', text: 'Olhe para o zumbi = mira' },
+  { id: 'shoot', icon: '🔫', text: 'RT = atira · X = soco' },
+];
+
 export const COACH_STEPS = [
   { id: 'walk', icon: '✋', text: 'Esquerda aberta = anda' },
   { id: 'aim', icon: '🎯', text: 'Olhe para o zumbi = mira' },
@@ -39,7 +46,7 @@ export class Coach {
     if (key === this._key) return;
     this._key = key;
     // HTML (tela normal)
-    const rows = COACH_STEPS.map((s) => {
+    const rows = (st.pad ? COACH_PAD : COACH_STEPS).map((s) => {
       const cls = [st.done[s.id] ? 'done' : '', st.cur === s.id ? 'cur' : '', st.active[s.id] ? 'act' : ''].join(' ');
       return `<div class="row ${cls}"><span class="ic">${s.icon}</span><span>${s.text}</span>${st.done[s.id] ? '<span class="ok">✔</span>' : ''}</div>`;
     }).join('');
@@ -59,7 +66,7 @@ export class Coach {
       c.fillStyle = '#ffd36b'; c.font = 'bold 30px system-ui, sans-serif'; c.textAlign = 'left';
       c.fillText(st.title, 22, y, W - 44); y += 46;
     }
-    for (const s of COACH_STEPS) {
+    for (const s of (st.pad ? COACH_PAD : COACH_STEPS)) {
       const on = st.active[s.id], cur = st.cur === s.id;
       if (cur || on) { c.fillStyle = cur ? 'rgba(255,60,60,0.35)' : 'rgba(80,220,120,0.3)'; rr(c, 12, y - 26, W - 24, 52, 14); c.fill(); }
       c.font = '34px system-ui, sans-serif'; c.textAlign = 'left';

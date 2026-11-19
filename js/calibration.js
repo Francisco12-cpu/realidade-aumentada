@@ -139,18 +139,27 @@ export class CalibrationFlow {
     // ?auto no link: tela inicial só com o botão grande (bom para a feira)
     let auto = false;
     try { auto = new URLSearchParams(location.search).has('auto') && !this._full; } catch (e) { /* */ }
-    const headset = { label: '▶ Jogar no óculos', cls: 'primary big', onClick: () => this.app.playInHeadset() };
+    const pad = !!this.app.options.controle;
+    const headset = { label: pad ? '▶ Jogar no óculos (🎮 controle)' : '▶ Jogar no óculos (✋ mãos)', cls: 'primary big', onClick: () => this.app.playInHeadset() };
+    // v25: escolha do modo, sempre no topo
+    const modeHtml = `<div class="modes">
+        <button class="mode ${pad ? '' : 'on'}" data-mode="maos">✋ Mãos<br><span class="small">câmera do celular</span></button>
+        <button class="mode ${pad ? 'on' : ''}" data-mode="controle">🎮 Controle<br><span class="small">Xbox (Bluetooth)</span></button>
+      </div>
+      ${pad ? `<p class="small">No óculos: <b>analógico esquerdo</b> anda, <b>analógico direito</b> gira, <b>olhe</b> para mirar, <b>RT</b> atira, <b>X</b> soco, <b>Y</b> recentra, <b>A</b> começa. Não precisa de câmera nem de calibrar.</p>
+        <p class="small" id="pad-status"></p>` : ''}`;
     if (auto) {
-      this._show(`🧟 Escola Zumbi <span class="small">${CONFIG.VERSION}</span>`, `
-        <p>Toque no botão, <b>coloque o celular no óculos</b> e olhe para frente. O jogo começa sozinho em ${CONFIG.LOBBY.COUNTDOWN_S} s (ou mostre a <b>✋ mão aberta</b>).</p>
+      this._show(`🧟 Escola Zumbi <span class="small">${CONFIG.VERSION}</span>`, `${modeHtml}
+        <p>Toque no botão, <b>coloque o celular no óculos</b> e olhe para frente. O jogo começa sozinho em ${CONFIG.LOBBY.COUNTDOWN_S} s (ou ${pad ? 'aperte <b>A</b>' : 'mostre a <b>✋ mão aberta</b>'}).</p>
         ${saved ? '<p class="ok">✔ Usando a calibração salva.</p>' : '<p class="small">Sem calibração salva: usa o padrão.</p>'}
         <p class="small" id="map-status">${this.app.mapText}</p>`, [
         headset,
         { label: 'Mais opções', onClick: () => { this._full = true; this.welcome(); } },
       ]);
+      this._wireModes();
       return;
     }
-    const html = `
+    const html = `${modeHtml}
       <p><b>Protótipo de teste</b> do jogo <i>Escola Zumbi</i>.</p>
       <p>A escola foi tomada por <b>zumbis</b>! Ande pela escola e elimine todos antes do tempo acabar. Sem tocar no celular: <b>🎯 olhe para o zumbi = mira</b> (ponto no meio da visão), <b>👉 pistolinha da mão DIREITA = atira</b> sozinho a cada recarga (barra) e <b>✋ palma aberta da mão ESQUERDA = anda</b> para onde você olha. <b>👊 Soco rápido</b> de perto também vale.</p>
       <p>Para o primeiro teste, <b>segure o celular na frente dos olhos</b> com uma mão, com a câmera traseira apontando para frente. A outra mão fica na frente da câmera.</p>
@@ -161,7 +170,9 @@ export class CalibrationFlow {
       <p class="small" id="offline"></p>
       <p class="small">Dica: o botão 🐞 mostra o painel de depuração (FPS, gestos, prévia da câmera).</p>`;
     const btns = [headset];
-    if (saved) {
+    if (pad) {
+      // modo controle: não precisa de câmera nem de calibração
+    } else if (saved) {
       btns.push({ label: 'Usar calibração salva → tutorial (sem óculos)', onClick: () => this._startWithSaved(saved, 'tutorial') });
       btns.push({ label: 'Ir direto para a partida', onClick: () => this._startWithSaved(saved, 'game') });
       btns.push({ label: 'Recalibrar', onClick: () => this._startFresh() });
@@ -174,7 +185,31 @@ export class CalibrationFlow {
     btns.push({ label: '❓ Ajuda do óculos', onClick: () => this.showHelp(() => this.welcome()) });
     this._show(`🧟 Escola Zumbi — teste <span class="small">${CONFIG.VERSION}</span>`, html, btns);
     this._wireOptions(() => this.welcome());
+    this._wireModes();
     this._checkOffline();
+  }
+
+  // v25: botões ✋ Mãos / 🎮 Controle e o aviso de controle conectado
+  _wireModes() {
+    for (const b of this.el.querySelectorAll('[data-mode]')) {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.app.setOption('controle', b.dataset.mode === 'controle');
+        this.welcome();
+      });
+    }
+    const st = this.el.querySelector('#pad-status');
+    if (!st) return;
+    const tick = () => {
+      if (!st.isConnected) { clearInterval(this._padT); return; }
+      const p = this.app.pad;
+      p.poll();
+      st.innerHTML = p.connected ? `<span class="ok">✔ Controle conectado: ${p.name.replace(/\(.*\)/, '').trim() || 'controle'}</span>`
+        : '<span class="bad">Controle não encontrado.</span> Ligue o controle no Bluetooth do celular e <b>aperte qualquer botão</b> dele.';
+    };
+    clearInterval(this._padT);
+    tick();
+    this._padT = setInterval(tick, 500);
   }
 
   // Tela entre um visitante e outro (calibração e permissões continuam valendo).

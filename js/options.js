@@ -1,7 +1,7 @@
 // Opções do jogador (som, vibração, vinheta, modo feira), salvas no aparelho.
 import { CONFIG } from './config.js';
 
-const DEFAULTS = { sound: true, vibrate: true, vignette: true, feira: false, tutorial: true, parado: false };
+const DEFAULTS = { sound: true, vibrate: true, vignette: true, feira: false, tutorial: true, parado: false, controle: false };
 
 export function loadOptions() {
   let saved = {};

@@ -14,6 +14,32 @@ export class Melee {
     this._eye = new THREE.Vector3();
   }
 
+  // v25: soco pelo controle (botão X): o zumbi mais perto na frente da visão
+  strike(now, horde, player, camera) {
+    const M = CONFIG.MELEE;
+    if (now - (this._padLast || -1e9) < M.COOLDOWN_MS) return null;
+    camera.getWorldDirection(this._hw); this._hw.y = 0;
+    if (this._hw.lengthSq() < 1e-6) return null;
+    this._hw.normalize();
+    let best = null, bd = Infinity;
+    for (const z of horde.list) {
+      if (z.dead) continue;
+      const zp = z.m.root.position;
+      this._dir.set(zp.x - player.x, 0, zp.z - player.z);
+      const d = this._dir.length();
+      if (d > M.RANGE || d < 1e-3 || Math.abs(zp.y - player.y) > 1) continue;
+      this._dir.divideScalar(d);
+      if (THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(this._dir.dot(this._hw), -1, 1))) > M.ANGLE_DEG) continue;
+      if (d < bd) { bd = d; best = z; }
+    }
+    this._padLast = now;
+    if (!best) return { miss: true };
+    const zp = best.m.root.position;
+    this._dir.set(zp.x - player.x, 0, zp.z - player.z).normalize();
+    const kill = horde.punch(best, this._dir);
+    return { zombie: best, kill, point: new THREE.Vector3(zp.x - this._dir.x * 0.28, zp.y + 1.25 * best.m.scale, zp.z - this._dir.z * 0.28), need: best.dummy ? M.DUMMY_PUNCHES : M.PUNCHES };
+  }
+
   // hands · horde · player (posição do rig) · camera
   // Retorna os golpes deste quadro: [{ zombie, kill, point, need }]
   update(now, dt, hands, horde, player, camera) {

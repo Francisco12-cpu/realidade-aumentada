@@ -195,7 +195,8 @@ export class Gun {
     } else if (this.pistol && now - this._pistolSeen > G.GRACE_MS) { this.pistol = false; this.side = null; }
     const cur = this.pistol ? hands.find((h) => h.side === this.side && h.visible) || null : null;
     const reloadK = Math.min(1, (now - this.lastShot) / G.RELOAD_MS);
-    this.state = !this.pistol ? 'off' : reloadK < 1 ? 'reload' : 'ready';
+    const armed = this.pistol || !!this.trigger; // v25: gatilho do controle também
+    this.state = !armed ? 'off' : reloadK < 1 ? 'reload' : 'ready';
     this.aiming = this.pistol;
     // mira = centro da visão
     this.camera.getWorldPosition(this._o);
@@ -207,7 +208,7 @@ export class Gun {
     // mira: amarela em cima de zumbi, vermelha com a pistolinha, branca parada
     const hit = findHit(this._o, this._sd, false);
     const onZ = !!(hit && hit.zombie);
-    const col = onZ ? 0xffe14d : this.pistol ? 0xff3030 : 0xffffff;
+    const col = onZ ? 0xffe14d : armed ? 0xff3030 : 0xffffff;
     this.retRing.material.color.setHex(col);
     this.retDot.material.color.setHex(col);
     this.retRing.scale.setScalar(onZ ? 1.25 : 1);
@@ -221,7 +222,7 @@ export class Gun {
     this.barBg.scale.set(w + 0.005, hgt + 0.005, 1);
     this.barFill.position.x = -w / 2;
     this.barFill.scale.set(Math.max(0.001, w * reloadK), hgt, 1);
-    this.barFill.material.color.setHex(reloadK < 1 ? 0xffb020 : this.pistol ? 0xff3030 : 0x5be37d);
+    this.barFill.material.color.setHex(reloadK < 1 ? 0xffb020 : armed ? 0xff3030 : 0x5be37d);
     const fx = now < this._fxUntil;
     this.flash.visible = fx && now < this._fxUntil - 60;
     this.tracer.visible = fx;

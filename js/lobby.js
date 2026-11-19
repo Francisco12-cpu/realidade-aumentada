@@ -37,6 +37,13 @@ export class Lobby {
 
   close() { this.active = false; this.mesh.visible = false; }
 
+  // v25: botão A/Start do controle = começar na hora (respeita o tempo de espera)
+  press(now, ready = true) {
+    if (!this.active || !ready) return;
+    if (this.opts.armMs && now - this.t0 < this.opts.armMs) return;
+    this._go();
+  }
+
   setStatus(s) { this.status = s; }
 
   // palm: tem mão aberta agora? ready: câmera/mãos prontas (contagem só anda pronta)
