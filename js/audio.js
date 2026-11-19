@@ -228,6 +228,39 @@ export class Sfx {
     this._tone(58, 0.08, { type: 'sine', gain: 0.3 * A.ZOMBIE_VOL, dest });
   }
 
+  // v29: susto estilo FNAF (o zumbi na cara): grito MUITO alto, rasgado,
+  // com rugido grave por baixo. Não é 3D: é "na cara" mesmo.
+  jumpscare() {
+    if (!this.on) return;
+    const c = this.ctx, t = c.currentTime, V = A.SCARE_VOL;
+    // distorção (deixa o grito rasgado)
+    const out = c.createGain(); out.gain.value = 0.9 * V; out.connect(this.master);
+    let ws = out;
+    if (c.createWaveShaper) {
+      ws = c.createWaveShaper();
+      const curve = new Float32Array(512);
+      for (let i = 0; i < 512; i++) { const x = i / 255.5 - 1; curve[i] = Math.tanh(x * 6); }
+      ws.curve = curve;
+      ws.connect(out);
+    }
+    const scream = (f0, f1, type, g, at) => {
+      const o = c.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(f0, t + at); o.frequency.exponentialRampToValueAtTime(f1, t + at + 0.35); o.frequency.exponentialRampToValueAtTime(f1 * 0.8, t + at + 1.4);
+      const vib = c.createOscillator(); vib.frequency.value = 9; const vg = c.createGain(); vg.gain.value = f1 * 0.04; vib.connect(vg).connect(o.frequency);
+      const gg = c.createGain(); gg.gain.setValueAtTime(0.0001, t + at); gg.gain.exponentialRampToValueAtTime(g, t + at + 0.03); gg.gain.setValueAtTime(g, t + at + 1.1); gg.gain.exponentialRampToValueAtTime(0.0001, t + at + 1.5);
+      o.connect(gg).connect(ws);
+      for (const n of [o, vib]) { n.start(t + at); n.stop(t + at + 1.6); }
+    };
+    scream(500, 1400, 'sawtooth', 0.9, 0);
+    scream(730, 1900, 'square', 0.5, 0.02);
+    scream(380, 1000, 'sawtooth', 0.6, 0.04);
+    this._noise(1.4, { gain: 1.6 * V, freq: 2800, q: 0.5 });
+    this._noise(1.0, { gain: 1.0 * V, freq: 5500, q: 0.8 });
+    this._tone(48, 1.5, { type: 'sawtooth', gain: 1.0 * V, slide: -18 });
+    this._tone(32, 0.8, { type: 'sine', gain: 1.3 * V, slide: -10 });
+    this.vibrate([400, 80, 400]);
+  }
+
   // v28: susto do braço: "vuuush" que passa de um lado para o outro do fone
   // (acompanha o braço) + rugido GRAVE e pancada funda. Bem alto.
   swipe(dir = 1) {
