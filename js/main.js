@@ -71,7 +71,11 @@ class App {
     this.camera.add(this.vignette);
     this.vignetteK = 0;
     this.hurtFx = makeHurt();
+    // v27: apagão do susto (tela preta presa à visão)
+    this.darkFx = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
+    this.darkFx.position.z = -0.105; this.darkFx.renderOrder = 42; this.darkFx.frustumCulled = false; this.darkFx.visible = false;
     this.camera.add(this.hurtFx);
+    this.camera.add(this.darkFx);
     this.hurtK = 0;
 
     this.world = buildWorld(this.scene);
@@ -128,6 +132,12 @@ class App {
     this.demo = new DemoHand(this.camera);
     // v25: controle de videogame
     this.pad = new Pad();
+    // v27: grito distante de algum lugar da escola (som 3D), de vez em quando
+    this.sfx.onDistant = () => {
+      if (this.state !== 'playing' && this.state !== 'tutorial') return;
+      const a = Math.random() * Math.PI * 2, r = 18 + Math.random() * 15, p = this.rig.position;
+      this.sfx.distantScream(this._v3.set(p.x + Math.cos(a) * r, p.y + 2, p.z + Math.sin(a) * r));
+    };
     this.pad.onConnect = (g) => this.toast(`🎮 Controle conectado${/xbox/i.test(g.id) ? ' (Xbox)' : ''}`);
     this.pad.onDisconnect = () => this.toast('🎮 Controle desconectado');
     // v24: seta na borda da visão quando a mão sai da câmera
@@ -390,6 +400,7 @@ class App {
     this.state = 'playing';
     this._resetWorld();
     this.sfx.music(true);
+    this._darkUntil = 0;
     this._scares = 0;
     this._scareT = CONFIG.ZOMBIES.SCARE_FIRST_S;
     const n = this.options.feira ? CONFIG.ZOMBIES.FEIRA_COUNT : CONFIG.ZOMBIES.COUNT;
@@ -1041,6 +1052,7 @@ class App {
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.endGame(false); }
     }
     this._updateEars(now, dt, active);
+    this._updateDark(now);
     this._updateVignette(dt);
     this.handHint.update(now, active);
     this._updateHud(active);
@@ -1208,6 +1220,7 @@ class App {
     this.camera.getWorldDirection(this._v3);
     this._up.set(0, 1, 0).applyQuaternion(this.camera.getWorldQuaternion(this._q4 || (this._q4 = new THREE.Quaternion())));
     this.sfx.listener(this._camW, this._v3, this._up);
+    this.sfx.duck(active ? this.horde.nearest : Infinity);
     if (active && this.horde.nearest < CONFIG.AUDIO.HEART_DIST) {
       const d = this.horde.nearest;
       if (now > (this._heartT || 0)) { this._heartT = now + 450 + d * 140; this.sfx.heartbeat(1 - d / CONFIG.AUDIO.HEART_DIST * 0.6); }
@@ -1226,9 +1239,29 @@ class App {
     if ((this._scares || 0) >= Z.SCARE_MAX) return;
     this._scareT -= dt;
     if (this._scareT > 0) return;
-    this._scareT = Z.SCARE_EVERY_S + (Math.random() - 0.5) * 40;
-    if (this.horde.spawnScreamer(this.rig.position, this._fwd)) this._scares = (this._scares || 0) + 1;
-    else this._scareT = 5; // sem lugar atrás agora: tenta de novo daqui a pouco
+    if (this._darkUntil) return; // já está apagando
+    // v27: as luzes apagam um instante... e o zumbi aparece NA SUA FRENTE gritando
+    this._darkUntil = performance.now() + Z.SCARE_DARK_MS;
+    this.sfx.blackout();
+  }
+
+  // chamado todo quadro: escuridão do apagão e a hora de o zumbi aparecer
+  _updateDark(now) {
+    const on = !!this._darkUntil;
+    this.darkFx.visible = on;
+    if (!on) return;
+    this.darkFx.material.opacity = Math.min(1, this.darkFx.material.opacity + 0.25);
+    if (now < this._darkUntil) return;
+    this._darkUntil = 0;
+    this.darkFx.visible = false;
+    this.darkFx.material.opacity = 0;
+    const Z = CONFIG.ZOMBIES;
+    const z = this.state === 'playing' && (this.horde.spawnFrontScare(this.rig.position, this._fwd) || this.horde.spawnScreamer(this.rig.position, this._fwd));
+    if (z) {
+      this._scares = (this._scares || 0) + 1;
+      this._scareT = Z.SCARE_EVERY_S + (Math.random() - 0.5) * 30;
+      if (z.screamed) this._scare(z); // na frente: grita na hora
+    } else this._scareT = 4; // sem lugar agora: tenta de novo daqui a pouco
   }
 
   _scare(z) {

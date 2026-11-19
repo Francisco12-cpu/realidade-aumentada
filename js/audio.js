@@ -187,35 +187,87 @@ export class Sfx {
     }
   }
 
-  // gemido de zumbi saindo do lugar dele (alto; o fone faz a direção)
+  // v27: VOZ de zumbi: rosnado com "gorgolejo" (tremido rápido), passando por
+  // formantes de garganta, e um chiado AGUDO de respiração. O agudo é o que o
+  // ouvido usa para saber a direção (som grave sozinho quase não tem direção).
   groanAt(pos, angry = false) {
     if (!this.on) return;
+    const c = this.ctx, t = c.currentTime, g = A.ZOMBIE_VOL;
     const dest = this._at(pos);
-    const f = (angry ? 95 : 70) + Math.random() * 45;
-    const g = A.ZOMBIE_VOL;
-    this._tone(f, 1.1, { type: 'sawtooth', gain: 0.5 * g, slide: -30, dest });
-    this._tone(f * 1.48, 0.9, { type: 'square', gain: 0.18 * g, slide: -40, at: 0.06, dest });
-    this._noise(0.8, { gain: 0.35 * g, freq: 420 + Math.random() * 200, q: 3, dest });
+    const dur = (angry ? 1.0 : 1.5) + Math.random() * 0.8;
+    const env = c.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(0.9 * g, t + 0.12);
+    env.gain.setValueAtTime(0.9 * g, t + dur * 0.6);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    env.connect(dest);
+    // garganta: dente de serra com vibrato, tremido (gorgolejo) e formantes
+    const o = c.createOscillator(); o.type = 'sawtooth';
+    const f0 = (angry ? 120 : 85) + Math.random() * 40;
+    o.frequency.setValueAtTime(f0 * 1.2, t);
+    o.frequency.exponentialRampToValueAtTime(f0 * 0.75, t + dur);
+    const vib = c.createOscillator(); vib.frequency.value = 5 + Math.random() * 3; const vg = c.createGain(); vg.gain.value = f0 * 0.08; vib.connect(vg).connect(o.frequency);
+    const trem = c.createGain(); trem.gain.value = 0.6;
+    const am = c.createOscillator(); am.frequency.value = 16 + Math.random() * 14; const ag = c.createGain(); ag.gain.value = 0.4; am.connect(ag).connect(trem.gain);
+    o.connect(trem);
+    for (const [ff, q, gg] of [[550, 5, 1], [1150, 7, 0.7], [2600, 9, 0.45]]) {
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = ff * (0.9 + Math.random() * 0.2); bp.Q.value = q;
+      const fg = c.createGain(); fg.gain.value = gg * 2.2; trem.connect(bp).connect(fg).connect(env);
+    }
+    // respiração rouca (agudo: dá a direção)
+    this._noise(dur * 0.9, { gain: 0.45 * g, freq: 3200 + Math.random() * 1500, q: 1.1, dest: env });
+    for (const n of [o, vib, am]) { n.start(t); n.stop(t + dur + 0.05); }
   }
 
-  // passo arrastado
+  // passo arrastado (com raspado agudo do pé no chão: também dá a direção)
   stepAt(pos) {
     if (!this.on) return;
     const dest = this._at(pos);
-    this._noise(0.09, { gain: 0.55 * A.ZOMBIE_VOL, freq: 160 + Math.random() * 90, q: 1.2, dest });
-    this._tone(58, 0.08, { type: 'sine', gain: 0.25 * A.ZOMBIE_VOL, dest });
+    this._noise(0.1, { gain: 0.6 * A.ZOMBIE_VOL, freq: 170 + Math.random() * 90, q: 1.2, dest });
+    this._noise(0.22, { gain: 0.3 * A.ZOMBIE_VOL, freq: 2600 + Math.random() * 1200, q: 1.5, at: 0.03, dest });
+    this._tone(58, 0.08, { type: 'sine', gain: 0.3 * A.ZOMBIE_VOL, dest });
+  }
+
+  // v27: apagão (zumbido elétrico que cai) antes do susto
+  blackout() {
+    if (!this.on) return;
+    this._tone(120, 0.4, { type: 'square', gain: 0.25, slide: -80 });
+    this._noise(0.15, { gain: 0.4, freq: 5000, q: 2 });
+    this.musicBus && this.musicBus.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+    this._duck = -1; // depois do apagão, a música volta sozinha
+  }
+
+  // v27: a música abaixa quando um zumbi está perto (os zumbis ficam em primeiro plano)
+  duck(nearest) {
+    if (!this.ctx || !this._mus || !this.musicBus) return;
+    const on = this.options.sound && this.options.music !== false;
+    const k = !on ? 0 : nearest < 4 ? 0.25 : nearest < 10 ? 0.6 : 1;
+    const target = A.MUSIC_VOL * k;
+    if (Math.abs(target - (this._duck ?? -1)) < 1e-4) return;
+    this._duck = target;
+    this.musicBus.gain.setTargetAtTime(target, this.ctx.currentTime, 0.6);
+  }
+
+  // v27: grito distante vindo de algum lugar (3D)
+  distantScream(pos) {
+    if (!this.on) return;
+    const dest = this._at(pos);
+    this._tone(700 + Math.random() * 300, 1.4, { type: 'sawtooth', gain: 0.35, slide: 500, dest });
+    this._noise(1.2, { gain: 0.4, freq: 2200, q: 1, dest });
   }
 
   // grito do susto (jumpscare): bem alto, de onde ele está e também "na cara"
   screamAt(pos) {
     if (!this.on) return;
     const dest = this._at(pos);
-    this._noise(1.0, { gain: 1.2, freq: 2400, q: 0.6, dest });
-    this._tone(520, 0.9, { type: 'sawtooth', gain: 0.6, slide: 900, dest });
-    this._tone(780, 0.8, { type: 'square', gain: 0.35, slide: 700, at: 0.05, dest });
-    this._noise(0.5, { gain: 0.6, freq: 900 });
-    this._tone(60, 0.6, { type: 'sine', gain: 0.8, slide: -30 });
-    this.vibrate([200, 50, 200]);
+    this._noise(1.3, { gain: 1.6, freq: 2400, q: 0.6, dest });
+    this._noise(1.0, { gain: 1.0, freq: 4500, q: 0.8, dest });
+    this._tone(520, 1.1, { type: 'sawtooth', gain: 0.8, slide: 1100, dest });
+    this._tone(780, 1.0, { type: 'square', gain: 0.45, slide: 900, at: 0.05, dest });
+    this._tone(1300, 0.7, { type: 'sawtooth', gain: 0.3, slide: -400, at: 0.1, dest });
+    this._noise(0.6, { gain: 0.9, freq: 900 });
+    this._tone(55, 0.9, { type: 'sine', gain: 1.0, slide: -25 });
+    this.vibrate([250, 60, 250]);
   }
 
   // coração batendo (zumbi perto)
@@ -246,9 +298,10 @@ export class Sfx {
       const lfo2 = c.createOscillator(); lfo2.frequency.value = 0.11; const lg2 = c.createGain(); lg2.gain.value = 0.18; lfo2.connect(lg2).connect(wg.gain); lfo2.start();
       src.connect(bp).connect(wg).connect(out); src.start();
       this._mus = { nodes: [o1, o2, o3, lfo, lfo2, src], out };
-      // sininho dissonante de vez em quando
+      // sininho dissonante de vez em quando (e às vezes um grito longe)
       this._musT = setInterval(() => {
         if (!this.on || !this._mus) return;
+        if (Math.random() < 0.35 && this.onDistant) { this.onDistant(); return; }
         const f = [622, 740, 831, 1108][Math.floor(Math.random() * 4)];
         const g = c.createGain(); g.connect(this.musicBus);
         const o = c.createOscillator(); o.frequency.value = f; o.connect(g);
