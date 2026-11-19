@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 
-function makeArm() {
+export function makeArm() {
   const skin = new THREE.MeshLambertMaterial({ color: 0x8a9f78, depthTest: false });
   const dark = new THREE.MeshLambertMaterial({ color: 0x5f6e52, depthTest: false });
   const blood = new THREE.MeshBasicMaterial({ color: 0x5a0606, depthTest: false });

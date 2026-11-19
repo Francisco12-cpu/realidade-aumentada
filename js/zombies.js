@@ -5,6 +5,7 @@
 //  - tiro na cabeça mata na hora; no corpo precisa de ZOMBIES.HP tiros.
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
+import { playAnim, playOnce } from './zumbimodelo.js';
 
 const Z = CONFIG.ZOMBIES;
 const STEP = CONFIG.MAP.DEGRAU;
@@ -58,6 +59,7 @@ export class Horde {
     this.scene = scene;
     this.world = world;
     this.hooks = hooks;
+    this.factory = null; // v31: se tiver o modelo 3D (models/zumbi.glb), cria a partir dele
     this.list = [];
     this.planned = 0;
     this.pending = 0;
@@ -92,11 +94,11 @@ export class Horde {
   }
 
   _add(x, y, z, opts = {}) {
-    const m = makeZombie();
+    const m = this.factory ? this.factory() : makeZombie();
     m.root.position.set(x, y, z);
     m.root.rotation.y = opts.yaw ?? Math.random() * Math.PI * 2;
     this.scene.add(m.root);
-    if (opts.scream) for (const mat of [m.mats[0]]) mat.color.setHex(0xb8c7a8); // pele mais pálida
+    if (opts.scream && !m.gltf && m.mats[0]) m.mats[0].color.setHex(0xb8c7a8); // pele mais pálida
     const zb = {
       m, hp: opts.hp ?? Z.HP, dead: false, deadT: 0, dummy: !!opts.dummy,
       alert: false, speed: Z.SPEED_MIN + Math.random() * (Z.SPEED_MAX - Z.SPEED_MIN),
@@ -580,7 +582,26 @@ export class Horde {
     this.nearest = nearest;
   }
 
+  // v31: zumbi do modelo 3D: escolhe a animação pelo que ele está fazendo
+  _animModel(z, dt) {
+    const m = z.m;
+    if (z.swing > 0 && !z._swung) { z._swung = true; playOnce(m, 'attack'); }
+    if (z.swing <= 0) z._swung = false;
+    if (z.swing > 0) z.swing -= dt;
+    if (z.hitT > 0 && !z._hitAnim && m.actions.hit && !z._swung) { z._hitAnim = true; playOnce(m, 'hit'); }
+    if (z.hitT <= 0) z._hitAnim = false;
+    m.wantLoop = z.moving > CONFIG.ZOMBIES.RUN_ANIM_SPEED ? 'run' : z.moving > 0.08 ? 'walk' : 'idle';
+    const once = m.cur && (m.cur === m.actions.attack || m.cur === m.actions.hit);
+    if (!once) playAnim(m, m.wantLoop);
+    if (m.cur && (m.cur === m.actions.walk || m.cur === m.actions.run)) m.cur.timeScale = THREE.MathUtils.clamp(z.moving / (m.cur === m.actions.run ? 3 : 0.8), 0.6, 1.8);
+    m.mixer.update(dt);
+    if (z.hitT > 0) z.hitT -= dt;
+    const fl = z.hitT > 0;
+    for (const mat of m.mats) mat.emissive.setHex(fl ? 0x993333 : 0x000000);
+  }
+
   _animWalk(z, dt) {
+    if (z.m.gltf) { this._animModel(z, dt); return; }
     const m = z.m;
     const k = Math.min(1, z.moving / 0.6);
     z.phase += dt * (2.5 + z.moving * 5);
@@ -606,8 +627,16 @@ export class Horde {
     const m = z.m;
     z.deadT += dt;
     const t = Math.min(1, z.deadT / 0.6);
-    m.body.rotation.x = -t * t * 1.5 * z.fallDir;
-    m.body.position.y = Math.sin(t * Math.PI) * 0.1;
+    if (m.gltf && m.actions.death) {
+      // modelo 3D com animação de morte: toca ela
+      if (!m.dead) { m.dead = true; playAnim(m, 'death', 0.1); }
+      m.mixer.update(dt);
+    } else {
+      if (m.gltf && !m.dead) { m.dead = true; if (m.cur) m.cur.fadeOut(0.1); }
+      if (m.gltf) m.mixer.update(dt);
+      m.body.rotation.x = -t * t * 1.5 * z.fallDir;
+      m.body.position.y = Math.sin(t * Math.PI) * 0.1;
+    }
     for (const mat of m.mats) mat.emissive.setHex(0x000000);
     if (z.deadT > Z.CORPSE_S) {
       m.root.position.y -= dt * 0.4; // afunda no chão e some

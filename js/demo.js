@@ -6,7 +6,7 @@ import { HandView } from './hands.js';
 
 // pontos da mão no espaço da câmera: pulso na origem, dedos para cima (+y),
 // dobrando para longe de quem olha (-z). open[i] = 0 (dobrado) .. 1 (esticado)
-function pose(open, thumbOut = 1) {
+export function pose(open, thumbOut = 1) {
   const P = Array.from({ length: 21 }, () => new THREE.Vector3());
   const mcpX = [0.025, 0.008, -0.009, -0.025]; // mão direita vista por trás: polegar à esquerda
   const L = [[0.04, 0.025, 0.022], [0.045, 0.028, 0.024], [0.042, 0.026, 0.022], [0.034, 0.02, 0.018]];

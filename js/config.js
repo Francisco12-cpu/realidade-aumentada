@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v30',
+  VERSION: 'v31',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -218,6 +218,11 @@ export const CONFIG = {
     AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
     GROAN_DIST: 9,
     ANIM_FAR: 25,
+    // v31: modelo 3D de zumbi (se o arquivo existir; senão, o boneco feito por código)
+    MODEL_URLS: ['models/zumbi.glb', '../models/zumbi.glb'],
+    MODEL_HEIGHT: 1.75,     // altura do zumbi no jogo (m): o modelo é ajustado para isso
+    MODEL_ROT_Y: 0,         // gira o modelo se ele vier de costas (Math.PI = meia volta)
+    RUN_ANIM_SPEED: 1.6,    // acima dessa velocidade (m/s) usa a animação de correr
     // v26: terror
     FLANK_P: 0.3,           // parte dos zumbis que PODE dar a volta e pegar por trás...
     FLANK_MAX: 1,           // v27: ...mas só esse tanto ao mesmo tempo (não são todos)
@@ -264,6 +269,20 @@ export const CONFIG = {
     FACE_DIST: -0.5,        // posição do zumbi na cara (a frente do rosto fica a ~22 cm: enche a visão sem cortar)
     HOLD_S: 1.3,            // tempo colado na tela
     DAMAGE: 1,              // vidas que tira (0 = só susto)
+  },
+
+  // ---- Susto da borda preta do óculos (v31): sorteado junto com o FNAF ----
+  BORDA: {
+    ON: true,
+    CHANCE: 0.45,           // dos sustos, essa parte é da borda (o resto é o FNAF)
+    BIG_CHANCE: 0.55,       // dos da borda, essa parte é o grande (mãos + rosto); o resto só mãos
+    CLOSE_S: 1.4,           // a escuridão fecha nesse tempo
+    INNER_MIN: 0.42,        // até onde ela fecha (menor = mais fechada)
+    HANDS_S: 1.0,           // as mãos saem do preto nesse tempo
+    HAND_REACH: 0.3,        // quanto as mãos entram na visão
+    RETREAT_S: 0.5,         // (susto pequeno) as mãos voltam para o preto
+    RELEASE_S: 0.9,         // a escuridão vai embora
+    DAMAGE: 0,              // o da borda não tira vida (não dá para fugir dele)
   },
 
   // ---- Susto do braço (v28): desligado na v29 (o susto agora é o FNAF) ----

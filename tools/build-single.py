@@ -8,17 +8,28 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ORDER = ['config', 'options', 'audio', 'ranking', 'handhint', 'mapa', 'filters', 'cenario', 'scene', 'zombies', 'gun', 'coach', 'orientation', 'hands', 'gestures',
-         'teleport', 'locomotion', 'interaction', 'vr', 'calibration', 'debug', 'lobby', 'melee', 'demo', 'gamepad', 'swipe', 'jumpscare', 'main']
+ORDER = ['config', 'options', 'audio', 'ranking', 'handhint', 'mapa', 'filters', 'cenario', 'scene', 'zumbimodelo', 'zombies', 'gun', 'coach', 'orientation', 'hands', 'gestures',
+         'teleport', 'locomotion', 'interaction', 'vr', 'calibration', 'debug', 'lobby', 'melee', 'demo', 'gamepad', 'swipe', 'jumpscare', 'borda', 'main']
 
 # todo arquivo de js/ precisa estar na lista (senão o arquivo único quebra)
-missing = sorted({f.stem for f in (ROOT / 'js').glob('*.js')} - set(ORDER))
+# (trailer.js é de outra página, trailer.html: não entra no jogo)
+EXCLUDE = {'trailer'}
+missing = sorted({f.stem for f in (ROOT / 'js').glob('*.js')} - set(ORDER) - EXCLUDE)
 assert not missing, f'adicione ao ORDER em tools/build-single.py: {missing}'
 
 parts = ["import * as THREE from 'three';"]
+externos = []  # imports de bibliotecas, sem repetir (dois arquivos podem importar a mesma)
+EXT = r"^import [^\n]* from '(?!\./)[^']+';\n"
 for name in ORDER:
     src = (ROOT / 'js' / f'{name}.js').read_text(encoding='utf-8')
     src = re.sub(r"^import \* as THREE from 'three';\n", '', src, flags=re.M)
+    for imp in re.findall(EXT, src, flags=re.M):
+        if imp not in externos:
+            externos.append(imp)
+    src = re.sub(EXT, '', src, flags=re.M)
+    # apelido em import local ('a as b') não existe no arquivo único: proibido
+    for imp in re.findall(r"^import \{([^}]*)\} from '\./", src, flags=re.M):
+        assert ' as ' not in imp, f'{name}: não use "as" em import local ({imp.strip()})'
     src = re.sub(r"^import \{[^}]*\} from '\./[a-z-]+\.js';\n", '', src, flags=re.M)
     src = re.sub(r'^export (const|let|function|class|async function) ', r'\1 ', src, flags=re.M)
     assert "from './" not in src, name
@@ -28,6 +39,7 @@ for name in ORDER:
 html = (ROOT / 'index.html').read_text(encoding='utf-8')
 css = (ROOT / 'css' / 'style.css').read_text(encoding='utf-8')
 html = html.replace('<link rel="stylesheet" href="css/style.css">', f'<style>\n{css}</style>')
+parts.insert(1, ''.join(externos).rstrip('\n'))
 js = '\n'.join(parts).replace('</script', '<\\/script')
 html = html.replace('<script type="module" src="js/main.js"></script>',
                     f'<script type="module">\n{js}\n</script>')
