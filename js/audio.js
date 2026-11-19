@@ -31,6 +31,7 @@ export class Sfx {
         this.musicBus = this.ctx.createGain();
         this.musicBus.gain.value = 0;
         this.musicBus.connect(this.ctx.destination);
+        this._loadSamples();
       } catch (e) { this.ctx = null; return; }
     }
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
@@ -228,11 +229,54 @@ export class Sfx {
     this._tone(58, 0.08, { type: 'sine', gain: 0.3 * A.ZOMBIE_VOL, dest });
   }
 
+  // v30: gritos GRAVADOS (sons/*.mp3). Carregam depois do primeiro toque;
+  // se não carregarem, o jogo usa os gritos feitos por código.
+  async _loadSamples() {
+    this.samples = this.samples || {};
+    for (const [name, urls] of Object.entries(A.SAMPLES || {})) {
+      for (const u of urls) {
+        try {
+          const r = await fetch(u);
+          if (!r.ok) continue;
+          const buf = await r.arrayBuffer();
+          this.samples[name] = await new Promise((ok, no) => this.ctx.decodeAudioData(buf, ok, no));
+          break;
+        } catch (e) { /* tenta o próximo endereço */ }
+      }
+    }
+  }
+
+  // toca um grito gravado; dest = saída (3D ou não). Retorna false se não tem.
+  _sample(name, gain, dest = null) {
+    const b = this.samples && this.samples[name];
+    if (!b || !this.on) return false;
+    const c = this.ctx, src = c.createBufferSource(), g = c.createGain();
+    src.buffer = b; src.playbackRate.value = 0.94 + Math.random() * 0.12; // cada grito um pouco diferente
+    g.gain.value = gain;
+    src.connect(g).connect(dest || this.master);
+    src.start();
+    return true;
+  }
+
+  // grito de longe do zumbi que vem correndo (3D: dá para ouvir de onde vem)
+  screamFar(pos) {
+    if (!this.on) return;
+    if (!this._sample('longe', 1.6 * A.SCARE_VOL, this._at(pos))) this.screamAt(pos);
+  }
+
   // v29: susto estilo FNAF (o zumbi na cara): grito MUITO alto, rasgado,
   // com rugido grave por baixo. Não é 3D: é "na cara" mesmo.
   jumpscare() {
     if (!this.on) return;
     const c = this.ctx, t = c.currentTime, V = A.SCARE_VOL;
+    // v30: com o grito gravado, ele vai na frente; o sintetizado fica só como reforço grave
+    if (this._sample('cara', 1.8 * V)) {
+      this._tone(48, 1.5, { type: 'sawtooth', gain: 0.8 * V, slide: -18 });
+      this._tone(32, 0.8, { type: 'sine', gain: 1.2 * V, slide: -10 });
+      this._noise(0.5, { gain: 0.6 * V, freq: 2800, q: 0.5 });
+      this.vibrate([400, 80, 400]);
+      return;
+    }
     // distorção (deixa o grito rasgado)
     const out = c.createGain(); out.gain.value = 0.9 * V; out.connect(this.master);
     let ws = out;

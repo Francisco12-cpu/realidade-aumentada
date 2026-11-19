@@ -1278,7 +1278,7 @@ class App {
     if (!z) { this._rushT = 2; return; } // sem lugar livre na frente agora
     this._runner = z;
     const p = z.m.root.position;
-    this.sfx.screamAt(this._v3.set(p.x, p.y + 1.6, p.z)); // grita lá de longe (som 3D)
+    this.sfx.screamFar(this._v3.set(p.x, p.y + 1.6, p.z)); // grita lá de longe (som 3D, grito gravado)
   }
 
   _jumpscare() {

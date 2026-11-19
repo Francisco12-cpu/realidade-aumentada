@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v29',
+  VERSION: 'v30',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -389,7 +389,12 @@ export const CONFIG = {
     REF_DIST: 2.5,          // v27: som 3D: até essa distância (m) o volume é cheio
     ROLLOFF: 0.7,           //      quanto o volume cai com a distância (menos = ouve de mais longe)
     HEART_DIST: 5,
-    SCARE_VOL: 1.3,         // v28: volume do susto do braço (alto e grave)          // v26: zumbi mais perto que isso = coração batendo
+    SCARE_VOL: 1.3,         // v28: volume dos sustos (alto)
+    // v30: gritos gravados (recortes de um som do Pixabay, licença livre). O 2º endereço é para o arquivo único em dist/
+    SAMPLES: {
+      cara: ['sons/grito-cara.mp3', '../sons/grito-cara.mp3'],
+      longe: ['sons/grito-longe.mp3', '../sons/grito-longe.mp3'],
+    },          // v26: zumbi mais perto que isso = coração batendo
     BEEP_FAR_S: 1.3,        // intervalo do bipe do detector longe da caixa
     BEEP_NEAR_S: 0.14,      // e perto
     BEEP_MAX_DIST: 18,      // além disso o detector fica quieto
