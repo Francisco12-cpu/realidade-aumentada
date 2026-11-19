@@ -95,12 +95,16 @@ export class Horde {
     m.root.position.set(x, y, z);
     m.root.rotation.y = opts.yaw ?? Math.random() * Math.PI * 2;
     this.scene.add(m.root);
+    if (opts.scream) for (const mat of [m.mats[0]]) mat.color.setHex(0xb8c7a8); // pele mais pálida
     const zb = {
       m, hp: opts.hp ?? Z.HP, dead: false, deadT: 0, dummy: !!opts.dummy,
       alert: false, speed: Z.SPEED_MIN + Math.random() * (Z.SPEED_MAX - Z.SPEED_MIN),
       phase: Math.random() * 10, attackT: 0, hitT: 0, losT: Math.random() * 0.3, los: false,
       wander: 0, wanderYaw: Math.random() * 6.28, moving: 0,
       punches: 0, knock: null, animN: 0, animAcc: 0,
+      flank: !opts.dummy && Math.random() < Z.FLANK_P, // v26: tenta pegar por trás
+      groanT: 1 + Math.random() * 4, stepT: Math.random() * 0.5,
+      scream: !!opts.scream, screamed: false,
     };
     this.list.push(zb);
     return zb;
@@ -360,7 +364,29 @@ export class Horde {
     return !this.world.segmentHit(this._a, this._b);
   }
 
-  update(dt, player) {
+  // v26: susto. Um zumbi rápido nasce ATRÁS do jogador (fora da visão), a
+  // 2,5–4 m, e corre para pegar. Conta no total da partida.
+  spawnScreamer(player, facing) {
+    const back = new THREE.Vector3(-facing.x, 0, -facing.z).normalize();
+    for (let d = Z.SCARE_SPAWN_MAX; d >= Z.SCARE_SPAWN_MIN; d -= 0.25) {
+      for (const off of [0, 0.35, -0.35, 0.7, -0.7]) {
+        const ca = Math.cos(off), sa = Math.sin(off);
+        const x = player.x + (back.x * ca - back.z * sa) * d, zz = player.z + (back.x * sa + back.z * ca) * d;
+        const y = this.world.floorAt(x, zz);
+        if (y == null || Math.abs(y - player.y) > 0.5 || !this._free(x, zz, y)) continue;
+        // precisa dar para chegar até o jogador (sem parede no meio)
+        this._a.set(x, y + 1.2, zz); this._b.set(player.x, player.y + 1.2, player.z);
+        if (this.world.segmentHit(this._a, this._b)) continue;
+        const z = this._add(x, y, zz, { scream: true, yaw: Math.atan2(player.x - x, player.z - zz) });
+        z.alert = true; z.speed = Z.SCARE_SPEED; z.flank = false;
+        this.planned++;
+        return z;
+      }
+    }
+    return null;
+  }
+
+  update(dt, player, facing = null) {
     // ondas
     if (this.pending > 0) {
       this.waveT -= dt;
@@ -409,6 +435,26 @@ export class Horde {
             mx = Math.sin(z.wanderYaw); mz = Math.cos(z.wanderYaw); sp = Z.WANDER_SPEED * 2;
           }
         }
+        // v26: os que vêm "por trás": vendo o jogador de perto, dão a volta para
+        // chegar pelas costas dele; e todo zumbi fora da visão anda mais rápido
+        if (facing && !z.dummy) {
+          const inView = dist > 0.01 && (-dx * facing.x - dz * facing.z) / dist > Math.cos(THREE.MathUtils.degToRad(Z.VIEW_HALF_DEG));
+          z.behind = !inView;
+          // "front": 1 = bem na sua frente · -1 = bem atrás. Enquanto não está
+          // atrás, ele circula em volta (espiral), e só ataca pelas costas.
+          const front = dist > 0.01 ? (-dx * facing.x - dz * facing.z) / dist : 1;
+          if (z.flank && z.los && dist < Z.FLANK_DIST && dist > 0.9 && front > -0.6) {
+            const rx = -dx / dist, rz = -dz / dist;            // do jogador até o zumbi
+            let tx = -rz, tz = rx;                             // tangente: escolhe a que leva para trás
+            if (tx * facing.x + tz * facing.z > 0) { tx = -tx; tz = -tz; }
+            const k = THREE.MathUtils.clamp((dist - Z.FLANK_R) / 3, -0.6, 1); // longe: aproxima · perto: só circula
+            const ax = tx - rx * k, az = tz - rz * k, al = Math.hypot(ax, az);
+            if (al > 1e-3 && this._free(p.x + ax / al * 0.3, p.z + az / al * 0.3, p.y)) { mx = ax / al; mz = az / al; sp = z.speed * 1.15; }
+          }
+          if (!inView && sp > 0) sp *= Z.BEHIND_BOOST;
+        }
+        // susto: grita quando chega perto (ou quando o jogador vira e vê)
+        if (z.scream && !z.screamed && (dist < Z.SCARE_DIST || (!z.behind && dist < 4.5))) { z.screamed = true; this.hooks.onScream && this.hooks.onScream(z); }
         // ataque
         z.attackT -= dt;
         if (dist < Z.ATTACK_DIST && Math.abs(player.y - p.y) < 1 && z.attackT <= 0) {
@@ -442,6 +488,12 @@ export class Horde {
         if (f != null) p.y += (f - p.y) * Math.min(1, dt * 10);
       }
       z.moving += (moved - z.moving) * Math.min(1, dt * 6);
+      // v26: sons de cada zumbi (gemido e passos), saindo do lugar dele
+      if (!z.dummy && dist < Z.SOUND_DIST) {
+        z.groanT -= dt;
+        if (z.groanT <= 0) { z.groanT = (z.alert ? 1.8 : 3.5) + Math.random() * 3; this.hooks.onGroanAt && this.hooks.onGroanAt(z, dist); }
+        if (moved > 0.15) { z.stepT -= dt * (0.8 + moved); if (z.stepT <= 0) { z.stepT = 0.55; this.hooks.onStep && this.hooks.onStep(z, dist); } }
+      }
       // vira para onde anda (ou para o jogador quando perto/parado)
       const face = z.alert || z.dummy || moved < 0.05 ? Math.atan2(dx, dz) : Math.atan2(mx, mz);
       if (z.alert || z.dummy || moved > 0.05) {

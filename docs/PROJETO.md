@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v25, 19/11/2026)
+# Escola Zumbi: estado do projeto (v26, 19/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -42,7 +42,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | Controle | O que faz |
 |---|---|
 | analógico esquerdo | anda (frente = para onde você olha; também de lado e para trás) |
-| analógico direito | gira · LB/RB = giro rápido de 45° |
+| virar o rosto | olha e mira (desde a v26 o controle **não gira** a visão no óculos) |
 | olhar | mira (ponto no meio da visão) |
 | RT (ou LT) | atira; segurando, atira a cada recarga |
 | X (ou B) | soco no zumbi da frente (10 para derrubar) |
@@ -66,6 +66,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v26 | #24 | Terror: som 3D dos zumbis (fone), música baixa, coração, zumbis que circulam e pegam por trás, jumpscare, tiro não atravessa parede, controle não gira a visão no óculos |
 | v25 | #23 | Modo 🎮 Controle (Xbox): escolha Mãos ou Controle na tela inicial; analógico anda/gira, RT atira, X soco, Y recentra, A começa; vibração |
 | v24 | #22 | Mundo em volta (céu com nuvens que acompanha o jogador, chão, ruas, calçadas, prédios, carros batidos, postes, árvores, fogo, fumaça), blocos além da neblina não são desenhados; pistola 3D na mão, contorno nas mãos, seta quando a mão sai da câmera, mão fantasma no tutorial, modo "só atirar", foveação no VR do Chrome, zumbis longe animam menos |
 | v23 | #21 | Conserto: mãos não detectadas de novo. O vídeo da câmera fica atrás do jogo (o navegador não pausa mais), e se ele parar mesmo assim a imagem vem direto da câmera (ImageCapture). O painel 🐞 mostra de onde vem a imagem |
@@ -97,6 +98,14 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 
 ---
 
+## Terror (v26)
+
+- **Som 3D:** use fone de ouvido. Cada zumbi geme e arrasta os pés **do lugar onde está** (HRTF), então dá para ouvir se ele vem pela esquerda, pela direita ou **por trás**. O coração bate quando um zumbi está a menos de 5 m.
+- **Música:** fundo de terror baixinho (zumbido grave, vento, sininhos). Liga e desliga na opção 🎵 da tela inicial.
+- **Zumbis que vêm por trás:** 35% dos zumbis, quando você está olhando para eles de perto, circulam em volta até ficar atrás e só então mordem. Todo zumbi fora da sua visão anda 30% mais rápido.
+- **Susto (jumpscare):** o primeiro vem aos 40 s da partida e os outros a cada ~65 s, no máximo 3. Um zumbi pálido nasce atrás de você, a 2,5–4 m, corre mais que você e grita alto quando chega perto ou quando você vira e vê. A tela pisca, a câmera treme e o controle vibra.
+- **Tiro não atravessa parede:** a mira confere a grade da escola na linha da mira e na linha até o zumbi. Na hora do tiro, confere também os triângulos de verdade da escola. Folhas e vidros não seguram o tiro.
+
 ## O mundo em volta (v24, `js/cenario.js`)
 
 - É todo feito por código, sem arquivos: céu com nuvens (esfera que acompanha o jogador; antes o céu ficava parado no começo do mapa e sumia no meio da escola), chão de terra e grama, ruas com faixa e calçadas em volta da escola, duas fileiras de prédios com janelas (acesas, escuras e quebradas), carros batidos, postes, árvores, barris pegando fogo e colunas de fumaça ao longe.
@@ -124,6 +133,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | Distância em que os detalhes somem | `MAP.DETAIL_DIST` |
 | Mundo em volta | `CENARIO` (ruas, prédios, carros, fogo, fumaça, céu) · `MAP.VIEW_FAR`, `MAP.FOG_COLOR`, `MAP.CHUNK_CULL` |
 | Pistola 3D, seta da mão, foveação, zumbi longe | `GUN.SHOW_MODEL`, `HANDS.EDGE_MARGIN`, `QUALITY.XR_FOVEATION`, `ZOMBIES.ANIM_FAR` |
+| Terror (por trás, susto, som 3D) | `ZOMBIES.FLANK_*`, `BEHIND_BOOST`, `SCARE_*`, `SOUND_DIST` · `AUDIO.MUSIC_VOL`, `ZOMBIE_VOL`, `REF_DIST`, `ROLLOFF`, `HEART_DIST` · `GUN.MESH_CHECK` |
 | Controle (folga, giro) | `PAD` (`DEADZONE`, `TURN_SPEED`, `SNAP_DEG`, `LOOK_PITCH`) |
 | Tempo da partida | `GAME_TIME_S` (5 min) e `FEIRA.GAME_TIME_S` (3 min) |
 

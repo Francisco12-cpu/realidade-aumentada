@@ -13,7 +13,7 @@ export const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v25',
+  VERSION: 'v26',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -168,7 +168,8 @@ export const CONFIG = {
     // 'punho' = fechar a mão atira (funciona de qualquer ângulo) · 'polegar' = pistolinha + abaixar o polegar (antigo)
     // v18 'auto' = mão VERMELHA faz a pistolinha e atira sozinha a cada recarga (barra)
     MODE: 'auto',
-    SHOW_MODEL: true,       // v24: pistola 3D aparece na mão da pistolinha
+    SHOW_MODEL: true,
+    MESH_CHECK: true,       // v26: na hora do tiro, confere as paredes de verdade da escola (não atravessa)       // v24: pistola 3D aparece na mão da pistolinha
     // v21: 'cabeca' = mira com a cabeça (ponto no meio da visão), pistolinha atira · 'dedo' = mira pela mão (v20)
     AIM: 'cabeca',
     PISTOL_INDEX: 1.4,      // (auto) indicador mais longe do pulso que isso (palmos) = esticado
@@ -216,7 +217,21 @@ export const CONFIG = {
     FLOW_EVERY_S: 0.5,      // recalcula o caminho (se o jogador andou)
     AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
     GROAN_DIST: 9,
-    ANIM_FAR: 25,           // v24: zumbis mais longe que isso animam com menos frequência
+    ANIM_FAR: 25,
+    // v26: terror
+    FLANK_P: 0.35,          // parte dos zumbis que tenta dar a volta e pegar por trás
+    FLANK_DIST: 9,          //   ...quando estão a menos disso e você está olhando para eles
+    FLANK_R: 1.9,           //   ...circulam a essa distância até ficar atrás de você
+    VIEW_HALF_DEG: 55,      // metade do ângulo da visão (fora disso = "atrás")
+    BEHIND_BOOST: 1.3,      // zumbi fora da visão anda isso × mais rápido
+    SOUND_DIST: 22,         // zumbis a menos disso fazem barulho (som 3D)
+    SCARE_FIRST_S: 40,      // susto (jumpscare): o 1º depois disso na partida...
+    SCARE_EVERY_S: 65,      //   ...e depois a cada ~isso (sorteado ±20 s)
+    SCARE_MAX: 3,           //   no máximo esses por partida
+    SCARE_SPEED: 2.3,       //   corre mais que você (2 m/s)
+    SCARE_SPAWN_MIN: 2.5,   //   nasce atrás de você entre essas distâncias (m)
+    SCARE_SPAWN_MAX: 4,
+    SCARE_DIST: 1.7,        //   grita quando chega a isso           // v24: zumbis mais longe que isso animam com menos frequência
     CORPSE_S: 3,            // corpo fica no chão esse tempo antes de sumir
     DUMMY_DIST: 6,          // zumbi de treino: distância na frente do início
   },
@@ -224,6 +239,7 @@ export const CONFIG = {
   // ---- Controle de videogame (v25) ----
   PAD: {
     DEADZONE: 0.18,         // folga do analógico (parado = não anda)
+    TURN: false,            // v26: false = a visão só gira virando o rosto (no óculos); no PC sem óculos ainda gira
     TURN_SPEED: 2.4,        // giro com o analógico direito (rad/s no máximo)
     SNAP_DEG: 45,           // LB/RB: giro rápido
     LOOK_PITCH: 1.6,        // fora do óculos e sem sensor: olhar para cima/baixo (rad/s)
@@ -336,6 +352,11 @@ export const CONFIG = {
   // ---- Som e vibração ----
   AUDIO: {
     VOLUME: 0.5,
+    MUSIC_VOL: 0.07,        // v26: música de fundo (baixinha)
+    ZOMBIE_VOL: 1.0,        // v26: volume dos gemidos/passos dos zumbis (som 3D)
+    REF_DIST: 1.5,          // v26: som 3D: até essa distância (m) o volume é cheio
+    ROLLOFF: 1.0,           //      quanto o volume cai com a distância
+    HEART_DIST: 5,          // v26: zumbi mais perto que isso = coração batendo
     BEEP_FAR_S: 1.3,        // intervalo do bipe do detector longe da caixa
     BEEP_NEAR_S: 0.14,      // e perto
     BEEP_MAX_DIST: 18,      // além disso o detector fica quieto
