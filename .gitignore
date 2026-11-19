@@ -6,3 +6,6 @@ __pycache__/
 # arquivos brutos (o modelo usado pelo jogo fica em models/escola.glb)
 *.rar
 *.skp
+# downloads que não terminaram
+*.part
+HalfEatenZombie-Unity-*.zip

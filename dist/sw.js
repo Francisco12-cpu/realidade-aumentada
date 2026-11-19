@@ -27,6 +27,7 @@ const LIBS = [
 // arquivos do site (no dist/ só existe o index.html: os outros falham e são ignorados)
 const SITE = [
   './', 'index.html', 'css/style.css', 'models/escola.glb', '../models/escola.glb',
+  'sons/grito-cara.mp3', 'sons/grito-longe.mp3', '../sons/grito-cara.mp3', '../sons/grito-longe.mp3',
   'js/main.js', 'js/config.js', 'js/options.js', 'js/audio.js', 'js/handhint.js', 'js/ranking.js', 'js/mapa.js', 'js/scene.js', 'js/zombies.js', 'js/gun.js', 'js/coach.js', 'js/orientation.js',
   'js/hands.js', 'js/filters.js', 'js/gestures.js', 'js/teleport.js', 'js/locomotion.js',
   'js/interaction.js', 'js/calibration.js', 'js/debug.js', 'js/vr.js', 'js/lobby.js', 'js/melee.js', 'js/cenario.js', 'js/demo.js', 'js/gamepad.js', 'js/swipe.js', 'js/jumpscare.js',

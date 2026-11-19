@@ -1,4 +1,4 @@
-# Escola Zumbi: estado do projeto (v29, 19/11/2026)
+# Escola Zumbi: estado do projeto (v30, 19/11/2026)
 
 Protótipo de realidade virtual para a feira de ciências. O jogador anda pela **escola de verdade** (Centro Educa Mais José Mariano Muniz) e elimina zumbis **sem tocar no celular**: as mãos aparecem no jogo pela câmera traseira.
 
@@ -66,6 +66,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
 | v11 | #10 | **Apocalipse zumbi**: arma de mão, zumbis, andar com a palma, dica no canto, escola leve (10 MB) |
 | v12 | #11 | Mais FPS (103 mil triângulos, 7 MB, materiais simples), mãos mais fáceis, mão cinza por menos tempo, zumbis à vista |
 | v13 | #12 | 24 zumbis em ondas (demoram mais para aparecer); não anda mais sem querer ao mirar |
+| v30 | #28 | Gritos gravados no susto (grito de longe em 3D e grito na cara), recortados de um som do Pixabay |
 | v29 | #27 | Susto estilo FNAF: zumbi aparece longe na frente, corre gritando e pula na cara (fica colado na tela); braço e apagão desligados |
 | v28 | #26 | Susto do braço 3D a cada ~20 s (atravessa a visão, som grave, escurece), socos mais fáceis e 2 para matar, 36 zumbis |
 | v27 | #25 | 4 socos; susto de verdade (apagão + zumbi aparece na frente gritando); só 1 zumbi dá a volta por vez; voz dos zumbis mais assustadora e mais fácil de localizar (agudos), música abaixa com zumbi perto, gritos distantes |
@@ -113,7 +114,7 @@ Protótipo de realidade virtual para a feira de ciências. O jogador anda pela *
   3. Se chegar, **pula na sua cara**: o rosto fica colado na tela por 1,3 s, tremendo, de boca aberta e braços levantados, com um grito muito alto e rasgado.
   4. Depois a visão escurece e você perde 1 vida.
 
-  Ele não conta no placar. Ajustes em `RUSH`. O braço da v28 e o apagão da v27 ficaram desligados (`SWIPE.ON`, `ZOMBIES.SCARE_MAX`).
+  Desde a v30, os gritos são **gravados**: o grito de longe (em 3D) e o grito na cara ficam em `sons/` e são recortes de um som de grito de zumbi do Pixabay, de licença livre. Se não carregarem, o jogo usa os gritos feitos por código. Ele não conta no placar. Ajustes em `RUSH`. O braço da v28 e o apagão da v27 ficaram desligados (`SWIPE.ON`, `ZOMBIES.SCARE_MAX`).
 - **Susto do braço (v28):** mais ou menos a cada 20 s, com tempo sorteado (±8 s; o primeiro por volta dos 12 s), um **braço de zumbi em 3D passa voando** bem na frente da visão. Ele entra por uma borda da lente e sai pela outra em 0,3 s, com um vuuush que passa de um ouvido para o outro e um **rugido grave e alto**. Depois a visão fica **escura** e clareia em uns 2,6 s. Não tira vida. Ajustes em `SWIPE`.
 - **Tiro não atravessa parede:** a mira confere a grade da escola na linha da mira e na linha até o zumbi. Na hora do tiro, confere também os triângulos de verdade da escola. Folhas e vidros não seguram o tiro.
 
@@ -176,6 +177,7 @@ js/locomotion.js    andar
 js/calibration.js   telas: início, calibração, ranking, ajuda
 js/interaction.js   (jogo antigo das caixas e fios: desligado)
 models/escola.glb   escola 3D (versão leve)
+sons/               gritos gravados do susto (recortes de um som do Pixabay)
 sw.js               guarda o jogo para abrir sem internet
 dist/index.html     jogo inteiro num arquivo só (gerado sozinho pelo GitHub)
 ```
