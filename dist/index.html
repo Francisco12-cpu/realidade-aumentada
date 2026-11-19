@@ -295,7 +295,7 @@ const CONFIG = {
   GAME_TIME_S: 300,         // duração da partida (5 min)
 
   // ---- Locomoção ----
-  VERSION: 'v31',
+  VERSION: 'v32',
   // 'palma' = palma aberta anda para onde olha (mais simples) · 'correr' = balançar as mãos / correr parado · 'teleporte'
   LOCOMOTION: 'palma',
 
@@ -303,10 +303,11 @@ const CONFIG = {
   RUN: {
     WALK_SPEED: 2.0,        // m/s no modo 'palma' (andar rápido)
     MAX_SPEED: 3.2,         // m/s no modo 'correr' com balanço máximo
-    ACCEL: 6,               // m/s² para ganhar velocidade
-    DECEL: 8,               // m/s² para parar
+    ACCEL: 4,               // m/s² para ganhar velocidade (v32: mais suave)
+    DECEL: 6,               // m/s² para parar
+    TURN_SMOOTH: 7,         // v32: suavização da direção de andar (1/s; menor = curva mais suave)
     ENERGY_SMOOTH: 6,       // suavização da intensidade (1/s)
-    BOB: 0.045,             // balanço do passo (m)
+    BOB: 0.02,              // balanço do passo (m) · v32: menor (menos enjoo, mais fluido)
     USE_HANDS: true,        // balançar as mãos na frente da câmera
     USE_JOG: true,          // correr parado (sensor de movimento do celular)
     SWING_WINDOW_MS: 900,   // janela para medir o balanço
@@ -346,13 +347,15 @@ const CONFIG = {
     VIDEO_W: 640,
     VIDEO_H: 480,
     USE_WORKER: true,           // detecção numa thread separada (muito mais FPS)
-    WORKER_MAX_SIDE: 480,       // reduz a imagem enviada ao worker (px do lado maior)
-    WORKER_MIN_SIDE: 480,       // (igual ao máximo: diminuir a imagem piorava a detecção das mãos)
+    WORKER_MAX_SIDE: 544,       // imagem enviada ao detector (px do lado maior) · v32: maior = acha a mão mais longe
+    WORKER_MIN_SIDE: 544,       // (igual ao máximo: diminuir a imagem piorava a detecção das mãos)
+    PREDICT_S: 0.045,           // v32: adianta a mão esse tempo (s) pela velocidade dela: tira o atraso da câmera
+    PREDICT_MAX: 0.06,          // ...no máximo isso (m)
     MAX_DETECT_HZ: 30,          // detecções por segundo, no máximo
     DETECT_EVERY_N_FRAMES: 1,   // (modo normal) 2 = detecta em quadros alternados
-    MIN_DETECTION_CONF: 0.4,    // mais baixo = acha a mão mais fácil (com pouca luz também)
-    MIN_PRESENCE_CONF: 0.4,
-    MIN_TRACKING_CONF: 0.4,
+    MIN_DETECTION_CONF: 0.35,   // mais baixo = acha a mão mais fácil (com pouca luz também) · v32: 0,35
+    MIN_PRESENCE_CONF: 0.35,
+    MIN_TRACKING_CONF: 0.3,
     // MediaPipe supõe imagem espelhada (selfie). Na câmera traseira o rótulo
     // vem invertido, então por padrão invertemos. A calibração confirma.
     FLIP_HANDEDNESS: true,
@@ -365,10 +368,10 @@ const CONFIG = {
     CAM_FOV_LONG: 64,           // ângulo de visão da câmera traseira no lado maior da imagem (graus)
     REAL_NEAR: 0.2,             // (real) distância mínima/máxima da mão (m)
     REAL_FAR: 0.75,
-    TRACK_MEMORY_MS: 600,       // memória de posição p/ não trocar esquerda/direita
+    TRACK_MEMORY_MS: 1100,      // memória de posição p/ não trocar esquerda/direita · v32: mais longa
     LABEL_WEIGHT: 1.0,          // peso do rótulo do MediaPipe na atribuição
-    SIDE_WEIGHT: 0.8,           // v22: peso do lado da imagem (esquerda/direita) na atribuição
-    SIDE_AVG: 0.12,             // v22: média do rótulo por detecção (~1 s)
+    SIDE_WEIGHT: 1.1,           // v22: peso do lado da imagem (esquerda/direita) na atribuição · v32: mais peso
+    SIDE_AVG: 0.08,             // v22: média do rótulo por detecção (~1,5 s) · v32: mais estável
     SWAP_BELOW: 0.25,           // v22: se a média do rótulo cair abaixo disso, a mão troca de lado
     POS_WEIGHT: 4.0,            // peso da continuidade de posição
     // Profundidade virtual (distância da mão à câmera no mundo 3D, em m)
@@ -500,6 +503,8 @@ const CONFIG = {
     AREA: [31, 122, -101, -22], // só nascem dentro do muro da escola [xmin, xmax, zmin, zmax]
     GROAN_DIST: 9,
     ANIM_FAR: 25,
+    INSTANCED: true,        // v32: zumbis desenhados juntos (muito mais FPS)
+    EYE_GLOW: 0.32,         // v32: tamanho do brilho vermelho em volta dos olhos (m)
     // v31: modelo 3D de zumbi (se o arquivo existir; senão, o boneco feito por código)
     MODEL_URLS: ['models/zumbi.glb', '../models/zumbi.glb'],
     MODEL_HEIGHT: 1.75,     // altura do zumbi no jogo (m): o modelo é ajustado para isso
@@ -645,11 +650,20 @@ const CONFIG = {
     DIST_MIN: 3,            // distância mínima entre lugares (m)
     LONGE_DO_INICIO: 8,     // nenhum ponto a menos disso do início (m)
     DETAIL_DIST: 28,        // detalhes (carros, pessoas, plantas, móveis) somem além disso (m)
+    FLOOR_Y: 0,             // v32: altura do piso térreo (para a sombra no pé das paredes)
     FOG_NEAR: 18,
     FOG_FAR: 55,
     FOG_COLOR: 0xc4baa8,    // v24: neblina poeirenta (combina com o céu do apocalipse)
     VIEW_FAR: 230,          // v24: até onde a câmera enxerga (prédios e céu no horizonte)
     CHUNK_CULL: true,       // v24: blocos da escola além da neblina não são desenhados
+  },
+
+  // ---- Visual (v32) ----
+  VISUAL: {
+    DETAIL: 0.22,           // força da textura de detalhe (sujeira/manchas) nas paredes e no chão (0 = desliga)
+    FOOT_SHADOW: 0.35,      // sombra suave no pé das paredes (0 = desliga)
+    DUST: 140,              // pontinhos de poeira flutuando na luz perto de você (0 = desliga)
+    SUN_GLOW: true,         // brilho suave do sol no céu
   },
 
   // ---- Cenário em volta da escola (v24) ----
@@ -2019,6 +2033,36 @@ function buildCenario(scene, box, y0 = 0) {
   sky.frustumCulled = false;
   group.add(sky);
 
+  // v32: brilho suave do sol no céu (uma mancha de luz grande, aditiva)
+  let sunGlow = null;
+  const sunDir = new THREE.Vector3(6, 12, 4).normalize().setY(0.28).normalize();
+  if (CONFIG.VISUAL.SUN_GLOW) {
+    const { c: sc, g: sg } = canvas(128, 128);
+    const gr = sg.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,236,200,0.9)'); gr.addColorStop(0.18, 'rgba(255,214,160,0.45)'); gr.addColorStop(1, 'rgba(255,200,140,0)');
+    sg.fillStyle = gr; sg.fillRect(0, 0, 128, 128);
+    sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(sc, false), transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+    sunGlow.scale.set(90, 90, 1);
+    sunGlow.renderOrder = -1;
+    group.add(sunGlow);
+  }
+  // v32: poeira flutuando na luz, numa caixa em volta de quem olha
+  let dust = null;
+  const DN = CONFIG.VISUAL.DUST;
+  if (DN > 0) {
+    const pos = new Float32Array(DN * 3);
+    for (let i = 0; i < DN; i++) { pos[i * 3] = (r() - 0.5) * 10; pos[i * 3 + 1] = r() * 3.2; pos[i * 3 + 2] = (r() - 0.5) * 10; }
+    const dg = new THREE.BufferGeometry(); dg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const { c: dc, g: dgc } = canvas(32, 32);
+    const g2 = dgc.createRadialGradient(16, 16, 0, 16, 16, 16);
+    g2.addColorStop(0, 'rgba(255,240,215,1)'); g2.addColorStop(1, 'rgba(255,240,215,0)');
+    dgc.fillStyle = g2; dgc.fillRect(0, 0, 32, 32);
+    dust = new THREE.Points(dg, new THREE.PointsMaterial({ map: tex(dc, false), size: 0.035, sizeAttenuation: true, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, fog: true }));
+    dust.frustumCulled = false;
+    dust.userData.base = pos.slice();
+    group.add(dust);
+  }
+
   scene.add(group);
 
   let t0 = 0;
@@ -2028,6 +2072,17 @@ function buildCenario(scene, box, y0 = 0) {
     update(dt, p) {
       sky.position.copy(p);
       t0 += dt;
+      if (sunGlow) sunGlow.position.copy(p).addScaledVector(sunDir, S.SKY_R * 0.9);
+      if (dust) {
+        // a poeira fica em volta de quem olha e flutua devagar (dá a volta na caixa)
+        const a = dust.geometry.attributes.position, b = dust.userData.base;
+        for (let i = 0; i < a.count; i++) {
+          const bx = b[i * 3] + Math.sin(t0 * 0.21 + i) * 0.4, by = b[i * 3 + 1] + Math.sin(t0 * 0.13 + i * 1.7) * 0.25, bz = b[i * 3 + 2] + Math.cos(t0 * 0.17 + i) * 0.4;
+          const wx = ((bx - p.x) % 10 + 15) % 10 - 5, wz = ((bz - p.z) % 10 + 15) % 10 - 5;
+          a.setXYZ(i, p.x + wx, p.y - 1.6 + by, p.z + wz);
+        }
+        a.needsUpdate = true;
+      }
       for (let i = 0; i < fireSprites.length; i++) {
         const k = 0.85 + Math.sin(t0 * 13 + i * 2.1) * 0.1 + Math.sin(t0 * 7.3 + i) * 0.08;
         fireSprites[i].scale.set(1.1 * k, 1.6 * k, 1);
@@ -2160,7 +2215,66 @@ const TARGET_DEFS = [
 
 // Materiais mais baratos para o celular: Lambert (sem reflexo PBR) e folhas
 // com recorte (alphaTest) em vez de transparência (que é cara e precisa ordenar).
-function simplifyMaterials(root, aniso = 1) {
+// v32: textura de DETALHE para a escola toda (sujeira, manchas, desgaste),
+// feita por código. É aplicada pela posição no mundo (não depende das UVs do
+// modelo), em duas escalas, e escurece o pé das paredes (sombra suave onde a
+// parede encontra o chão). Custo: 2 leituras de textura por pixel.
+let DETAIL = null;
+function detailTex() {
+  if (DETAIL) return DETAIL;
+  const N = 256, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, N, N);
+  let s = 99; const r = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  // manchas grandes e suaves (repetem nas bordas: sem emenda)
+  for (let i = 0; i < 70; i++) {
+    const x = r() * N, y = r() * N, rad = 10 + r() * 46, v = r() < 0.5 ? 70 + r() * 40 : 160 + r() * 50;
+    for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) {
+      const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rad);
+      gr.addColorStop(0, `rgba(${v},${v},${v},0.35)`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`);
+      g.fillStyle = gr; g.fillRect(x + ox - rad, y + oy - rad, rad * 2, rad * 2);
+    }
+  }
+  // granulado fino
+  const img = g.getImageData(0, 0, N, N), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const n = (r() - 0.5) * 34; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  g.putImageData(img, 0, 0);
+  // riscos e rachaduras
+  g.strokeStyle = 'rgba(60,60,60,0.35)'; g.lineWidth = 1;
+  for (let i = 0; i < 18; i++) { let x = r() * N, y = r() * N; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (r() - 0.5) * 24; y += (r() - 0.5) * 24; g.lineTo(x, y); } g.stroke(); }
+  DETAIL = new THREE.CanvasTexture(c);
+  DETAIL.wrapS = DETAIL.wrapT = THREE.RepeatWrapping;
+  DETAIL.anisotropy = 4;
+  return DETAIL;
+}
+
+function addDetail(m, floorY) {
+  const V = CONFIG.VISUAL;
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.detailMap = { value: detailTex() };
+    sh.uniforms.floorY = { value: floorY };
+    sh.uniforms.detailK = { value: V.DETAIL };
+    sh.uniforms.footK = { value: V.FOOT_SHADOW };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vWPos; varying vec3 vWNor;`)
+      .replace('#include <project_vertex>', `#include <project_vertex>
+vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vWNor = normalize(mat3(modelMatrix) * objectNormal);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vWPos; varying vec3 vWNor; uniform sampler2D detailMap; uniform float floorY, detailK, footK;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        vec3 dzAn = abs(vWNor);
+        vec2 dzUv = dzAn.y > 0.6 ? vWPos.xz : (dzAn.x > dzAn.z ? vWPos.zy : vWPos.xy);
+        float dzD = texture2D(detailMap, dzUv * 0.27).r * 0.6 + texture2D(detailMap, dzUv * 1.9).r * 0.4;
+        float dzDet = 1.0 + (dzD - 0.5) * 2.0 * detailK;
+        float dzFoot = dzAn.y < 0.6 ? mix(1.0 - footK, 1.0, smoothstep(0.0, 1.0, vWPos.y - floorY)) : 1.0;
+        diffuseColor.rgb *= dzDet * dzFoot;`);
+  };
+  m.customProgramCacheKey = () => 'detalhe-v32';
+}
+
+function simplifyMaterials(root, aniso = 1, floorY = 0) {
   const cache = new Map();
   root.traverse((o) => {
     if (!o.isMesh) return;
@@ -2177,6 +2291,7 @@ function simplifyMaterials(root, aniso = 1) {
     });
     // textura do chão/parede mais nítida quando vista de lado (barato)
     if (m.map) { m.map.anisotropy = aniso; m.map.needsUpdate = true; }
+    if (CONFIG.VISUAL.DETAIL > 0 && !leaf) addDetail(m, floorY);
     m.name = old.name;
     cache.set(old, m);
     old.dispose();
@@ -2189,7 +2304,7 @@ function simplifyMaterials(root, aniso = 1) {
 async function loadSchool(world, scene, onStatus = () => {}, aniso = 1) {
   const model = await loadSchoolModel((f) => onStatus('Baixando a escola', f * 0.7));
   onStatus('Montando a escola', 0.7);
-  simplifyMaterials(model, aniso);
+  simplifyMaterials(model, aniso, CONFIG.MAP.FLOOR_Y);
   world.details = collectDetails(model);
   model.name = 'escola';
   scene.add(model);
@@ -2740,6 +2855,145 @@ function playOnce(m, name) {
   return true;
 }
 
+// ===== js/zinst.js =====
+// Zumbis desenhados juntos (v32): cada zumbi feito por código tem 9 pedaços
+// (pernas, tronco, cabeça, braços, olhos, boca, mancha). Desenhar um por um
+// eram ~9 desenhos por zumbi (36 zumbis ≈ 320 por quadro: o que mais pesava).
+// Aqui cada TIPO de pedaço vira um desenho só para todos os zumbis
+// (InstancedMesh): ~10 desenhos no total. Os zumbis continuam com o mesmo
+// esqueleto de grupos (animação, queda, tiro): só o desenho muda.
+// Junto: brilho vermelho em volta dos olhos e sombra suave embaixo de cada zumbi.
+
+function glowTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function shadowTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(0,0,0,0.75)'); gr.addColorStop(0.6, 'rgba(0,0,0,0.35)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
+class ZombieInstancer {
+  constructor(scene) {
+    this.scene = scene;
+    this.groups = new Map(); // tipo de pedaço -> { im, n, cap }
+    this._c = new THREE.Color(); this._m = new THREE.Matrix4(); this._v = new THREE.Vector3();
+    this._q = new THREE.Quaternion(); this._s = new THREE.Vector3();
+    // sombras (um desenho)
+    this.shadowCap = 0; this.shadow = null;
+    this.shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+    this.shadowGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    // brilho dos olhos (um desenho)
+    this.glowMax = 256;
+    this.glowPos = new Float32Array(this.glowMax * 3);
+    const gg = new THREE.BufferGeometry();
+    gg.setAttribute('position', new THREE.BufferAttribute(this.glowPos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.glow = new THREE.Points(gg, new THREE.PointsMaterial({ map: glowTex(), color: 0xff2a14, size: CONFIG.ZOMBIES.EYE_GLOW, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.glow.frustumCulled = false;
+    scene.add(this.glow);
+  }
+
+  // passa a desenhar este zumbi pelos grupos (os pedaços dele ficam escondidos)
+  register(z) {
+    const parts = [];
+    z.m.root.traverse((o) => { if (o.isMesh) { parts.push(o); o.visible = false; } });
+    z._parts = parts;
+  }
+
+  _group(mesh) {
+    const basic = !!mesh.material.isMeshBasicMaterial;
+    const key = mesh.geometry.uuid + (basic ? 'b' : 'l');
+    let g = this.groups.get(key);
+    if (!g) {
+      g = { geo: mesh.geometry, basic, n: 0, cap: 0, im: null };
+      this.groups.set(key, g);
+    }
+    return g;
+  }
+
+  _ensure(g, n) {
+    if (g.cap >= n) return;
+    const cap = Math.max(32, 1 << Math.ceil(Math.log2(n)));
+    if (g.im) { this.scene.remove(g.im); g.im.dispose(); }
+    const mat = g.basic ? new THREE.MeshBasicMaterial({ color: 0xffffff }) : new THREE.MeshLambertMaterial({ color: 0xffffff });
+    g.im = new THREE.InstancedMesh(g.geo, mat, cap);
+    g.im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    g.im.setColorAt(0, this._c.set(0xffffff));
+    g.im.frustumCulled = false;
+    g.im.count = 0;
+    this.scene.add(g.im);
+    g.cap = cap;
+  }
+
+  // chamar todo quadro: copia a posição de cada pedaço para o desenho junto
+  sync(list) {
+    for (const g of this.groups.values()) g.n = 0;
+    let ns = 0, ng = 0;
+    const visible = list.filter((z) => z.m.root.visible);
+    // sombras de todos (feitos por código ou modelo 3D)
+    if (visible.length > this.shadowCap) {
+      if (this.shadow) { this.scene.remove(this.shadow); this.shadow.dispose(); }
+      this.shadowCap = Math.max(32, 1 << Math.ceil(Math.log2(visible.length)));
+      this.shadow = new THREE.InstancedMesh(this.shadowGeo, this.shadowMat, this.shadowCap);
+      this.shadow.frustumCulled = false;
+      this.scene.add(this.shadow);
+    }
+    // conta antes quantos pedaços de cada tipo (para não recriar no meio do quadro)
+    const need = new Map();
+    for (const z of visible) if (z._parts) for (const mesh of z._parts) {
+      const g = mesh.userData._g || (mesh.userData._g = this._group(mesh));
+      need.set(g, (need.get(g) || 0) + 1);
+    }
+    for (const [g, n] of need) this._ensure(g, n);
+    for (const z of visible) {
+      const r = z.m.root;
+      r.updateMatrixWorld(true);
+      // sombra no chão (some quando o corpo afunda)
+      if (this.shadow && !(z.dead && z.deadT > CONFIG.ZOMBIES.CORPSE_S)) {
+        const k = z.m.scale * (z.dead ? 1.35 : 0.95);
+        this._m.compose(this._v.set(r.position.x, r.position.y + 0.02, r.position.z), this._q.identity(), this._s.set(k, 1, k));
+        this.shadow.setMatrixAt(ns++, this._m);
+      }
+      if (!z._parts) continue;
+      for (const mesh of z._parts) {
+        const g = mesh.userData._g;
+        g.im.setMatrixAt(g.n, mesh.matrixWorld);
+        const mt = mesh.material;
+        this._c.copy(mt.color);
+        if (mt.emissive) this._c.add(mt.emissive); // pisca quando leva tiro
+        g.im.setColorAt(g.n, this._c);
+        g.n++;
+        if (mesh.userData.eye && !z.dead && ng < this.glowMax) {
+          mesh.getWorldPosition(this._v);
+          this.glowPos.set([this._v.x, this._v.y, this._v.z], ng * 3); ng++;
+        }
+      }
+    }
+    for (const g of this.groups.values()) {
+      if (!g.im) continue;
+      g.im.count = g.n;
+      g.im.instanceMatrix.needsUpdate = true;
+      if (g.im.instanceColor) g.im.instanceColor.needsUpdate = true;
+    }
+    if (this.shadow) { this.shadow.count = ns; this.shadow.instanceMatrix.needsUpdate = true; }
+    this.glow.geometry.setDrawRange(0, ng);
+    this.glow.geometry.attributes.position.needsUpdate = true;
+    this.glow.visible = ng > 0;
+  }
+
+  // quantos desenhos os zumbis custam agora (para o painel 🐞)
+  get draws() { let n = 0; for (const g of this.groups.values()) if (g.im && g.im.count) n++; return n + (this.shadow && this.shadow.count ? 1 : 0) + (this.glow.visible ? 1 : 0); }
+}
+
 // ===== js/zombies.js =====
 // Zumbis: bonecos feitos no código (sem arquivos), espalhados pela escola.
 //  - parados balançando até verem/ouvirem o jogador (ou ouvirem um tiro);
@@ -2761,6 +3015,7 @@ const GEO = {
   arm: box(0.13, 0.62, 0.13, -0.31),
   eye: box(0.06, 0.035, 0.02),
   mouth: box(0.12, 0.04, 0.02),
+  stain: box(0.16, 0.14, 0.02),
 };
 const EYE = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
 const DARK = new THREE.MeshBasicMaterial({ color: 0x1a0d0d });
@@ -2783,9 +3038,10 @@ function makeZombie() {
   const head = new THREE.Mesh(GEO.head, skin); neck.add(head);
   const eL = new THREE.Mesh(GEO.eye, EYE); eL.position.set(-0.065, 0.19, 0.14);
   const eR = new THREE.Mesh(GEO.eye, EYE); eR.position.set(0.065, 0.19, 0.14);
+  eL.userData.eye = eR.userData.eye = true; // (brilho dos olhos)
   const mouth = new THREE.Mesh(GEO.mouth, DARK); mouth.position.set(0, 0.07, 0.14);
   head.add(eL, eR, mouth);
-  const stain = new THREE.Mesh(box(0.16, 0.14, 0.02), BLOOD); stain.position.set(0.1, 0.35, 0.145); torso.add(stain);
+  const stain = new THREE.Mesh(GEO.stain, BLOOD); stain.position.set(0.1, 0.35, 0.145); torso.add(stain);
   const armL = new THREE.Group(); armL.position.set(-0.32, 0.55, 0); torso.add(armL);
   const armR = new THREE.Group(); armR.position.set(0.32, 0.55, 0); torso.add(armR);
   armL.add(new THREE.Mesh(GEO.arm, skin)); armR.add(new THREE.Mesh(GEO.arm, skin));
@@ -2800,6 +3056,8 @@ class Horde {
     this.world = world;
     this.hooks = hooks;
     this.factory = null; // v31: se tiver o modelo 3D (models/zumbi.glb), cria a partir dele
+    // v32: zumbis desenhados juntos (muito mais FPS), brilho dos olhos e sombra
+    this.inst = Z.INSTANCED ? new ZombieInstancer(scene) : null;
     this.list = [];
     this.planned = 0;
     this.pending = 0;
@@ -2825,6 +3083,7 @@ class Horde {
       for (const m of z.m.mats) m.dispose();
     }
     this.list = [];
+    if (this.inst) this.inst.sync([]);
     this.flow = null;
     this._flowAt = null;
     this.planned = 0;
@@ -2851,6 +3110,7 @@ class Horde {
       extra: !!opts.extra, runner: !!opts.runner, born: 0,
     };
     this.list.push(zb);
+    if (this.inst && !m.gltf) this.inst.register(zb);
     return zb;
   }
 
@@ -3320,6 +3580,7 @@ class Horde {
       this.hooks.onGroan && this.hooks.onGroan(nearest);
     }
     this.nearest = nearest;
+    if (this.inst) this.inst.sync(this.list);
   }
 
   // v31: zumbi do modelo 3D: escolhe a animação pelo que ele está fazendo
@@ -4477,6 +4738,17 @@ class HandTracker {
       const tanH = tanV * camera.aspect;
       ax = this._p.x * d * tanH; ay = this._p.y * d * tanV; az = -d;
     }
+    // v32: previsão: adianta a mão pela velocidade dela (a câmera chega atrasada)
+    let px = 0, py = 0, pz = 0;
+    if (hand._pa && nowMs - hand._pt > 15 && nowMs - hand._pt < 250) {
+      const k = H.PREDICT_S / ((nowMs - hand._pt) / 1000);
+      px = (ax - hand._pa.x) * k; py = (ay - hand._pa.y) * k; pz = (az - hand._pa.z) * k * 0.5; // profundidade treme mais: menos
+      const L = Math.hypot(px, py, pz);
+      if (L > H.PREDICT_MAX) { const f = H.PREDICT_MAX / L; px *= f; py *= f; pz *= f; }
+    }
+    hand._pa = hand._pa || new THREE.Vector3();
+    hand._pa.set(ax, ay, az); hand._pt = nowMs;
+    ax += px; ay += py; az += pz;
     // 2) forma da mão (dedos) relativa ao centro, com filtro mais leve
     const s = H.HAND_SCALE;
     for (let i = 0; i < 21; i++) {
@@ -5205,6 +5477,10 @@ class Runner {
       this._fwd.y = 0;
       if (this._fwd.lengthSq() < 1e-6) return;
       this._fwd.normalize();
+      // v32: a direção muda suave (a cabeça treme um pouco: o andar não treme junto)
+      if (!this._sf || this.speed < 0.05) this._sf = this._fwd.clone();
+      else this._sf.lerp(this._fwd, 1 - Math.exp(-dt * R.TURN_SMOOTH)).normalize();
+      this._fwd.copy(this._sf);
       const step = this.speed * dt;
       const pos = this.rig.position;
       const r = CONFIG.TELEPORT.PLAYER_RADIUS;
@@ -6569,7 +6845,7 @@ class DebugUI {
     };
     const p = a.rig.position;
     this.stats.innerHTML =
-      `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate} · imagem: ${h.frameSource || "—"}</div>` +
+      `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate} · imagem: ${h.frameSource || "—"} · desenhos: ${this.app.renderer.info.render.calls}</div>` +
       `<div>Sensor: ${o.source} ${o.hasData ? '✔' : '✖'} (${o.eventCount}) · estado: ${a.state}</div>` +
       hand(h.left) + hand(h.right) +
       (a.locoMode !== 'teleporte' ? `<div>Andar (${a.locoMode}): ${a.runner.speed.toFixed(1)} m/s · mãos ${(a.runner.handEnergy * 100).toFixed(0)}% · corrida parada ${(a.runner.jogEnergy * 100).toFixed(0)}% · ${a.runner.source}</div>` : '') +
@@ -6907,7 +7183,8 @@ class DemoHand {
 // botões do mapeamento "standard"
 const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, L3: 10, R3: 11 };
 
-const dz = (v, d) => (Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d));
+// folga do meio + curva: perto do meio anda devagar e preciso, no fim corre (v32)
+const dz = (v, d) => { if (Math.abs(v) < d) return 0; const k = (Math.abs(v) - d) / (1 - d); return Math.sign(v) * Math.pow(k, 1.5); };
 
 class Pad {
   constructor() {

@@ -350,6 +350,36 @@ export function buildCenario(scene, box, y0 = 0) {
   sky.frustumCulled = false;
   group.add(sky);
 
+  // v32: brilho suave do sol no céu (uma mancha de luz grande, aditiva)
+  let sunGlow = null;
+  const sunDir = new THREE.Vector3(6, 12, 4).normalize().setY(0.28).normalize();
+  if (CONFIG.VISUAL.SUN_GLOW) {
+    const { c: sc, g: sg } = canvas(128, 128);
+    const gr = sg.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,236,200,0.9)'); gr.addColorStop(0.18, 'rgba(255,214,160,0.45)'); gr.addColorStop(1, 'rgba(255,200,140,0)');
+    sg.fillStyle = gr; sg.fillRect(0, 0, 128, 128);
+    sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(sc, false), transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+    sunGlow.scale.set(90, 90, 1);
+    sunGlow.renderOrder = -1;
+    group.add(sunGlow);
+  }
+  // v32: poeira flutuando na luz, numa caixa em volta de quem olha
+  let dust = null;
+  const DN = CONFIG.VISUAL.DUST;
+  if (DN > 0) {
+    const pos = new Float32Array(DN * 3);
+    for (let i = 0; i < DN; i++) { pos[i * 3] = (r() - 0.5) * 10; pos[i * 3 + 1] = r() * 3.2; pos[i * 3 + 2] = (r() - 0.5) * 10; }
+    const dg = new THREE.BufferGeometry(); dg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const { c: dc, g: dgc } = canvas(32, 32);
+    const g2 = dgc.createRadialGradient(16, 16, 0, 16, 16, 16);
+    g2.addColorStop(0, 'rgba(255,240,215,1)'); g2.addColorStop(1, 'rgba(255,240,215,0)');
+    dgc.fillStyle = g2; dgc.fillRect(0, 0, 32, 32);
+    dust = new THREE.Points(dg, new THREE.PointsMaterial({ map: tex(dc, false), size: 0.035, sizeAttenuation: true, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, fog: true }));
+    dust.frustumCulled = false;
+    dust.userData.base = pos.slice();
+    group.add(dust);
+  }
+
   scene.add(group);
 
   let t0 = 0;
@@ -359,6 +389,17 @@ export function buildCenario(scene, box, y0 = 0) {
     update(dt, p) {
       sky.position.copy(p);
       t0 += dt;
+      if (sunGlow) sunGlow.position.copy(p).addScaledVector(sunDir, S.SKY_R * 0.9);
+      if (dust) {
+        // a poeira fica em volta de quem olha e flutua devagar (dá a volta na caixa)
+        const a = dust.geometry.attributes.position, b = dust.userData.base;
+        for (let i = 0; i < a.count; i++) {
+          const bx = b[i * 3] + Math.sin(t0 * 0.21 + i) * 0.4, by = b[i * 3 + 1] + Math.sin(t0 * 0.13 + i * 1.7) * 0.25, bz = b[i * 3 + 2] + Math.cos(t0 * 0.17 + i) * 0.4;
+          const wx = ((bx - p.x) % 10 + 15) % 10 - 5, wz = ((bz - p.z) % 10 + 15) % 10 - 5;
+          a.setXYZ(i, p.x + wx, p.y - 1.6 + by, p.z + wz);
+        }
+        a.needsUpdate = true;
+      }
       for (let i = 0; i < fireSprites.length; i++) {
         const k = 0.85 + Math.sin(t0 * 13 + i * 2.1) * 0.1 + Math.sin(t0 * 7.3 + i) * 0.08;
         fireSprites[i].scale.set(1.1 * k, 1.6 * k, 1);

@@ -129,7 +129,7 @@ export class DebugUI {
     };
     const p = a.rig.position;
     this.stats.innerHTML =
-      `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate} · imagem: ${h.frameSource || "—"}</div>` +
+      `<div><b>${this.fps.toFixed(0)} FPS</b> (${this.frameMs.toFixed(1)} ms) · mãos ${h.detectFps.toFixed(0)}/s, ${h.detectMs.toFixed(1)} ms ${h.delegate} · imagem: ${h.frameSource || "—"} · desenhos: ${this.app.renderer.info.render.calls}</div>` +
       `<div>Sensor: ${o.source} ${o.hasData ? '✔' : '✖'} (${o.eventCount}) · estado: ${a.state}</div>` +
       hand(h.left) + hand(h.right) +
       (a.locoMode !== 'teleporte' ? `<div>Andar (${a.locoMode}): ${a.runner.speed.toFixed(1)} m/s · mãos ${(a.runner.handEnergy * 100).toFixed(0)}% · corrida parada ${(a.runner.jogEnergy * 100).toFixed(0)}% · ${a.runner.source}</div>` : '') +

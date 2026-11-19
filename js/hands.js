@@ -458,6 +458,17 @@ export class HandTracker {
       const tanH = tanV * camera.aspect;
       ax = this._p.x * d * tanH; ay = this._p.y * d * tanV; az = -d;
     }
+    // v32: previsão: adianta a mão pela velocidade dela (a câmera chega atrasada)
+    let px = 0, py = 0, pz = 0;
+    if (hand._pa && nowMs - hand._pt > 15 && nowMs - hand._pt < 250) {
+      const k = H.PREDICT_S / ((nowMs - hand._pt) / 1000);
+      px = (ax - hand._pa.x) * k; py = (ay - hand._pa.y) * k; pz = (az - hand._pa.z) * k * 0.5; // profundidade treme mais: menos
+      const L = Math.hypot(px, py, pz);
+      if (L > H.PREDICT_MAX) { const f = H.PREDICT_MAX / L; px *= f; py *= f; pz *= f; }
+    }
+    hand._pa = hand._pa || new THREE.Vector3();
+    hand._pa.set(ax, ay, az); hand._pt = nowMs;
+    ax += px; ay += py; az += pz;
     // 2) forma da mão (dedos) relativa ao centro, com filtro mais leve
     const s = H.HAND_SCALE;
     for (let i = 0; i < 21; i++) {
